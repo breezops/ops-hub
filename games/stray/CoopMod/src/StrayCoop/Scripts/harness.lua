@@ -23,6 +23,19 @@ local function resume()
     local p=pc()
     local settings=FindFirstOf("HKGameUserSettings")
     if valid(settings) then settings.AutoPauseEnabled=false end
+    -- Unsuspending the engine alone can leave the pause menu in the viewport.
+    -- Shared pause correctly treats that menu as an active player vote. Only
+    -- this nonce-guarded development resume may dismiss it automatically.
+    local hud=p:GetHUD()
+    local menus={}
+    if valid(hud) and hud:IsA("/Script/Hk_project.HKHUD") then
+        hud.m_widgets:ForEach(function(_,entry)
+            local widget=entry:get()
+            if valid(widget) and widget:IsA("/Script/Hk_project.PauseMenuWidget")
+                and widget:IsInViewport() then menus[#menus+1]=widget end
+        end)
+    end
+    for _,widget in ipairs(menus) do widget:RemoveFromParent() end
     local manager=FindFirstOf("GameStateManager")
     if valid(manager) and manager:IsSuspended() then manager:UnsuspendGame() end
     StaticFindObject("/Script/Engine.Default__GameplayStatics"):SetGamePaused(p,false)
@@ -44,6 +57,17 @@ local function snapshot()
     if StrayCoopPause then
         rows[#rows+1]="PAUSE_REQUEST\t"..tostring(StrayCoopPause.requested)
         rows[#rows+1]="PAUSE_REMOTE\t"..tostring(StrayCoopPause.remote)
+    end
+    local hud=p:GetHUD()
+    if valid(hud) and hud:IsA("/Script/Hk_project.HKHUD") then
+        hud.m_widgets:ForEach(function(_,entry)
+            local widget=entry:get()
+            if valid(widget) and widget:IsA("/Script/Hk_project.PauseMenuWidget") then
+                rows[#rows+1]="PAUSE_WIDGET\t"..clean(widget:GetFullName()).."\t"
+                    ..tostring(widget:IsInViewport()).."\t"..tostring(widget:IsVisible())
+                    .."\t"..tostring(widget:GetVisibility())
+            end
+        end)
     end
     if valid(cat) and cat:IsA("/Script/Hk_project.CatPawn") then
         local v=cat:K2_GetActorLocation()

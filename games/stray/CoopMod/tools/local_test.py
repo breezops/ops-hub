@@ -13,6 +13,7 @@ import sys
 import time
 import re
 from preferences import prepare_settings,remember_settings
+from bridge import VERSION as PROTOCOL
 
 def command(root, text):
     (root/'Hk_project/Binaries/Win64/Mods/StrayCoop/command.txt').write_text(text+'\n',encoding='ascii')
@@ -91,7 +92,7 @@ def main():
                 raise RuntimeError(f'Could not launch {label} game at {executable}: {exc}') from exc
             children.append(process)
             games.append(process)
-        manifest={'running':True,'protocol':5,'games':[x.pid for x in games],
+        manifest={'running':True,'protocol':PROTOCOL,'games':[x.pid for x in games],
                   'bridges':[children[0].pid,children[2].pid],'profile':args.profile,'harness':args.harness}
         (reports/'local-session.json').write_text(json.dumps(manifest,indent=2))
         print('Two-instance test running on loopback. Load the same chapter in both windows.',flush=True)

@@ -33,3 +33,13 @@ permission changes, binary replacement or protection changes were performed.
 The runner now names the failing executable and surfaces startup failure rather
 than masking it behind an isolated-launcher timeout. A trusted installation or
 security-provider review is needed before resuming native execution.
+
+Launch recovery: after the user changed Malwarebytes settings, the same native
+host and client executables both launched successfully on 2026-11-09. Both games
+loaded chapter 4 (The Slums) with the candidate interpolation source. The fixture
+encountered pause menus during setup; guarded harness resume now removes those
+menus before unsuspending. Added pause-widget diagnostics and corrected the
+local-session manifest to report the actual transport protocol. Both peers later
+reported local pause intent 0. All 52 tests pass. Visual movement/jump feedback
+is still pending; this remains unpublished. Recovery evidence in original
+workspace: CoopMod/reports/launch-recovery-20261109/result.json.
