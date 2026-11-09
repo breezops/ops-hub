@@ -163,6 +163,10 @@ def main():
                             '--duration',str(max(600,args.timeout+90))],cwd=ROOT,stdout=launcher_log,stderr=subprocess.STDOUT,
                             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform=='win32' else 0)
                     def owned():
+                        if runner.poll() is not None:
+                            log_path=case_dir/'launcher.log'
+                            detail=log_path.read_text(errors='replace')[-4000:] if log_path.exists() else ''
+                            raise ChildProcessError('Isolated launcher exited before startup. '+detail)
                         value=active_session()
                         return value if value['profile']==profile else None
                     session=wait_for(owned,20,'isolated launcher')

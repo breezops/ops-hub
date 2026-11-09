@@ -83,7 +83,12 @@ def main():
                 (bin/'Mods/StrayCoop/harness-session.txt').write_text(token+'\n',encoding='ascii')
                 extra=[f'-StrayCoopHarness={token}']
             display=['-windowed','-ResX=960','-ResY=540','-nosound'] if args.lab_layout else []
-            process=subprocess.Popen([str(bin/'Stray-Win64-Shipping.exe'),'-nosplash',f'-UserDir={data}',*display,*extra],cwd=bin)
+            executable=bin/'Stray-Win64-Shipping.exe'
+            print(f'Launching {label}: {executable}',flush=True)
+            try:
+                process=subprocess.Popen([str(executable),'-nosplash',f'-UserDir={data}',*display,*extra],cwd=bin)
+            except OSError as exc:
+                raise RuntimeError(f'Could not launch {label} game at {executable}: {exc}') from exc
             children.append(process)
             games.append(process)
         manifest={'running':True,'protocol':5,'games':[x.pid for x in games],

@@ -21,3 +21,15 @@ No visual improvement or two-PC result is claimed from the math tests.
 Next: restore native test launch access, test walking/running/turning and jumps
 in the isolated local pair, then repeat a short two-PC test. Publish only after
 that result and resolving the existing launcher update URL migration issue.
+
+Launch investigation: host starts, client CreateProcess fails with WinError 5,
+including when launched alone. Both executables have matching SHA-256
+117c2f28dede757ba32eafff482cdf02d23e15cebb4c57789292905228b2a139
+and normal read/execute ACLs. Malwarebytes ArwDetections contains successful
+quarantine records for these exact paths and hash, labeled
+Malware.Ransom.Agent.Generic (2026-11-09 01:57–01:59 UTC).
+This is not proof of a false positive. No security exclusions, restore actions,
+permission changes, binary replacement or protection changes were performed.
+The runner now names the failing executable and surfaces startup failure rather
+than masking it behind an isolated-launcher timeout. A trusted installation or
+security-provider review is needed before resuming native execution.
