@@ -20,10 +20,14 @@ export function initializeHub() {
     while (log.childElementCount > 35) log.firstElementChild?.remove();
     log.scrollTop = log.scrollHeight;
   };
+  let selectedCategory = "all";
+  const search = document.getElementById("project-search") as HTMLInputElement;
   const filter = (category: string) => {
+    selectedCategory = category;
+    const query = search.value.trim().toLowerCase();
     let count = 0;
     document.querySelectorAll<HTMLElement>(".mod-item").forEach(item => {
-      const visible = category === "all" || item.dataset.category === category;
+      const visible = (category === "all" || item.dataset.category === category) && (item.textContent || "").toLowerCase().includes(query);
       item.hidden = !visible;
       item.style.display = visible ? "flex" : "none";
       if (visible) count++;
@@ -35,13 +39,14 @@ export function initializeHub() {
       tab.classList.toggle("text-slate-400", !selected);
       tab.setAttribute("aria-pressed", String(selected));
     });
+    document.getElementById("catalog-empty")!.hidden = count !== 0;
     document.getElementById("catalog-status")!.textContent = `${count} project${count === 1 ? "" : "s"} shown`;
   };
   const onClose = () => {
     document.body.style.overflow = "";
     returnFocus?.focus();
     timers.forEach(clearTimeout); timers.clear();
-    downloadText.textContent = "Download for Windows (.zip)";
+    downloadText.textContent = "Download Stray launcher (.zip)";
   };
   const onClick = (event: MouseEvent) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -49,8 +54,8 @@ export function initializeHub() {
     if (!control) return;
     if (control.dataset.filter) { filter(control.dataset.filter); return; }
     if (control.id === "hero-download-btn") {
-      downloadText.textContent = "Download requested · check your browser";
-      later(() => { downloadText.textContent = "Download for Windows (.zip)"; }, 5000);
+      downloadText.textContent = "Download requested Â· check your browser";
+      later(() => { downloadText.textContent = "Download Stray launcher (.zip)"; }, 5000);
       return;
     }
     switch (control.dataset.action) {
@@ -64,8 +69,8 @@ export function initializeHub() {
         append("Example game folder: C:\\Games\\Stray. Use Browse in the desktop launcher to select your installation.");
         break;
       case "host":
-        append("Simulating session creation on UDP 7777…");
-        later(() => append("Example lobby: CAT2PAWS. Demo only — this is not a real join code."), 450);
+        append("Simulating session creation on UDP 7777â€¦");
+        later(() => append("Example lobby: CAT2PAWS. Demo only â€” this is not a real join code."), 450);
         break;
       case "join": {
         const code = join.value.replace(/[\s-]/g, "").toUpperCase();
@@ -76,7 +81,7 @@ export function initializeHub() {
           break;
         }
         join.removeAttribute("aria-invalid");
-        append(`Simulating connection to ${code}…`);
+        append(`Simulating connection to ${code}â€¦`);
         later(() => append("Demo connected. In the desktop app, Stray starts automatically after both players connect."), 500);
         break;
       }
@@ -100,6 +105,8 @@ export function initializeHub() {
     if (!frame) frame = requestAnimationFrame(() => { card.style.transform = pendingTransform; frame = 0; });
   };
   const onLeave = () => { cancelAnimationFrame(frame); frame = 0; card.style.transform = ""; };
+  const onSearch = () => filter(selectedCategory);
+  search.addEventListener("input", onSearch);
   filter("all");
   document.addEventListener("click", onClick);
   document.addEventListener("keydown", onKey);
@@ -108,6 +115,7 @@ export function initializeHub() {
   card.addEventListener("mousemove", onMove);
   card.addEventListener("mouseleave", onLeave);
   return () => {
+    search.removeEventListener("input", onSearch);
     document.removeEventListener("click", onClick);
     document.removeEventListener("keydown", onKey);
     modal.removeEventListener("click", onBackdrop);
