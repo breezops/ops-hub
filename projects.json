@@ -10,5 +10,11 @@
     "source": "games/hitman",
     "release_tag_prefix": "hitman-v",
     "status": "awaiting-source"
+  },
+  "planet-zoo-2": {
+    "name": "Planet Zoo 2 Co-op",
+    "source": "games/planet-zoo-2",
+    "release_tag_prefix": "planet-zoo-2-v",
+    "status": "in-development"
   }
 }

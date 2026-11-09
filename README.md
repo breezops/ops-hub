@@ -4,6 +4,7 @@ Shared source workspace for independent game mods and launchers.
 
 - `games/stray/CoopMod`: Stray Lua mod, Python launcher/transport and native UI sources.
 - `games/hitman`: reserved for the Hitman maintainer; no Stray files belong here.
+- `games/planet-zoo-2`: Planet Zoo 2 Co-op, in development; no release yet.
 - `website`: OPS HUB website and existing lobby service source.
 - `projects.json`: project directory and independent release-tag mapping.
 
