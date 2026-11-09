@@ -87,6 +87,34 @@ class InterpolationTests(unittest.TestCase):
         pose=self.lua.eval('I.display(record,{2000,0,0,0,0,0},1.032)')
         self.assertEqual(pose[1],2000)
 
+    def test_curved_motion_has_continuous_velocity_at_packet_boundary(self):
+        self.lua.execute('push(1,0);push(1.05,4);push(1.10,14);push(1.15,30);push(1.2,52)')
+        # Render time includes the configured .10-second buffer.
+        x=lambda t:self.lua.eval(f'I.sample(record,{t})')[0][1]
+        epsilon=0.00001
+        left=(x(1.20)-x(1.20-epsilon))/epsilon
+        right=(x(1.20+epsilon)-x(1.20))/epsilon
+        self.assertAlmostEqual(left,right,delta=.2)
+        self.assertGreater(left,0)
+
+    def test_uneven_packet_intervals_preserve_constant_speed(self):
+        self.lua.execute('push(1,0);push(1.03,3);push(1.11,11);push(1.17,17)')
+        for t in (1.14,1.16,1.18,1.20):
+            pose,_=self.lua.eval(f'I.sample(record,{t})')
+            self.assertAlmostEqual(pose[1],(t-1.1)*100,places=6)
+
+    def test_jump_apex_and_direction_changes_do_not_overshoot(self):
+        self.lua.execute('push(1,0,4,.1);push(1.05,10,4,.3);push(1.1,10,4,.5);push(1.15,0,4,.7)')
+        for i in range(101):
+            t=1.1+i*.0015
+            pose,animation=self.lua.eval(f'I.sample(record,{t})')
+            self.assertGreaterEqual(pose[1],0)
+            self.assertLessEqual(pose[1],10)
+            self.assertGreaterEqual(animation[4],.1)
+            self.assertLessEqual(animation[4],.7)
+        pose,_=self.lua.eval('I.sample(record,1.175)')
+        self.assertEqual(pose[1],10)
+
     def test_jump_is_phase_controlled_and_small_rate_changes_accumulate(self):
         self.lua.globals().A=self.lua.execute((SCRIPTS/'animation.lua').read_text())
         self.lua.execute('''

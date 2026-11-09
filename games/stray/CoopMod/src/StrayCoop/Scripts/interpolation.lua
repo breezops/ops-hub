@@ -3,6 +3,33 @@ local M = {delay=0.15, max_extrapolation=0.10}
 local function lerp(a,b,t) return a+(b-a)*t end
 local function angle(a,b,t) return a+((b-a+180)%360-180)*t end
 
+-- A monotone Hermite curve keeps velocity continuous across packet boundaries
+-- without overshooting ledges or a jump apex. Uneven sender intervals matter:
+-- arrival-time jitter must never become a velocity change in the curve.
+local function tangent(left,right,left_dt,right_dt)
+    if left*right<=0 then return 0 end
+    local w1,w2=2*right_dt+left_dt,right_dt+2*left_dt
+    return (w1+w2)/(w1/left+w2/right)
+end
+local function position(samples,ai,bi,axis,t)
+    local a,b=samples[ai],samples[bi]
+    local dt=b.t-a.t
+    local x,y=a.pose[axis],b.pose[axis]
+    local slope=(y-x)/dt
+    local m1,m2=slope,slope
+    local prior,following=samples[ai-1],samples[bi+1]
+    if prior and a.t>prior.t then
+        m1=tangent((x-prior.pose[axis])/(a.t-prior.t),slope,a.t-prior.t,dt)
+    end
+    if following and following.t>b.t then
+        m2=tangent(slope,(following.pose[axis]-y)/(following.t-b.t),dt,following.t-b.t)
+    end
+    local t2,t3=t*t,t*t*t
+    local value=(2*t3-3*t2+1)*x+(t3-2*t2+t)*dt*m1
+        +(-2*t3+3*t2)*y+(t3-t2)*dt*m2
+    return math.max(math.min(x,y),math.min(math.max(x,y),value))
+end
+
 function M.push(record, sample)
     local samples=record.samples or {}
     record.samples=samples
@@ -37,14 +64,18 @@ function M.sample(record, now)
     if not samples or #samples==0 then return nil end
     local target=now-(record.clock_offset or 0)-M.delay
     local a,b=samples[1],samples[1]
+    local ai,bi=1,1
     for i=2,#samples do
-        if target<samples[i].t then b=samples[i];break end
-        a=samples[i];b=a
+        if target<samples[i].t then b=samples[i];bi=i;break end
+        a=samples[i];b=a;ai=i;bi=i
     end
     local fraction=0
     if b.t>a.t then fraction=math.max(0,math.min(1,(target-a.t)/(b.t-a.t))) end
     local pose={}
-    for i=1,6 do pose[i]=(i<=3 and lerp or angle)(a.pose[i],b.pose[i],fraction) end
+    for i=1,6 do
+        if i<=3 and b.t>a.t then pose[i]=position(samples,ai,bi,i,fraction)
+        else pose[i]=(i<=3 and lerp or angle)(a.pose[i],b.pose[i],fraction) end
+    end
     local anim={table.unpack(a.animation)}
     if a.animation[1]==b.animation[1] and a.animation[2]==b.animation[2] then
         anim[3]=lerp(a.animation[3],b.animation[3],fraction)
