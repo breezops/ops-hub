@@ -1,0 +1,14 @@
+{
+  "stray": {
+    "name": "Stray Co-op",
+    "source": "games/stray",
+    "release_tag_prefix": "stray-v",
+    "status": "experimental"
+  },
+  "hitman": {
+    "name": "Hitman Co-op",
+    "source": "games/hitman",
+    "release_tag_prefix": "hitman-v",
+    "status": "awaiting-source"
+  }
+}

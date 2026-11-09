@@ -1,0 +1,78 @@
+@import "tailwindcss";
+@font-face{font-family:Jakarta;src:url('/fonts/jakarta.ttf') format('truetype');font-weight:200 800;font-display:swap}
+@font-face{font-family:JetBrains;src:url('/fonts/mono.ttf') format('truetype');font-weight:100 800;font-display:swap}
+@font-face{font-family:Chakra;src:url('/fonts/chakra.ttf') format('truetype');font-weight:600;font-display:swap}
+@theme {
+ --color-brand-orange:#ff6e26; --color-brand-orange-bright:#ff853f; --color-brand-cyan:#00f0ff; --color-brand-dark:#080a0f; --color-brand-card:rgba(13,17,24,.72);
+ --font-sans:Jakarta,Arial,sans-serif; --font-tech:Chakra,Arial,sans-serif; --font-mono:JetBrains,monospace;
+}
+html{scroll-behavior:smooth;scroll-padding-top:5rem;color-scheme:dark}body{margin:0;font-family:var(--font-sans)}button,a,input,summary{-webkit-tap-highlight-color:transparent}button:not(:disabled),summary{cursor:pointer}:focus-visible{outline:2px solid #00f0ff;outline-offset:5px}input{min-width:0}button:disabled{cursor:not-allowed}section,header{scroll-margin-top:4rem}
+
+    /* Custom Apple-inspired sleek touches */
+    body {
+      background-color: #06070a;
+      color: #f1f5f9;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background meshes */
+    .hero-glow {
+      background: radial-gradient(circle at 50% 18%, rgba(255, 110, 38, 0.18) 0%, rgba(0, 240, 255, 0.04) 40%, transparent 75%);
+    }
+
+    .bento-card {
+      background: linear-gradient(135deg, rgba(16, 21, 30, 0.65) 0%, rgba(9, 12, 17, 0.85) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(20px);
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .bento-card:hover {
+      border-color: rgba(255, 110, 38, 0.4);
+      transform: translateY(-3px);
+      box-shadow: 0 20px 40px -15px rgba(255, 110, 38, 0.15), 0 0 20px -2px rgba(255, 110, 38, 0.1);
+    }
+
+    /* Apple-style sticky navigation blur */
+    .apple-nav {
+      background: rgba(6, 7, 10, 0.78);
+      backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    /* Shimmering CTA button */
+    .btn-apple-glow {
+      background: linear-gradient(135deg, #ff7a36 0%, #ff5213 100%);
+      box-shadow: 0 8px 30px -4px rgba(255, 110, 38, 0.5), inset 0 1px 1px 0 rgba(255, 255, 255, 0.4);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .btn-apple-glow:hover {
+      box-shadow: 0 12px 36px 0px rgba(255, 110, 38, 0.7), inset 0 1px 1px 0 rgba(255, 255, 255, 0.6);
+      transform: scale(1.02);
+    }
+    .btn-apple-glow:active {
+      transform: scale(0.98);
+    }
+
+    /* 3D tilt perspective for interactive launcher mockup */
+    .perspective-container {
+      perspective: 1200px;
+    }
+    .tilt-box {
+      transform-style: preserve-3d;
+      transition: transform 0.25s ease-out;
+    }
+
+    /* Subtle grid lines */
+    .cyber-grid {
+      background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 36px 36px;
+    }
+  
+.skip-link{position:fixed;left:1rem;top:-5rem;z-index:100;background:#ff6e26;color:#06070a;padding:1rem}.skip-link:focus{top:1rem}
+.category-panel{border:1px solid #ffffff14;border-radius:12px;background:#0d1118;min-width:190px}.category-panel summary{padding:12px 16px;display:flex;align-items:center;gap:32px;justify-content:space-between}.category-panel summary::after{content:'+';color:#ff6e26}.category-panel[open] summary::after{content:'−'}.category-panel summary span{font:10px JetBrains;color:#94a3b8}.category-links{display:grid;padding:0 16px 14px;gap:12px}.category-links a{display:flex;justify-content:space-between;gap:24px;color:#cbd5e1;font-size:12px}.category-links small{color:#94a3b8;font-size:10px}.category-links a:hover{color:#ff6e26}
+#preview-modal{margin:auto;width:min(100%,720px);max-height:100dvh;border:0;overflow:auto}#preview-modal[open]{display:flex;align-items:center;justify-content:center}#preview-modal::backdrop{background:#000d;backdrop-filter:blur(12px)}#modal-card{transform:none;max-height:calc(100dvh - 32px);overflow:auto}#sim-log{overflow-wrap:anywhere}#launcher-mockup{will-change:transform}
+@media(max-width:480px){h1{font-size:3.1rem!important}#launcher-mockup{padding:16px}#modal-card{padding:24px 16px}.filter-tab{padding:8px 12px}.category-panel{flex:1;min-width:140px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}#launcher-mockup{transform:none!important}}

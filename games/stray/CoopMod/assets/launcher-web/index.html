@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stray Co-op Launcher</title>
+  
+  
+  
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="launcher-container">
+    <div class="glow-orange"></div>
+    <div class="glow-cyan"></div>
+
+    <!-- Frameless Window Drag & Action Bar -->
+    <div class="custom-titlebar">
+      <div class="drag-region">
+        <span>🐾</span>
+        <span>STRAY CO-OP PROTOCOL</span>
+      </div>
+      <div class="window-controls">
+        <button id="min-btn" aria-label="Minimize" class="ctrl-btn" title="Minimize">—</button>
+        <button id="close-btn" aria-label="Close launcher" class="ctrl-btn close" title="Close">✕</button>
+      </div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+      <div class="badge-protocol">
+        <span class="beacon"></span>
+        Multiplayer System
+      </div>
+      <h1 class="title">Bring a friend<span>.</span></h1>
+      <p class="subtitle">Host a session or connect directly via partner session code.</p>
+    </header>
+
+    <!-- Main Controls -->
+    <main class="main-content">
+      <!-- Directory Card -->
+      <section class="panel-card">
+        <div class="card-label">Game Directory</div>
+        <div class="field-row">
+          <div class="input-box">
+            <svg class="folder-svg" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <input type="text" id="game-folder-input" aria-label="Stray game directory" class="terminal-input" value="" placeholder="Choose your Stray folder" spellcheck="false" />
+          </div>
+          <button id="browse-btn" class="btn btn-muted">Browse</button>
+        </div>
+      </section>
+
+      <!-- Connection Grid -->
+      <section class="connection-grid">
+        <div class="panel-card action-card">
+          <div class="card-label">Session Control</div>
+          <div id="host-code-row" title="Share this code with your friend. Leave the launcher open." hidden><strong id="session-code"></strong><button id="copy-code-btn" class="btn btn-outline-neon">Copy</button></div>
+          <button id="host-btn" class="btn btn-solid-neon">
+            <span>Host a Game</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
+            </svg>
+          </button>
+        </div>
+
+        <div class="panel-card action-card">
+          <div class="card-label">Direct Connect</div>
+          <div class="join-group">
+            <input type="text" id="join-code-input" aria-label="Partner join code" class="terminal-input code-input" placeholder="Join code..." spellcheck="false" />
+            <button id="join-btn" class="btn btn-outline-neon">Join</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Network Spec -->
+      <div class="status-callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <span>Host requires <span class="port-pill">UDP 7777</span> forwarded on router NAT.</span>
+      </div>
+
+      <!-- Diagnostic Console -->
+      <section class="console-module">
+        <div class="console-status-line">
+          <span class="status-indicator-dot"></span>
+          <span id="status-text">Ready. In cinematics, hold Space to skip for both players.</span>
+        </div>
+        <div id="log-output" role="log" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <!-- Footer Meta -->
+    <footer class="footer">
+      <div class="version-tag">
+        <span id="version-text">Version —</span>
+        <span>•</span>
+        <span id="update-state" class="version-sync">Checking…</span>
+      </div>
+      <div class="footer-actions"><button id="end-session-btn" class="btn btn-end" hidden>End session</button><button id="check-updates-btn" class="btn btn-ghost">Check for updates</button></div>
+    </footer>
+  </div>
+<dialog id="app-dialog"><h2 id="dialog-title"></h2><p id="dialog-message"></p><div class="dialog-actions"><button id="dialog-cancel" class="btn btn-muted">Cancel</button><button id="dialog-accept" class="btn btn-solid-neon">OK</button></div></dialog>
+<script src="app.js"></script>
+</body>
+</html>
