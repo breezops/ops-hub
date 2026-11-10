@@ -1,10 +1,13 @@
 #include "NpcActionPhase.h"
 #include "NpcActionProbe.h"
+#include "NpcActionObserver.h"
+#include "NpcHoldArbiter.h"
 #include "NativeAlternateStack.h"
 #include "TestFramework.h"
 #include <Windows.h>
 #include <array>
 #include <cstring>
+#include <thread>
 
 namespace {
 using namespace NpcActionPhase;
@@ -41,6 +44,14 @@ uint8_t* JobEntry() {
 }
 template<class T> void Put(uint8_t* p,size_t at,T value) { std::memcpy(p+at,&value,sizeof(value)); }
 void NativeToggle(void*,bool);
+void* ActorEntry() {
+    static auto* code=[] {
+        std::array<uint8_t,33> bytes{0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x20,
+            0x48,0xb8,0,0,0,0,0,0,0,0,0xff,0xd0,0x48,0x8b,0x5c,0x24,0x30,0x48,0x83,0xc4,0x20,0x5f,0xc3};
+        auto* body=reinterpret_cast<void*>(&NativeToggle); std::memcpy(bytes.data()+12,&body,8);
+        return Code(bytes.data(),bytes.size());
+    }(); return code;
+}
 struct Fixture {
     std::array<uint8_t,0x1200> actor{};
     std::array<uint8_t,8+4*0xf8> table{};
@@ -62,6 +73,11 @@ struct Fixture {
     void* jobFiber=nullptr;
     Result result;
     Boundary* active=nullptr;
+    bool stopInside=false,stopWaited=false;
+    bool arbitrate=false;
+    bool externalToggle=false;
+    std::atomic<bool> stopDone=false;
+    std::thread stopper;
     Fixture() {
         Put(actor.data(),0,this); Put(table.data(),0,this);
         Put<int32_t>(actor.data(),0x119c,0);
@@ -70,6 +86,10 @@ struct Fixture {
         if (scope && NpcMutationGate::Bind(scope,55,actor.data(),1,1)) ticket=NpcMutationGate::Find(scope,55,1,1);
     }
     ~Fixture() {
+#ifdef COOP_RETAINED_CONTROL_TESTS
+        NpcActionObserver::Stop();
+        if (stopper.joinable()) stopper.join();
+#endif
         if (jobFiber) {
             if (!canceled) { canceled=true; SwitchToFiber(jobFiber); }
             DeleteFiber(jobFiber);
@@ -82,7 +102,7 @@ struct Fixture {
     CrashGuards::NpcBehaviorSites Sites() {
         // Synthetic native targets. Real production installation must use the
         // full verified resolver bundle and a live SDK lifetime validator.
-        return {{PhaseEntry(),JobEntry(),reinterpret_cast<void*>(&NativeToggle),reinterpret_cast<void*>(&NativeToggle),reinterpret_cast<void*>(&NativeToggle)},reinterpret_cast<void*>(&NativeToggle),table.data()};
+        return {{PhaseEntry(),JobEntry(),reinterpret_cast<void*>(&NativeToggle),reinterpret_cast<void*>(&NativeToggle),reinterpret_cast<void*>(&NativeToggle)},arbitrate?ActorEntry():reinterpret_cast<void*>(&NativeToggle),table.data()};
     }
     static bool Validate(void* opaque,const NpcMutationGate::Ticket& ticket,int32_t& id) {
         auto& f=*static_cast<Fixture*>(opaque); id=f.validationId;
@@ -100,6 +120,15 @@ struct Fixture {
     }
     static void Callback(void* opaque,Boundary& boundary) {
         auto& f=*static_cast<Fixture*>(opaque); ++f.callbacks;
+#ifdef COOP_RETAINED_CONTROL_TESTS
+        if (f.stopInside) {
+            f.stopper=std::thread([&f]{NpcActionObserver::Stop(); f.stopDone=true;});
+            const auto until=GetTickCount64()+2000;
+            while (NpcActionObserver::Diagnostics().active && GetTickCount64()<until) std::this_thread::yield();
+            f.stopWaited=!NpcActionObserver::Diagnostics().active && !f.stopDone;
+            return;
+        }
+#endif
         f.removeRefused=!NpcActionPhase::Remove();
         if (f.throwCallback) throw 1;
         if (f.wrongStack) {
@@ -112,8 +141,15 @@ struct Fixture {
         }
     }
     bool Install() {
+#ifdef COOP_RETAINED_CONTROL_TESTS
+        if (arbitrate && (!NpcHoldArbiter::Install(Sites()) || !NpcHoldArbiter::Watch(actor.data()))) return false;
+        return ticket.actor && PhaseEntry() && JobEntry() && NpcActionProbe::InstallRetained(JobEntry()) &&
+            NpcActionObserver::Install(Sites(),{this,&ObserveIdentity,
+                [](void*,const NpcActionObserver::View&){},GetCurrentThreadId(),&Validate,&Callback,arbitrate});
+#else
         return ticket.actor && PhaseEntry() && JobEntry() && NpcActionProbe::Install(JobEntry()) &&
             NpcActionPhase::Install(Sites(),{this,&Validate,&Callback,GetCurrentThreadId()});
+#endif
     }
     void Run() { reinterpret_cast<void(*)(void*,const void*)>(PhaseEntry())(table.data(),&span); }
     static void WINAPI JobFiber(void* opaque) {
@@ -146,7 +182,7 @@ uint64_t Step(Task* task) {
 }
 void NativeToggle(void* actor,bool held) {
     Fixture* f=nullptr; std::memcpy(&f,actor,sizeof(f)); ++f->nativeCalls;
-    f->pinObserved=NpcMutationGate::Begin()==0 && !NpcMutationGate::SetLocalOwner(f->scope,55,1,1,true);
+    if (!f->externalToggle) f->pinObserved=NpcMutationGate::Begin()==0 && !NpcMutationGate::SetLocalOwner(f->scope,55,1,1,true);
     if (f->noNativeChange) return;
     f->actor[0x117d]=(f->actor[0x117d]&~0x40)|(held?0x40:0);
     f->Unit()[0x2c]=(f->Unit()[0x2c]&~1)|(held?1:0);
@@ -156,6 +192,48 @@ void NativeToggle(void* actor,bool held) {
 }
 }
 
+#ifdef COOP_RETAINED_CONTROL_TESTS
+TEST(RetainedControl_CancelsYieldedJobAndResumes) {
+    Fixture f; REQUIRE(f.Install()); REQUIRE(f.StartSuspendedJob());
+    f.Run(); CHECK(f.result.state==State::Complete); CHECK(f.result.changed);
+    CHECK(f.canceled && f.pinObserved); CHECK(NpcActionProbe::Diagnostics().outstanding==0);
+    REQUIRE(NpcMutationGate::SetLocalOwner(f.scope,55,1,1,true));
+    f.hold=false; f.Run(); CHECK(f.result.state==State::Complete);
+    CHECK(!(f.actor[0x117d]&0x40)); CHECK(!(f.Unit()[0x2c]&1));
+    CHECK(f.loopCalls==2); CHECK(NpcActionObserver::Diagnostics().healthy);
+}
+TEST(RetainedControl_RefusesIdentityAndWrongStack) {
+    Fixture f; REQUIRE(f.Install());
+    f.valid=false; f.Run(); CHECK(f.result.state==State::Refused); CHECK(f.nativeCalls==0);
+    f.valid=true; f.wrongStack=true; f.Run(); CHECK(f.result.state==State::Refused); CHECK(f.nativeCalls==0);
+    CHECK(f.loopCalls==2);
+}
+TEST(RetainedControl_StopDrainsWithoutHoldingObserverMutex) {
+    Fixture f; REQUIRE(f.Install()); f.stopInside=true; f.Run();
+    if (f.stopper.joinable()) f.stopper.join();
+    CHECK(f.stopWaited); CHECK(f.stopDone); CHECK(f.callbacks==1);
+    f.Run(); CHECK(f.callbacks==1); CHECK(f.loopCalls==2);
+}
+TEST(RetainedControl_ArbitratedYieldedCycle) {
+    Fixture f; f.arbitrate=true; REQUIRE(f.Install()); REQUIRE(f.StartSuspendedJob());
+    f.Run(); CHECK(f.result.state==State::Complete); CHECK(f.canceled && f.pinObserved);
+    CHECK(NpcHoldArbiter::OwnsHold()); CHECK(NpcHoldArbiter::ExternalCalls()==0);
+    REQUIRE(NpcMutationGate::SetLocalOwner(f.scope,55,1,1,true));
+    f.hold=false; f.Run(); CHECK(f.result.state==State::Complete);
+    CHECK(!NpcHoldArbiter::OwnsHold()); CHECK(f.nativeCalls==2);
+}
+TEST(RetainedControl_ArbitratedScriptCollisionRefusesResume) {
+    Fixture f; f.arbitrate=true; REQUIRE(f.Install()); f.Run();
+    REQUIRE(f.result.state==State::Complete);
+    f.externalToggle=true;
+    reinterpret_cast<void(*)(void*,bool)>(ActorEntry())(f.actor.data(),true);
+    f.externalToggle=false;
+    REQUIRE(NpcMutationGate::SetLocalOwner(f.scope,55,1,1,true));
+    f.hold=false; f.Run(); CHECK(f.result.state==State::Refused);
+    CHECK(f.nativeCalls==2); CHECK(f.actor[0x117d]&0x40);
+    CHECK(NpcHoldArbiter::ExternalCalls()==1);
+}
+#else
 TEST(NpcActionPhase_RequiresMatchingProbeAndRestoresTheNativeLoop) {
     Fixture f; REQUIRE(PhaseEntry()); REQUIRE(JobEntry());
     std::array<uint8_t,15> before{}; std::memcpy(before.data(),PhaseEntry(),before.size());
@@ -269,3 +347,4 @@ TEST(NpcActionPhase_CallbackFailureStillRunsTheNativeLoopAndLatchesUnhealthy) {
     CHECK(f.nativeCalls==0);
     REQUIRE(NpcActionPhase::Remove()); CHECK(!f.Install());
 }
+#endif

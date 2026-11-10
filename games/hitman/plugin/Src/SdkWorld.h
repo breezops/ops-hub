@@ -76,6 +76,8 @@ public:
     void TracePartyNpcIdentity(); // Diagnostic build only; reads/counts, no NPC controls.
     void TracePartyNpcAction(const NpcActionObserver::View&);
     void MarkPartyNpcJobAttachment() { m_NpcJobAttachmentMark=m_NpcActorBirths.Mark(); }
+    void ArmSoloNpcHold() { m_SoloHoldRequested=true; }
+    void StepSoloNpcHold(NpcActionPhase::Boundary&);
     // nativeContract is this PC's native ContractSessionId, never a room/peer
     // value. The future adapter must obtain it before acknowledging readiness.
     bool BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract);
@@ -600,6 +602,10 @@ private:
     double m_NextNpcActionAudit=0;
     unsigned m_NpcActionAudits=0;
     uint64_t m_NpcJobAttachmentMark=0; // Never reset on scene clear; diagnostic only.
+    NpcMutationGate::Ticket m_SoloHoldTicket;
+    bool m_SoloHoldRequested=false,m_SoloHoldUsed=false,m_SoloHoldOwned=false;
+    unsigned m_SoloHoldPhase=0;
+    double m_SoloHoldDeadline=0;
     struct NpcNativeEvent { uint64_t scope; uint32_t actor; bool killed; std::string contract; };
     std::deque<NpcNativeEvent> m_NpcNativeEvents;
     bool m_NpcEventOverflow=false;

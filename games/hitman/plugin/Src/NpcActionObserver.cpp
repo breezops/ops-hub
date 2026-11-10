@@ -1,4 +1,5 @@
 #include "NpcActionObserver.h"
+#include "NpcActionProbe.h"
 #include <Windows.h>
 #include <MinHook.h>
 #include <algorithm>
@@ -13,6 +14,9 @@ std::atomic<bool> g_Attempted=false,g_Installed=false,g_Active=false,g_Healthy=t
 std::atomic<uint64_t> g_Entered=0,g_Callbacks=0,g_Busy=0;
 std::atomic<Loop> g_Original=nullptr;
 NpcActionObserver::Config g_Config;
+NpcActionPhase::Config g_ControlConfig;
+CrashGuards::NpcBehaviorSites g_ControlSites;
+std::atomic<uint32_t> g_ControlInFlight=0;
 void* g_Table=nullptr;
 NpcActionObserver::InstallReport g_InstallReport;
 constexpr std::array<uint8_t,15> Prologue{
@@ -27,6 +31,8 @@ uintptr_t Stack() { return reinterpret_cast<uintptr_t>(reinterpret_cast<const NT
 struct NpcActionObserver::Bridge {
     static void Run(void* table,const void* span) {
         ++g_Entered;
+        NpcActionPhase::Boundary control;
+        bool doControl=false;
         if (g_Installed.load(std::memory_order_acquire) && g_Active && g_Healthy) {
             std::unique_lock lock(g_Callback,std::try_to_lock);
             if (!lock.owns_lock()) ++g_Busy;
@@ -52,10 +58,29 @@ struct NpcActionObserver::Bridge {
                         ++g_Callbacks;
                         try { g_Config.callback(g_Config.context,view); }
                         catch (...) { g_Healthy=false; }
+                        uint32_t idle=0;
+                        if (g_Active && g_Healthy && g_ControlConfig.callback &&
+                            g_ControlInFlight.compare_exchange_strong(idle,1)) {
+                            control.m_Config=&g_ControlConfig; control.m_Sites=&g_ControlSites;
+                            control.m_Enabled=&g_Active; control.m_Healthy=&g_Healthy;
+                            control.m_Stack=Stack(); control.m_Active=true;
+                            control.m_Count=view.m_Count; control.m_Ids=view.m_Ids;
+                            doControl=true;
+                        }
                         view.m_Active=false;
                     }
                 }
             }
+        }
+        // The client is pinned by an in-flight count admitted under g_Callback,
+        // but no thread-owned lock spans native cancellation or its continuations.
+        if (doControl) {
+            if (g_Active && g_Healthy) {
+                try { g_ControlConfig.callback(g_ControlConfig.context,control); }
+                catch (...) { g_Healthy=false; }
+            }
+            control.m_Active=false;
+            g_ControlInFlight.store(0,std::memory_order_release);
         }
         // No thread-owned lock spans native scheduling or a yielding job.
         if (const auto original=g_Original.load(std::memory_order_acquire)) original(table,span);
@@ -81,12 +106,13 @@ NpcActionObserver::Observation NpcActionObserver::View::Observe(const void* acto
     if (!g_Config.validate(g_Config.context,actor,npc,birth,current) || current!=id) return {};
     return {true,id,sample};
 }
-bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Config config) {
+bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Config config,MinHookDiagnostics::LayoutTag<sizeof(Config)>) {
     std::lock_guard install(g_Install);
     const auto refuse=[](InstallStage stage,int status=0,uint32_t error=0) {
         g_InstallReport.stage=stage; g_InstallReport.hookStatus=status; g_InstallReport.lastError=error; return false;
     };
     if (!sites || !config.callback || !config.validate || !config.gameThread || config.gameThread!=GetCurrentThreadId()) return refuse(InstallStage::InvalidConfig);
+    if ((config.control || config.controlValidate) && (!config.control || !config.controlValidate || !NpcActionProbe::InstalledFor(sites.actions.job))) return refuse(InstallStage::InvalidConfig);
     if (g_Attempted) return refuse(InstallStage::AlreadyAttempted);
     std::array<uint8_t,15> bytes{};
     if (!Read(sites.actions.loop,bytes.data(),bytes.size())) return refuse(InstallStage::EntryRead,0,GetLastError());
@@ -104,6 +130,8 @@ bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Confi
     if (created!=MH_OK) return refuse(InstallStage::HookCreate,created,GetLastError());
     if (!original) return refuse(InstallStage::MissingOriginal);
     g_Config=config; g_Table=sites.table;
+    g_ControlSites=sites;
+    g_ControlConfig={config.context,config.controlValidate,config.control,config.gameThread,config.validate,true,config.arbitrateHolds};
     g_Original.store(reinterpret_cast<Loop>(original),std::memory_order_release);
     // Publish before enabling. A worker that reaches the hook early can refuse
     // observation by its thread ID but always has a valid native continuation.
@@ -133,8 +161,10 @@ const char* NpcActionObserver::StageName(InstallStage stage) {
     return "unknown";
 }
 void NpcActionObserver::Stop() {
-    std::lock_guard lock(g_Callback);
-    g_Active=false;
+    { std::lock_guard lock(g_Callback); g_Active=false; }
+    // Stop must be called outside either client callback. A read callback is
+    // drained above; a yielding control callback owns this context until done.
+    while (g_ControlInFlight.load(std::memory_order_acquire)) Sleep(0);
     // Do not remove/uninitialize MinHook or free original/trampoline/module.
 }
 NpcActionObserver::Stats NpcActionObserver::Diagnostics() {

@@ -579,3 +579,35 @@ existing buffer/table storage successfully without a new allocation. Its current
 no-near-code-candidate heuristic label is misleading on success; only infer a
 failed search with actual status 9. This does not require repeating the passed
 job test. The original intermittent allocation refusal remains unproven fixed.
+
+### Private Hold-1 local control candidate
+
+The retained action bridge now optionally reuses NpcActionPhase::Boundary for a
+control callback. The existing observation callback remains short and locked;
+control is admitted under that lock with an atomic in-flight context reference,
+then executes after the lock is released. Stop deactivates admission and drains
+both callback kinds before client teardown. Neither callback may call Stop.
+The private SDK callback releases its session try-lock and refuses reentry from
+OnFrameUpdate, whose outer session lock would otherwise survive the native call.
+Boundary validation still requires the same stack/thread, scheduled slot,
+fresh identity/birth, mutation ticket and healthy matching job probe.
+
+NpcHoldArbiter installs a separate pinned pass-through observer at the verified
+actor-control setter. It watches one actor per process. A consumed exact-stack
+marker identifies the controller's single entry; external/recursive setter calls
+are preserved and permanently refuse subsequent controller operations. This
+does not prove complete coverage of direct flag writers or cross-thread order.
+The bridge and original native code remain alive until process exit.
+
+COOP_NPC_HOLD_DIAGNOSTICS defaults OFF. Its private solo F8 cycle selects a
+nearby conscious guard only after a native restart supplies a fresh birth and
+the selected unit has one observed job. It refuses pre-existing holds, confirms
+native job return/cleanup before its eight-second hold, resumes only its own
+hold and requires a new job afterward. Scene clearing invalidates diagnostic
+admission first and never attempts native resume during teardown. A fault stops
+further control; it never falsely acknowledges a pending operation complete.
+
+All 28 native test processes pass, including retained Windows-fiber cancellation,
+wrong stack/identity, shutdown during control, external and recursive holds, and
+integrated cancellation/ownership/script-collision refusal. Hold-1 is a first
+local in-game diagnostic, not a guest preparation or physical-retirement binding.

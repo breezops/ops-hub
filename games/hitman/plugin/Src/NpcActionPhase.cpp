@@ -1,5 +1,6 @@
 #include "NpcActionPhase.h"
 #include "NpcActionProbe.h"
+#include "NpcHoldArbiter.h"
 #include <Windows.h>
 #include <algorithm>
 #include <atomic>
@@ -73,6 +74,8 @@ struct NpcActionPhase::Bridge {
                 (bounds[1]-bounds[0])/4<=boundary.m_Ids.size();
             boundary.m_Count=valid ? (bounds[1]-bounds[0])/4 : 0;
             if (valid && (!boundary.m_Count || Read(reinterpret_cast<void*>(bounds[0]),boundary.m_Ids.data(),boundary.m_Count*4))) {
+                boundary.m_Config=&g_Config; boundary.m_Sites=&g_Sites;
+                boundary.m_Enabled=&g_Installed; boundary.m_Healthy=&g_Healthy;
                 boundary.m_Stack=Stack(); boundary.m_Active=true;
                 try { g_Config.callback(g_Config.context,boundary); }
                 catch (...) { g_Healthy=false; }
@@ -97,29 +100,29 @@ auto Patch() {
 bool NpcActionPhase::Boundary::ActiveHere() const {
     const auto* tib=reinterpret_cast<const NT_TIB*>(NtCurrentTeb());
     const auto self=reinterpret_cast<uintptr_t>(this);
-    return m_Active && g_Installed && g_Healthy && GetCurrentThreadId()==g_Config.gameThread && Stack()==m_Stack &&
+    return m_Active && m_Config && m_Sites && m_Enabled && m_Healthy && *m_Enabled && *m_Healthy && GetCurrentThreadId()==m_Config->gameThread && Stack()==m_Stack &&
         self>=reinterpret_cast<uintptr_t>(tib->StackLimit) && self<m_Stack;
 }
 NpcActionPhase::Observation NpcActionPhase::Boundary::Observe(const void* actor,uint64_t npc,uint64_t birth) const {
-    if (!ActiveHere() || !g_Config.observe || !actor || !npc || !birth) return {};
+    if (!ActiveHere() || !m_Config->observe || !actor || !npc || !birth) return {};
     int32_t id=-1;
-    if (!g_Config.observe(g_Config.context,actor,npc,birth,id) || id<0 || id>=static_cast<int32_t>(m_Ids.size()) ||
+    if (!m_Config->observe(m_Config->context,actor,npc,birth,id) || id<0 || id>=static_cast<int32_t>(m_Ids.size()) ||
         std::find(m_Ids.begin(),m_Ids.begin()+m_Count,id)==m_Ids.begin()+m_Count) return {};
     NpcBehaviorReadback::Snapshot state;
-    if (!NpcBehaviorReadback::Read(g_Sites.table,actor,id,state)) return {};
+    if (!NpcBehaviorReadback::Read(m_Sites->table,actor,id,state)) return {};
     int32_t current=-1;
-    if (!g_Config.observe(g_Config.context,actor,npc,birth,current) || current!=id) return {};
+    if (!m_Config->observe(m_Config->context,actor,npc,birth,current) || current!=id) return {};
     return {true,id,state}; // Includes conflicting flags; observation grants no mutation permission.
 }
 NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::Ticket& ticket,bool held) {
-    if (!ActiveHere() || !g_Config.allowControl) return {};
+    if (!ActiveHere() || !m_Config->allowControl || !m_Config->validate) return {};
     NpcMutationGate::Pin pin(ticket);
     if (!pin || (!held && NpcMutationGate::BlocksInteraction(ticket.actor)) ||
-        !NpcActionProbe::InstalledFor(g_Sites.actions.job)) return {};
+        !NpcActionProbe::InstalledFor(m_Sites->actions.job)) return {};
     int32_t id=-1;
-    if (!g_Config.validate(g_Config.context,ticket,id) || id<0 || id>=static_cast<int32_t>(m_Ids.size()) ||
+    if (!m_Config->validate(m_Config->context,ticket,id) || id<0 || id>=static_cast<int32_t>(m_Ids.size()) ||
         std::find(m_Ids.begin(),m_Ids.begin()+m_Count,id)==m_Ids.begin()+m_Count) return {};
-    auto* unit=static_cast<uint8_t*>(g_Sites.table)+8+static_cast<size_t>(id)*0xf8;
+    auto* unit=static_cast<uint8_t*>(m_Sites->table)+8+static_cast<size_t>(id)*0xf8;
     NativeState before;
     if (!ReadState(ticket,id,unit,before)) return {};
     if (!before.held() && !before.enabled()) return {}; // Conflicting native hold sources/layout.
@@ -130,10 +133,13 @@ NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::
     if (!held && (!before.drained() || jobs.outstanding)) return {State::Pending,false,before.held()};
     if ((held && before.held() && before.drained() && !jobs.outstanding) || (!held && before.enabled()))
         return {State::Complete,false,before.held()};
-    reinterpret_cast<ActorControl>(g_Sites.actorControl)(ticket.actor,held);
+    if (m_Config->arbitrateHolds) {
+        if (!NpcHoldArbiter::InstalledFor(m_Sites->actorControl) || !NpcHoldArbiter::Invoke(ticket.actor,held))
+            return {State::Refused,true,before.held()};
+    } else reinterpret_cast<ActorControl>(m_Sites->actorControl)(ticket.actor,held);
     int32_t current=-1;
     NativeState after;
-    if (!g_Config.validate(g_Config.context,ticket,current) || current!=id || !ReadState(ticket,id,unit,after))
+    if (!ActiveHere() || !m_Config->validate(m_Config->context,ticket,current) || current!=id || !ReadState(ticket,id,unit,after))
         return {State::Refused,true,before.held()};
     jobs=NpcActionProbe::Inspect(unit);
     if (!jobs.healthy) return {State::Refused,true,before.held()};
@@ -141,7 +147,7 @@ NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::
     return {complete?State::Complete:State::Pending,true,before.held()};
 }
 
-bool NpcActionPhase::Install(const CrashGuards::NpcBehaviorSites& sites,Config config) {
+bool NpcActionPhase::Install(const CrashGuards::NpcBehaviorSites& sites,Config config,MinHookDiagnostics::LayoutTag<sizeof(Config)>) {
     std::lock_guard lock(g_Install);
     if (!g_Healthy || !sites || !config.callback || !config.gameThread || config.gameThread!=GetCurrentThreadId()) return false;
     if (config.allowControl ? (!config.validate || !NpcActionProbe::InstalledFor(sites.actions.job)) : !config.observe) return false;
@@ -149,7 +155,7 @@ bool NpcActionPhase::Install(const CrashGuards::NpcBehaviorSites& sites,Config c
         std::array<uint8_t,15> actual;
         return sites.actions.loop==g_Entry && sites.actorControl==g_Sites.actorControl && sites.table==g_Sites.table &&
             config.context==g_Config.context && config.validate==g_Config.validate && config.callback==g_Config.callback && config.gameThread==g_Config.gameThread &&
-            config.observe==g_Config.observe && config.allowControl==g_Config.allowControl &&
+            config.observe==g_Config.observe && config.allowControl==g_Config.allowControl && config.arbitrateHolds==g_Config.arbitrateHolds &&
             Read(g_Entry,actual.data(),actual.size()) && actual==Patch();
     }
     if ((g_Entry && sites.actions.loop!=g_Entry) || g_Callers.load() || !Executable(sites.actions.loop) || !Executable(sites.actorControl)) return false;

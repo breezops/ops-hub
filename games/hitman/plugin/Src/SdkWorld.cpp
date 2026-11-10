@@ -1,5 +1,6 @@
 #include "SdkWorld.h"
 #include "NpcActionProbe.h"
+#include "NpcHoldArbiter.h"
 #include "TypeDump.h"
 
 #include "CrashGuards.h"
@@ -97,6 +98,7 @@ bool SdkWorld::IsMissionScene(const std::string& p_Scene) {
 }
 
 void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
+    m_SoloHoldRequested=false;
     m_NpcIdentityAudits=0; m_NextNpcIdentityAudit=0;
     m_NpcActionAudits=0; m_NextNpcActionAudit=0;
     m_NativeExits.clear();
@@ -109,6 +111,15 @@ void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
 }
 
 void SdkWorld::OnSceneCleared() {
+    m_SoloHoldRequested=false;
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+    m_InScene=false; // Invalidate diagnostic control before any teardown callback can reenter.
+#endif
+    if (m_SoloHoldTicket.scope) {
+        NpcMutationGate::Clear(m_SoloHoldTicket.scope);
+        m_SoloHoldTicket={}; m_SoloHoldRequested=false; m_SoloHoldPhase=5;
+        CoopLog::Info("npc-hold","Private hold test ended by scene clear; no native resume attempted during teardown");
+    }
     // This is pre-teardown. Construction generations survive until an actual
     // native retirement barrier; clearing them here could alias reused actors.
     m_NpcIdentityAudits=0; m_NextNpcIdentityAudit=0;
@@ -2600,6 +2611,83 @@ void SdkWorld::TracePartyNpcIdentity() {
         "READ-ONLY audit %u: enabled=%zu unique-enabled=%zu admissible=%zu untracked=%zu fresh-rejected=%zu duplicate-ids=%zu constructor-mark=%llu healthy=%d game-thread=%u; shared NPC control OFF",
         m_NpcIdentityAudits,enabled,uniqueEnabled,admissible,untracked,freshRejected,duplicate,
         static_cast<unsigned long long>(m_NpcActorBirths.Mark()),m_NpcActorBirths.Healthy()?1:0,PartyGameThread());
+}
+
+void SdkWorld::StepSoloNpcHold(NpcActionPhase::Boundary& boundary) {
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+    if (!m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) || PartyGameThread()!=GetCurrentThreadId()) return;
+    const auto fail=[&](const char* reason) {
+        CoopLog::Fmt(coop::LogLevel::Warn,"npc-hold","Private cycle stopped: %s; no further native control. Restart mission before continuing normal play",reason);
+        if (m_SoloHoldTicket.scope) NpcMutationGate::Clear(m_SoloHoldTicket.scope);
+        m_SoloHoldPhase=5;
+    };
+    if (m_SoloHoldPhase==0 && m_SoloHoldRequested) {
+        m_SoloHoldRequested=false;
+        if (m_SoloHoldUsed || NpcMutationGate::CurrentScope() || !Globals::ActorManager) return;
+        coop::Transform local;
+        if (!GetLocalAvatar(local)) return;
+        ZActor* chosen=nullptr; uint64_t npc=0,birth=0; float closest=8.f;
+        for (const auto& entry:Globals::ActorManager->m_activatedActors) {
+            auto* actor=entry.m_pInterfaceRef;
+            if (!actor || !entry.m_entityRef || !entry.m_entityRef->GetType() || ActorDown(actor)) continue;
+            const auto* outfit=actor->m_rOutfit.m_pInterfaceRef;
+            if (!outfit || outfit->m_eActorType!=EActorType::eAT_Guard) continue;
+            const auto id=entry.m_entityRef->GetType()->m_nEntityID;
+            const auto born=m_NpcActorBirths.Find(actor);
+            if (!born || born<=m_NpcJobAttachmentMark) continue; // Fresh native restart required.
+            const auto observation=boundary.Observe(actor,id,born);
+            if (!observation.valid || !observation.native.coherent() || observation.native.held() || !observation.native.job) continue;
+            const auto jobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(observation.native.unit));
+            if (!jobs.healthy || !jobs.observed || jobs.outstanding!=1) continue;
+            const auto* spatial=entry.m_entityRef.QueryInterface<ZSpatialEntity>();
+            if (!spatial) continue;
+            const auto distance=coop::Distance(local.pos,ToTransform(spatial->GetObjectToWorldMatrix()).pos);
+            if (distance<closest) { closest=distance;chosen=actor;npc=id;birth=born; }
+        }
+        if (!chosen) { CoopLog::Info("npc-hold","No eligible nearby guard: restart once after attachment, approach a conscious guard within 8m, then press F8 again");return; }
+        const auto scope=NpcMutationGate::Begin();
+        if (!scope || !NpcMutationGate::Bind(scope,npc,chosen,birth,1) || !NpcHoldArbiter::Watch(chosen)) {
+            if (scope) NpcMutationGate::Clear(scope);
+            m_SoloHoldUsed=true; fail("could not establish exclusive diagnostic binding");return;
+        }
+        m_SoloHoldTicket=NpcMutationGate::Find(scope,npc,birth,1);
+        m_SoloHoldUsed=true; m_SoloHoldPhase=1; m_SoloHoldDeadline=m_Now+5.;
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Selected nearest guard %s at %.1fm; birth=%llu; one cycle only",NpcLabel(chosen).c_str(),closest,birth);
+    }
+    if (m_SoloHoldPhase<1 || m_SoloHoldPhase>3) return;
+    const auto& ticket=m_SoloHoldTicket;
+    const auto sample=boundary.Observe(ticket.actor,ticket.npc,ticket.birth);
+    if (!sample.valid || !sample.native.coherent() || NpcHoldArbiter::ExternalCalls()) { fail("identity/flags changed or game/script hold control intervened");return; }
+    const auto jobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(sample.native.unit));
+    if (!jobs.healthy) { fail("job tracking unhealthy");return; }
+    if (m_SoloHoldPhase==1) {
+        if (!m_SoloHoldOwned) {
+            if (sample.native.held()) { fail("NPC already held by the game");return; }
+            const auto result=boundary.SetHeld(ticket,true);
+            m_SoloHoldOwned=result.changed && !result.previouslyHeld && NpcHoldArbiter::OwnsHold();
+            if (result.state==NpcActionPhase::State::Refused || !m_SoloHoldOwned) { fail("native hold refused");return; }
+            return; // Verify completion on the next native boundary.
+        }
+        if (sample.native.held() && sample.native.drained() && !jobs.outstanding) {
+            m_SoloHoldPhase=2; m_SoloHoldDeadline=m_Now+8.;
+            CoopLog::Info("npc-hold","HOLD confirmed: owned native flags agree, original job returned, action/task/job cleared; watching for 8 seconds");
+        } else if (m_Now>m_SoloHoldDeadline) fail("native hold/cancellation did not complete");
+    } else if (m_SoloHoldPhase==2) {
+        if (!sample.native.held() || !sample.native.drained() || jobs.outstanding) { fail("held baseline changed");return; }
+        if (m_Now<m_SoloHoldDeadline) return;
+        if (!NpcMutationGate::SetLocalOwner(ticket.scope,ticket.npc,ticket.birth,ticket.lease,true)) { fail("resume ownership refused");return; }
+        const auto result=boundary.SetHeld(ticket,false);
+        if (result.state!=NpcActionPhase::State::Complete) { fail("native resume not confirmed");return; }
+        m_SoloHoldPhase=3; m_SoloHoldDeadline=m_Now+5.;
+        CoopLog::Info("npc-hold","RESUME flags confirmed; waiting for an observed native job to restart");
+    } else {
+        if (sample.native.held()) { fail("NPC held again during resume verification");return; }
+        if (sample.native.job && jobs.observed && jobs.outstanding==1) {
+            m_SoloHoldPhase=4; NpcMutationGate::Clear(ticket.scope);
+            CoopLog::Info("npc-hold","PASS local native hold/resume cycle: new job observed; confirm patrol visually. Shared NPC control remains OFF");
+        } else if (m_Now>m_SoloHoldDeadline) fail("native job did not restart");
+    }
+#endif
 }
 
 void SdkWorld::TracePartyNpcAction(const NpcActionObserver::View& view) {

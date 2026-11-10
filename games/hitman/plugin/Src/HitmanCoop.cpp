@@ -5,6 +5,7 @@
 #include "NpcMutationGate.h"
 #include "NpcActionObserver.h"
 #include "NpcActionProbe.h"
+#include "NpcHoldArbiter.h"
 #include "GamePause.h"
 #include "Log.h"
 #include "PoseHook.h"
@@ -22,6 +23,16 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+namespace {
+std::atomic<unsigned> g_HoldDiagnosticFrameDepth=0;
+struct HoldFrameScope {
+    HoldFrameScope() { ++g_HoldDiagnosticFrameDepth; }
+    ~HoldFrameScope() { --g_HoldDiagnosticFrameDepth; }
+};
+}
+#endif
 
 #include "Functions.h"
 #include "Globals.h"
@@ -1436,6 +1447,9 @@ void HitmanCoop::ProcessCommands(double p_Now) {
 
 void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     std::lock_guard s_Lock(m_SessionMutex);
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+    HoldFrameScope frameScope;
+#endif
     m_World.ObservePartyGameThread(GetCurrentThreadId());
 
     const double s_Now = Now();
@@ -1454,7 +1468,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const auto traceAllocation=[](const char* observer,const MinHookDiagnostics::Report& a,int status) {
             CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
                 "%s creation allocator evidence=%s queries=%llu free-region-queries=%llu query-failures=%llu last-query-error=%u virtual-attempts=%llu virtual-successes=%llu virtual-failures=%llu last-virtual-bytes=%llu last-virtual-error=%u heap-attempts=%llu heap-failures=%llu; tracing only; allocation policy unchanged",
-                observer,MinHookDiagnostics::AllocationPath(a),a.queries,a.freeRegions,a.queryFailures,a.queryError,
+                observer,status==0?"creation-succeeded":MinHookDiagnostics::AllocationPath(a),a.queries,a.freeRegions,a.queryFailures,a.queryError,
                 a.virtualAttempts,a.virtualSuccesses,a.virtualFailures,a.lastVirtualBytes,a.virtualError,a.heapAttempts,a.heapFailures);
             if (status==9) CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
                 "%s read-only near-range scan: complete=%d free-bytes=%llu aligned-4K-candidates=%llu largest-free-extent=%llu query-error=%u; aligned candidates are observations, not successful allocations",
@@ -1464,7 +1478,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         CoopLog::Fmt(coop::LogLevel::Info,"npc-job",
             "READ-ONLY job attachment: installed=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; pre-existing jobs UNKNOWN; retained until process exit; NPC control OFF",
             jobsInstalled?1:0,jobReport.stage,jobReport.hookStatus,jobReport.lastError);
-        const bool installed=sites && NpcActionObserver::Install(sites,{this,
+        auto observerConfig=NpcActionObserver::Config{this,
             [](void* context,const void* actor,uint64_t npc,uint64_t birth,int32_t& runtime) {
                 return static_cast<HitmanCoop*>(context)->m_World.ValidatePartyNpcObservationAtActionBoundary(actor,npc,birth,runtime);
             },
@@ -1472,7 +1486,29 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
                 auto& self=*static_cast<HitmanCoop*>(context);
                 std::unique_lock lock(self.m_SessionMutex,std::try_to_lock);
                 if (lock.owns_lock()) self.m_World.TracePartyNpcAction(view);
-            },m_World.PartyGameThread()});
+            },m_World.PartyGameThread()};
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+        const bool arbiter=jobsInstalled && NpcHoldArbiter::Install(sites);
+        const auto holdReport=NpcHoldArbiter::Installation();
+        traceAllocation("hold-arbiter",holdReport.allocations,holdReport.status);
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Native hold arbiter installed=%d stage=%s status=%d; private solo cycle requires F8 after a fresh native restart",arbiter?1:0,holdReport.stage,holdReport.status);
+        if (arbiter) {
+            observerConfig.controlValidate=[](void* context,const NpcMutationGate::Ticket& ticket,int32_t& runtime) {
+                return static_cast<HitmanCoop*>(context)->m_World.ValidatePartyNpcAtActionBoundary(ticket,runtime);
+            };
+            observerConfig.control=[](void* context,NpcActionPhase::Boundary& boundary) {
+                auto& self=*static_cast<HitmanCoop*>(context);
+                if (g_HoldDiagnosticFrameDepth.load()) return; // Reject reentry under OnFrameUpdate's outer session lock.
+                {
+                    std::unique_lock lock(self.m_SessionMutex,std::try_to_lock);
+                    if (!lock.owns_lock() || self.m_PartyPreview || (self.m_Session && self.m_Session->Active())) return;
+                } // Release session mutex BEFORE any yielding native control.
+                self.m_World.StepSoloNpcHold(boundary);
+            };
+            observerConfig.arbitrateHolds=true;
+        }
+#endif
+        const bool installed=sites && NpcActionObserver::Install(sites,observerConfig);
         CoopLog::Info("npc-act",installed
             ? "Read-only action observer installed; native controls and mutation scopes OFF; game restart required to reload this diagnostic"
             : "Read-only action observer unavailable; no NPC controls enabled");
@@ -1482,6 +1518,16 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
             "Observer installation after Freeform load: sites-found=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; NPC control OFF",
             sites?1:0,NpcActionObserver::StageName(report.stage),report.hookStatus,report.lastError);
     }
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+    static bool previousHoldKey=false;
+    DWORD foregroundProcess=0; GetWindowThreadProcessId(GetForegroundWindow(),&foregroundProcess);
+    const bool holdKey=foregroundProcess==GetCurrentProcessId() && (GetAsyncKeyState(VK_F8)&0x8000);
+    if (holdKey && !previousHoldKey) {
+        if (m_World.IsInScene() && NpcActionObserver::Diagnostics().active && !m_PartyPreview && (!m_Session || !m_Session->Active())) m_World.ArmSoloNpcHold();
+        else CoopLog::Warn("npc-hold","F8 refused: this diagnostic requires a loaded, attached solo game");
+    }
+    previousHoldKey=holdKey;
+#endif
     if (!m_NpcActionObserverFaultReported && !NpcActionObserver::Diagnostics().healthy) {
         m_NpcActionObserverFaultReported=true;
         CoopLog::Warn("npc-act","Read-only action observer faulted; inspection disabled, original native scheduling continues");
