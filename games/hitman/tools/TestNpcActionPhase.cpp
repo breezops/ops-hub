@@ -75,6 +75,7 @@ struct Fixture {
     Boundary* active=nullptr;
     bool stopInside=false,stopWaited=false;
     bool arbitrate=false;
+    bool poolBinding=false;
     bool externalToggle=false;
     std::atomic<bool> stopDone=false;
     std::thread stopper;
@@ -142,7 +143,7 @@ struct Fixture {
     }
     bool Install() {
 #ifdef COOP_RETAINED_CONTROL_TESTS
-        if (arbitrate && (!NpcHoldArbiter::Install(Sites()) || !NpcHoldArbiter::Watch(actor.data()))) return false;
+        if (arbitrate && (!NpcHoldArbiter::Install(Sites()) || !(poolBinding?NpcHoldArbiter::Watch(ticket):NpcHoldArbiter::Watch(actor.data())))) return false;
         return ticket.actor && PhaseEntry() && JobEntry() && NpcActionProbe::InstallRetained(JobEntry()) &&
             NpcActionObserver::Install(Sites(),{this,&ObserveIdentity,
                 [](void*,const NpcActionObserver::View&){},GetCurrentThreadId(),&Validate,&Callback,arbitrate});
@@ -221,6 +222,14 @@ TEST(RetainedControl_ArbitratedYieldedCycle) {
     REQUIRE(NpcMutationGate::SetLocalOwner(f.scope,55,1,1,true));
     f.hold=false; f.Run(); CHECK(f.result.state==State::Complete);
     CHECK(!NpcHoldArbiter::OwnsHold()); CHECK(f.nativeCalls==2);
+}
+TEST(RetainedControl_TicketBoundYieldedCycle) {
+    Fixture f;f.arbitrate=true;f.poolBinding=true;REQUIRE(f.Install());REQUIRE(f.StartSuspendedJob());
+    f.Run();CHECK(f.result.state==State::Complete);CHECK(f.canceled && f.pinObserved);
+    CHECK(NpcHoldArbiter::OwnsHold(f.ticket));CHECK(!NpcHoldArbiter::ExternalCalls(f.ticket));
+    REQUIRE(NpcMutationGate::SetLocalOwner(f.scope,55,1,1,true));
+    f.hold=false;f.Run();CHECK(f.result.state==State::Complete);
+    CHECK(!NpcHoldArbiter::OwnsHold(f.ticket));CHECK(f.nativeCalls==2);
 }
 TEST(RetainedControl_ArbitratedScriptCollisionRefusesResume) {
     Fixture f; f.arbitrate=true; REQUIRE(f.Install()); f.Run();

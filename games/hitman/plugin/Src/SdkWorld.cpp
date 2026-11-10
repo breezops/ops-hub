@@ -2615,6 +2615,10 @@ void SdkWorld::TracePartyNpcIdentity() {
 
 void SdkWorld::StepSoloNpcHold(NpcActionPhase::Boundary& boundary) {
 #ifdef COOP_NPC_HOLD_DIAGNOSTICS
+#ifdef COOP_NPC_POOL_DIAGNOSTICS
+    StepSoloNpcPool(boundary);
+    return;
+#endif
     if (!m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) || PartyGameThread()!=GetCurrentThreadId()) return;
     const auto fail=[&](const char* reason) {
         CoopLog::Fmt(coop::LogLevel::Warn,"npc-hold","Private cycle stopped: %s; no further native control. Restart mission before continuing normal play",reason);
@@ -2701,6 +2705,119 @@ void SdkWorld::StepSoloNpcHold(NpcActionPhase::Boundary& boundary) {
             m_SoloHoldPhase=4; NpcMutationGate::Clear(ticket.scope);
             CoopLog::Info("npc-hold","PASS local native hold/resume cycle: new job observed; confirm patrol visually. Shared NPC control remains OFF");
         } else if (m_Now>m_SoloHoldDeadline) fail("native job did not restart");
+    }
+#endif
+}
+
+void SdkWorld::StepSoloNpcPool(NpcActionPhase::Boundary& boundary) {
+#ifdef COOP_NPC_POOL_DIAGNOSTICS
+    if (!m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) || PartyGameThread()!=GetCurrentThreadId()) return;
+    const auto fail=[&](const char* reason) {
+        CoopLog::Fmt(coop::LogLevel::Warn,"npc-pool","Two-NPC cycle stopped: %s; no further native control. Quit HITMAN before retrying",reason);
+        if (m_SoloHoldTicket.scope) NpcMutationGate::Clear(m_SoloHoldTicket.scope);
+        m_SoloHoldPhase=5;
+    };
+    if (m_SoloHoldPhase==0 && m_SoloHoldRequested) {
+        m_SoloHoldRequested=false;
+        if (m_SoloHoldUsed || NpcMutationGate::CurrentScope() || !Globals::ActorManager || !Globals::ActorManager->m_bLockActorLists) {
+            CoopLog::Warn("npc-pool","Selection refused: cycle used, native scope active or actor lists unavailable");return;
+        }
+        coop::Transform local;
+        if (!GetLocalAvatar(local)) { CoopLog::Warn("npc-pool","Selection refused: local position unavailable");return; }
+        struct Candidate { ZActor* actor;uint64_t npc,birth;float distance; };
+        std::vector<Candidate> eligible;
+        size_t stale=0,rejected=0;
+        for(const auto& entry:Globals::ActorManager->m_activatedActors) {
+            auto* actor=entry.m_pInterfaceRef;
+            if (!actor || !entry.m_entityRef || !entry.m_entityRef->GetType() || ActorDown(actor) || actor->m_bContractTarget) continue;
+            const uint64_t npc=entry.m_entityRef->GetType()->m_nEntityID,birth=m_NpcActorBirths.Find(actor);
+            if (!birth || birth<=m_NpcJobAttachmentMark) { ++stale;continue; }
+            const auto sample=boundary.Observe(actor,npc,birth);
+            if (!sample.valid || !sample.native.coherent() || sample.native.held() || !sample.native.job) { ++rejected;continue; }
+            const auto jobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(sample.native.unit));
+            const auto* spatial=entry.m_entityRef.QueryInterface<ZSpatialEntity>();
+            if (!jobs.healthy || !jobs.observed || jobs.outstanding!=1 || !spatial) { ++rejected;continue; }
+            const auto distance=coop::Distance(local.pos,ToTransform(spatial->GetObjectToWorldMatrix()).pos);
+            if (!std::isfinite(distance)) { ++rejected;continue; }
+            eligible.push_back({actor,npc,birth,distance});
+        }
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-pool","Selection audit eligible=%zu stale-birth=%zu rejected=%zu; two nearest conscious non-target NPCs; fresh restart required",eligible.size(),stale,rejected);
+        if (eligible.size()<m_SoloPoolTickets.size()) return;
+        std::sort(eligible.begin(),eligible.end(),[](const auto& a,const auto& b) {
+            return a.distance==b.distance?a.npc<b.npc:a.distance<b.distance;
+        });
+        const auto scope=NpcMutationGate::Begin();
+        m_SoloHoldUsed=true; m_SoloHoldTicket={};m_SoloHoldTicket.scope=scope;
+        if (!scope) { fail("exclusive scope unavailable");return; }
+        for(size_t i=0;i<m_SoloPoolTickets.size();++i) {
+            const auto& c=eligible[i];
+            if (!NpcMutationGate::Bind(scope,c.npc,c.actor,c.birth,1)) { fail("identity binding refused");return; }
+            m_SoloPoolTickets[i]=NpcMutationGate::Find(scope,c.npc,c.birth,1);
+        }
+        for(size_t i=0;i<m_SoloPoolTickets.size();++i) {
+            if (!NpcHoldArbiter::Watch(m_SoloPoolTickets[i])) { fail("fixed-scope hold watch refused");return; }
+            m_SoloPoolOwned[i]=false;
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-pool","Selected member=%zu name=%s distance=%.1fm birth=%llu",
+                i+1,NpcLabel(eligible[i].actor).c_str(),eligible[i].distance,static_cast<unsigned long long>(eligible[i].birth));
+        }
+        m_SoloHoldTicket=m_SoloPoolTickets[0];m_SoloHoldPhase=1;m_SoloHoldDeadline=m_Now+5.;
+    }
+    if (m_SoloHoldPhase<1 || m_SoloHoldPhase>3) return;
+    std::array<NpcActionPhase::Observation,2> samples{};
+    std::array<NpcActionProbe::UnitStats,2> jobs{};
+    // Validate BOTH identities before attempting this boundary's operations.
+    for(size_t i=0;i<m_SoloPoolTickets.size();++i) {
+        const auto& ticket=m_SoloPoolTickets[i];samples[i]=boundary.Observe(ticket.actor,ticket.npc,ticket.birth);
+        if (!samples[i].valid || !samples[i].native.coherent() || NpcHoldArbiter::ExternalCalls(ticket)) { fail("identity/flags changed or script control intervened");return; }
+        jobs[i]=NpcActionProbe::Inspect(reinterpret_cast<void*>(samples[i].native.unit));
+        if (!jobs[i].healthy) { fail("job tracking unhealthy");return; }
+        if (m_SoloHoldPhase<=2 && m_SoloPoolOwned[i] && !NpcHoldArbiter::OwnsHold(ticket)) { fail("owned hold was lost");return; }
+    }
+    if (m_SoloHoldPhase==1) {
+        bool allDrained=true;
+        for(size_t i=0;i<m_SoloPoolTickets.size();++i) {
+            if (!m_SoloPoolOwned[i]) {
+                if (samples[i].native.held()) { fail("member already held by game");return; }
+                if (!jobs[i].observed || jobs[i].outstanding!=1) {
+                    if (m_Now>m_SoloHoldDeadline) fail("member has no single observed job");
+                    return;
+                }
+                const auto result=boundary.SetHeld(m_SoloPoolTickets[i],true);
+                m_SoloPoolOwned[i]=result.changed && !result.previouslyHeld && NpcHoldArbiter::OwnsHold(m_SoloPoolTickets[i]);
+                if (result.state==NpcActionPhase::State::Refused || !m_SoloPoolOwned[i]) { fail("member native hold refused");return; }
+                allDrained=false; // Confirm on another native boundary.
+            } else if (!samples[i].native.held() || !samples[i].native.drained() || jobs[i].outstanding) allDrained=false;
+        }
+        if (allDrained) {
+            m_SoloHoldPhase=2;m_SoloHoldDeadline=m_Now+8.;
+            CoopLog::Info("npc-pool","HOLD confirmed for both members: owned flags, original jobs returned and cleared pointers; waiting 8 seconds");
+        } else if (m_Now>m_SoloHoldDeadline) fail("batch cancellation did not finish");
+    } else if (m_SoloHoldPhase==2) {
+        for(size_t i=0;i<samples.size();++i)
+            if (!samples[i].native.held() || !samples[i].native.drained() || jobs[i].outstanding) { fail("held member baseline changed");return; }
+        if (m_Now<m_SoloHoldDeadline) return;
+        for(const auto& ticket:m_SoloPoolTickets)
+            if (!NpcMutationGate::SetLocalOwner(ticket.scope,ticket.npc,ticket.birth,ticket.lease,true)) {
+                if (m_Now>m_SoloHoldDeadline+5.) fail("resume permission unavailable");
+                return;
+            }
+        for(size_t i=0;i<m_SoloPoolTickets.size();++i) {
+            const auto result=boundary.SetHeld(m_SoloPoolTickets[i],false);
+            if (result.state!=NpcActionPhase::State::Complete) { fail("member native resume unconfirmed");return; }
+            m_SoloPoolOwned[i]=false;
+        }
+        m_SoloHoldPhase=3;m_SoloHoldDeadline=m_Now+5.;
+        CoopLog::Info("npc-pool","RESUME flags confirmed for both members; waiting for two observed native jobs");
+    } else {
+        bool running=true;
+        for(size_t i=0;i<samples.size();++i) {
+            if (samples[i].native.held()) { fail("member held again after resume");return; }
+            running=running && samples[i].native.job && jobs[i].observed && jobs[i].outstanding==1;
+        }
+        if (running && NpcMutationGate::Clear(m_SoloHoldTicket.scope)) {
+            m_SoloHoldPhase=4;m_SoloHoldTicket={};
+            CoopLog::Info("npc-pool","PASS two-NPC native hold/resume: both new jobs observed; shared NPC control remains OFF");
+        } else if (m_Now>m_SoloHoldDeadline) fail("both native jobs did not restart or scope drain pending");
     }
 #endif
 }

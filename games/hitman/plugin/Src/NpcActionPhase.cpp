@@ -134,7 +134,7 @@ NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::
     if ((held && before.held() && before.drained() && !jobs.outstanding) || (!held && before.enabled()))
         return {State::Complete,false,before.held()};
     if (m_Config->arbitrateHolds) {
-        if (!NpcHoldArbiter::InstalledFor(m_Sites->actorControl) || !NpcHoldArbiter::Invoke(ticket.actor,held))
+        if (!NpcHoldArbiter::InstalledFor(m_Sites->actorControl) || !NpcHoldArbiter::Invoke(ticket,held))
             return {State::Refused,true,before.held()};
     } else reinterpret_cast<ActorControl>(m_Sites->actorControl)(ticket.actor,held);
     int32_t current=-1;

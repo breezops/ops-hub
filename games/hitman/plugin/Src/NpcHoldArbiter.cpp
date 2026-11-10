@@ -7,25 +7,61 @@
 
 namespace {
 using Native=void (*)(void*,bool);
-std::mutex g_Install;
+std::mutex g_Install,g_Watch;
 std::atomic<Native> g_Original=nullptr;
-std::atomic<void*> g_Watched=nullptr;
-std::atomic<uint64_t> g_External=0;
-std::atomic<bool> g_Installed=false,g_Owned=false,g_Busy=false,g_Armed=false;
+struct Record {
+    std::atomic<void*> actor=nullptr; // Release-publishes the immutable identity fields below.
+    uint64_t scope=0,npc=0,birth=0,lease=0;
+    std::atomic<uint64_t> external=0;
+    std::atomic<bool> owned=false,retired=false;
+};
+std::array<Record,NpcHoldArbiter::Capacity> g_Records{};
+enum class Mode { None, Legacy, Pool };
+std::atomic<Mode> g_Mode=Mode::None;
+uint64_t g_PoolScope=0; // Watch mutex only; no rebinding or cross-scene reuse.
+std::atomic<Record*> g_Current=nullptr;
+std::atomic<bool> g_Installed=false,g_Busy=false,g_Armed=false,g_Executed=false;
 std::atomic<uintptr_t> g_Stack=0;
 void* g_Entry=nullptr;
 bool g_Attempted=false;
 NpcHoldArbiter::Report g_Report;
 uintptr_t Stack() { return reinterpret_cast<uintptr_t>(reinterpret_cast<const NT_TIB*>(NtCurrentTeb())->StackBase); }
+Record* FindActor(const void* actor) {
+    if (!actor) return nullptr;
+    for(auto& record:g_Records) if (record.actor.load(std::memory_order_acquire)==actor) return &record;
+    return nullptr;
+}
+Record* Find(const NpcMutationGate::Ticket& ticket) {
+    auto* record=FindActor(ticket.actor);
+    return record && ticket.scope && record->scope==ticket.scope && record->npc==ticket.npc &&
+        record->birth==ticket.birth && record->lease==ticket.lease ? record : nullptr;
+}
 void Worker(void* actor,bool held) {
-    if (actor==g_Watched.load(std::memory_order_acquire)) {
+    if (auto* record=FindActor(actor)) {
         // Consume exactly one entry on the marked stack. A script recursively
         // invoking control inside the original is external, even on that stack.
-        const bool own=g_Busy.load(std::memory_order_acquire) && Stack()==g_Stack.load() &&
+        const bool own=g_Busy.load(std::memory_order_acquire) && g_Current.load()==record && Stack()==g_Stack.load() &&
             g_Armed.exchange(false,std::memory_order_acq_rel);
-        if (!own) ++g_External;
+        if (!own) ++record->external;
+        else {
+            // Refuse our own marked operation if interference was observed
+            // after Invoke's precheck. Every game/script call still runs.
+            if (record->retired || record->external) return;
+            g_Executed=true;
+        }
     }
     if (const auto original=g_Original.load(std::memory_order_acquire)) original(actor,held);
+}
+bool InvokeRecord(Record* record,void* actor,bool held,bool strict) {
+    if (!g_Installed || !record || record->retired || record->external || (!held && !record->owned)) return false;
+    bool idle=false;
+    if (!g_Busy.compare_exchange_strong(idle,true)) return false;
+    g_Current=record; g_Stack=Stack(); g_Executed=false; g_Armed=true;
+    reinterpret_cast<Native>(g_Entry)(actor,held);
+    const bool consumed=!g_Armed.exchange(false) && g_Executed.load();
+    if (consumed) record->owned=held;
+    g_Current=nullptr; g_Busy=false;
+    return consumed && (!strict || (!record->retired && !record->external));
 }
 }
 bool NpcHoldArbiter::Install(const CrashGuards::NpcBehaviorSites& sites) {
@@ -52,25 +88,51 @@ bool NpcHoldArbiter::Install(const CrashGuards::NpcBehaviorSites& sites) {
 }
 bool NpcHoldArbiter::Watch(void* actor) {
     if (!g_Installed || !actor) return false;
-    void* empty=nullptr;
-    return g_Watched.compare_exchange_strong(empty,actor);
+    std::lock_guard lock(g_Watch);
+    if (g_Mode!=Mode::None) return false;
+    g_Records[0].actor.store(actor,std::memory_order_release);
+    g_Mode=Mode::Legacy; return true;
 }
 bool NpcHoldArbiter::Invoke(void* actor,bool held) {
-    if (!g_Installed || !actor || g_Watched.load()!=actor || g_External.load() || (!held && !g_Owned)) return false;
-    bool idle=false;
-    if (!g_Busy.compare_exchange_strong(idle,true)) return false;
-    // No yielding game function runs between priming the exact-stack marker
-    // and entering the watched native entry; no TLS or mutex spans that call.
-    g_Stack=Stack(); g_Armed=true;
-    reinterpret_cast<Native>(g_Entry)(actor,held);
-    const bool consumed=!g_Armed.exchange(false);
-    if (consumed) g_Owned=held;
-    g_Busy=false;
-    return consumed;
+    if (g_Mode!=Mode::Legacy || g_Records[0].actor.load()!=actor) return false;
+    return InvokeRecord(&g_Records[0],actor,held,false);
 }
 bool NpcHoldArbiter::InstalledFor(const void* entry) { return g_Installed && entry==g_Entry; }
-uint64_t NpcHoldArbiter::ExternalCalls() { return g_External; }
-bool NpcHoldArbiter::OwnsHold() { return g_Owned; }
+uint64_t NpcHoldArbiter::ExternalCalls() { return g_Records[0].external; }
+bool NpcHoldArbiter::OwnsHold() { return g_Mode==Mode::Legacy && g_Records[0].owned; }
+bool NpcHoldArbiter::Watch(const NpcMutationGate::Ticket& ticket) {
+    NpcMutationGate::Pin pin(ticket);
+    if (!g_Installed || !pin) return false;
+    std::lock_guard lock(g_Watch);
+    if (g_Mode==Mode::Legacy || (g_PoolScope && g_PoolScope!=ticket.scope)) return false;
+    if (auto* existing=FindActor(ticket.actor)) return Find(ticket)==existing && !existing->retired;
+    for(auto& record:g_Records) if (!record.actor.load(std::memory_order_acquire)) {
+        record.scope=ticket.scope; record.npc=ticket.npc; record.birth=ticket.birth; record.lease=ticket.lease;
+        g_PoolScope=ticket.scope; g_Mode=Mode::Pool;
+        record.actor.store(ticket.actor,std::memory_order_release); return true;
+    }
+    return false;
+}
+bool NpcHoldArbiter::Invoke(const NpcMutationGate::Ticket& ticket,bool held) {
+    NpcMutationGate::Pin pin(ticket);
+    if (!pin) return false;
+    if (g_Mode==Mode::Legacy && g_Records[0].actor.load()==ticket.actor)
+        return InvokeRecord(&g_Records[0],ticket.actor,held,false);
+    if (!held && NpcMutationGate::BlocksInteraction(ticket.actor)) return false;
+    return g_Mode==Mode::Pool && InvokeRecord(Find(ticket),ticket.actor,held,true);
+}
+uint64_t NpcHoldArbiter::ExternalCalls(const NpcMutationGate::Ticket& ticket) {
+    const auto* record=Find(ticket);
+    return record?record->external.load():UINT64_MAX;
+}
+bool NpcHoldArbiter::OwnsHold(const NpcMutationGate::Ticket& ticket) {
+    NpcMutationGate::Pin pin(ticket);
+    const auto* record=Find(ticket);
+    return pin && record && record->owned && !record->retired && !record->external;
+}
+void NpcHoldArbiter::Invalidate(const void* actor,uint64_t birth) {
+    if (auto* record=FindActor(actor);record && birth && record->birth==birth) record->retired=true;
+}
 NpcHoldArbiter::Report NpcHoldArbiter::Installation(MinHookDiagnostics::LayoutTag<sizeof(Report)>) {
     std::lock_guard lock(g_Install); return g_Report;
 }

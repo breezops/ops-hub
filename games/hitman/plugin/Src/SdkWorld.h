@@ -81,6 +81,7 @@ public:
     void MarkPartyNpcJobAttachment() { m_NpcJobAttachmentMark=m_NpcActorBirths.Mark(); }
     void ArmSoloNpcHold() { m_SoloHoldRequested=true; }
     void StepSoloNpcHold(NpcActionPhase::Boundary&);
+    void StepSoloNpcPool(NpcActionPhase::Boundary&);
     // nativeContract is this PC's native ContractSessionId, never a room/peer
     // value. The future adapter must obtain it before acknowledging readiness.
     bool BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract);
@@ -609,6 +610,8 @@ private:
     bool m_SoloHoldRequested=false,m_SoloHoldUsed=false,m_SoloHoldOwned=false;
     unsigned m_SoloHoldPhase=0;
     double m_SoloHoldDeadline=0;
+    std::array<NpcMutationGate::Ticket,2> m_SoloPoolTickets{};
+    std::array<bool,2> m_SoloPoolOwned{};
     struct NpcNativeEvent { uint64_t scope; uint32_t actor; bool killed; std::string contract; };
     std::deque<NpcNativeEvent> m_NpcNativeEvents;
     bool m_NpcEventOverflow=false;

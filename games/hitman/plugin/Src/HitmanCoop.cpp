@@ -228,8 +228,8 @@ void HitmanCoop::SaveBugReport(const std::string& p_Diagnostics) {
 }
 
 HitmanCoop::~HitmanCoop() {
-    NpcActorDestructionObserver::Stop(); // Drain pointer callbacks before destroying the birth book.
-    NpcActionObserver::Stop(); // Detach our context before any world/session state is destroyed.
+    NpcActionObserver::Stop(); // Deactivate/drain native control while birth invalidation still runs.
+    NpcActorDestructionObserver::Stop(); // Then detach pointer callbacks before destroying the birth book.
     PoseHook::Uninstall();
     CrashGuards::Uninstall();
 
@@ -1470,7 +1470,11 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const auto lifetime=m_GameVersion=="3.290.1" && m_Unsupported.empty()
             ? NpcActorLifetimeSites::ResolveMainModule() : NpcActorLifetimeSites::Sites{};
         const bool destruction=lifetime && NpcActorDestructionObserver::Install(lifetime,&m_World,
-            [](void* world,void* actor) noexcept { return static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionEntry(actor); },
+            [](void* world,void* actor) noexcept {
+                const auto birth=static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionEntry(actor);
+                NpcHoldArbiter::Invalidate(actor,birth);
+                return birth;
+            },
             [](void* world,const void* actor,uint64_t birth) noexcept { return static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionReturn(actor,birth); });
         const auto destructionReport=NpcActorDestructionObserver::Installation();
         CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only destruction observer installed=%d sites=%d stage=%s status=%d; physical retirement UNKNOWN",
@@ -1507,6 +1511,9 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const auto holdReport=NpcHoldArbiter::Installation();
         traceAllocation("hold-arbiter",holdReport.allocations,holdReport.status);
         CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Native hold arbiter installed=%d stage=%s status=%d; private solo cycle requires F8 after a fresh native restart",arbiter?1:0,holdReport.stage,holdReport.status);
+#ifdef COOP_NPC_POOL_DIAGNOSTICS
+        CoopLog::Info("npc-pool","Private two-NPC prototype enabled; F8 selects two nearest eligible NPCs after native restart; one cycle per process");
+#endif
         if (arbiter) {
             observerConfig.controlValidate=[](void* context,const NpcMutationGate::Ticket& ticket,int32_t& runtime) {
                 return static_cast<HitmanCoop*>(context)->m_World.ValidatePartyNpcAtActionBoundary(ticket,runtime);

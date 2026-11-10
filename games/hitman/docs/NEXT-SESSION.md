@@ -1,214 +1,91 @@
 # Next HITMAN work
 
-## Current checkpoint
+## Workspace and preserved releases
 
-Canonical workspace: M:\ChatGPT Projects. Public multiplayer remains OPS 0.1.3 / preview.4. Preserve it, Foundation 4.1 and all immutable private candidates.
+Use M:\ChatGPT Projects. Repo ops-hub, branch codex/hitman-npc-authority,
+draft PR7. Public OPS0.1.3/nativepreview.4 remains unchanged. Preserve
+Foundation4.1, Hold-3 and every immutable diagnostic. Private packages are not
+published to the site. Stray stays separate. No screen capture; keep SDK and
+mod notifications/sounds OFF. Complete builds before asking user to launch.
 
-Earlier private OPS 0.1.6 / native preview.4.action.2 established the solo action observer. Its first run passed 14 native action audits: 10 before and 4 after restart, all 83 NPCs matched with locked actor lists, no rejected/untracked IDs, no conflicting flags and healthy observation. The user knocked out a guard and changed outfit before restarting. Constructor watermark 99 -> 198, the same SDK thread, and a final native-loop count of 8,340. This earlier run established read-only validation; see the later Hold-3 result below for local hold/resume. Shared world control remains untested.
+## Validated native foundations
 
-Action.1 failed in hook creation despite valid live sites, entry bytes, successful module pinning and initialized MinHook. Its exact return code was not saved. Action.2 waits for loaded Freeform and records precise failure stages; it installed successfully in the tested run. Do not attribute the original observer refusal to disk space. The user's disk-space concern described the earlier game crash. Storage has been moved/freed separately.
+Hold-3 passed one local native hold/drain/eight-second hold/resume/new-job cycle.
+Lifetime-1 passed observed old-job cuts over two native restarts. Lifetime-2
+passed destruction-entry invalidation for99actors per restart. Lifetime-3
+passed exact per-birth body returns: both cuts captured99identities and matched
+99entries/99body returns, zero completion rejection/unknown actors, old observed
+jobs0. Twelve paired healthy audits retained83NPCs across constructor marks
+99->198->297. Final273entries/190returns/83jobs, loop6425. Full evidence in
+research/checks/playtest-23-solo-lifetime-3 and OPSHUB-LAUNCHER.md. Game closed.
+Do not repeat those unchanged restart-observation tests.
 
-The source and preserved ZIP/checksum for action.2 are on M:. The user test folder is R:\Hitman COOP test\HITMAN-Coop-Action-2 and includes exact public 0.1.3 rollback. No site release was published. Do not repeat the same identity/read-only test without a regression or new uncertainty.
+Pointer-only cuts include live identities and already-pending bodies, bind
+unique book instance/prune epoch, and refuse lost/pruned evidence. Old returns
+cannot complete a replacement at the same address. These are observations of
+captured actors and native jobs, not all-producer closure, optional free or an
+engine worker barrier. ConfirmNpcSceneRetired, pruning and guest readiness
+remain unbound. SDK ClearScene dispatch remains Continue; do not wrap its
+CallOriginal inside a plugin callback while the SDK detour-list lock is held.
 
-## Latest live result: Hold-3 passed one solo cycle
+## Current private candidate: Pool-1
 
-All three verified absolute-entry hooks attached successfully. After native
-Restart, all 83 fresh NPCs had observed jobs. F8 selected Ewan Roberts
-(civilian), birth 131, 1.62m away. HOLD confirmed original job return plus clear
-action/task/job pointers at 12:43:41; RESUME flags confirmed at 12:43:49 and a
-new job was observed 25ms later. During hold: 82 outstanding, one held/drained.
-After resume: 83 outstanding, zero held, healthy matched identities through
-three subsequent audits. Full log/result: research/checks/playtest-20-solo-hold-3.
-The game is closed. This validates one local native cycle, not physical actor
-retirement, every hold source, multiplayer synchronization or visual patrol.
+OPS0.1.16/native preview.4.pool.1, diagnostics/pool-1. Check research journal for
+completed SDK/package/delivery receipts before prompting. Uses existing retained
+action bridge, NpcActionPhase::Boundary, mutation gate, identity/birth/slot/job
+validation and actor-control entry. Adds per-actor fixed-scope ticket watches
+(up to500immutable slots) to the existing hold arbiter. Legacy single-actor
+mode is retained/tested and cannot mix with pool mode. Interference, owned hold,
+retirement and exact scope/NPC/birth/lease are tracked separately for each actor.
+Game calls pass through; only our marked call may be refused. Ticket resume
+requires a current local-owner grant. No mutex spans yielding native code.
+Destruction invalidates the matching watch. No address/lease/scope rebinding in
+this prototype. It does not serialize every external native call or establish
+all hold sources/cross-thread ordering.
 
-Next engineering: review native scene-clear/actor retirement and lifetime
-admission before wiring restricted guest NPC authority. Keep the proven solo
-primitive and normal multiplayer package preserved. Do not repeat the unchanged
-F8 test; another test should address a specific new boundary or regression.
+The solo prototype selects TWO nearest eligible conscious non-target NPCs after
+a fresh native restart. It binds/watches both before native control, validates
+both identities each boundary, confirms owned native flags plus job returns and
+cleared pointers for both, waits8seconds, grants local resume permission, resumes
+both and confirms their new observed jobs. One cycle per process. F8 only.
+Pre-existing holds/downed/target/untracked/stale actors excluded. Partial failure
+stops further native control and requires quitting; never automatically resume
+a game-owned hold. No whole-scene preparation or network NPC binding enabled.
+Shutdown drains control before detaching actor destruction observation.
 
-## Completed private checkpoint: Lifetime-1 read-only restart evidence
+Both normal/absolute native configurations pass44CTest processes, including
+independent owners/script collisions, recursive other-actor interference,
+retired/address reuse/stale lease/scope/capacity refusal, owner-grant resume and
+ticket-bound retained fiber cancellation/resume. SDK controller live behavior
+remains unvalidated until Pool-1's solo test. Shared sources/headers finalized
+before SDK build; no mixed-layout objects.
 
-OPS0.1.13 / native preview.4.life.1, recipe diagnostics/lifetime-1. Check journal
-for completed build/package/delivery receipts before prompting. One observed
-invocation per serial now distinguishes old returns from new/reused unit work.
-Pre-clear cuts persist across world resets with bounded process-unique tokens.
-No ClearScene CallOriginal wrapper: SDK holds a shared detour-list lock inside
-plugin callbacks; keep Continue and unchanged native dispatch. Native-return and
-physical retirement remain UNKNOWN. No ConfirmNpcSceneRetired/birth pruning.
+## Next user test
 
-Live run passed both native restarts. Eleven paired action/job audits (5+3+3)
-matched all83 NPCs with healthy identities and no rejected/untracked/conflicting
-flags. Constructor marks99 ->198 ->297. Valid cuts3/4 each reported old observed
-pending0 with healthy book/probe; frontend cuts1/2 stayed invalid as expected.
-Native restart first samples94entered/94returned/0outstanding and184/184/0;
-each new mission settled83jobs. Final271entered/188returned/83outstanding,
-loop5992. Saved research/checks/playtest-21-solo-lifetime-1/Host.log/result.json.
-Game closed. Do not repeat this unchanged diagnostic. This is observed job
-return evidence, not actor destruction, native ClearScene return or an engine
-worker barrier. Next: identify/verify a native lifetime boundary using local
-engine code/call relationships and read-only analysis before binding retirement
-confirmation, birth pruning or shared guest admission. Preserve Hold-3/life.1.
+Close old launcher, open R:\Hitman COOP test\HITMAN-Coop-Pool-1, Install/Repair,
+Launch, soloFreeformwait15sreplyinmission. Confirm all FOUR job/action/destruction/
+hold-arbiter hooks installed plus83healthy identities. Pool/HOLD/DESTRUCTION/
+LIFETIME/IDENTITY/ACTION flags ON; absolute backend ON. Do not assume legacy
+protocol19 header is party protocol; party remains2, UDP47047.
 
-## Completed live checkpoint: Lifetime-2 destruction-entry observer
+After startup confirmed: nativeRestart ONCE, stay near entrance, F8 ONCE with
+game focused, wait30seconds without interactions/pause/restart, quit normally.
+No walking guard, knockout, disguise, host/join/Ready or friend needed. The log
+names both selected NPCs. Standing visuals may look unchanged. Check both
+owned holds/drained jobs and both new jobs, not just flags or global counts.
+If startup/refusal fails, diagnose; do not ask repeated unchanged retries.
 
-OPS0.1.14/native preview.4.life.2, recipe diagnostics/lifetime-2. Check journal
-for final build/package/delivery receipts. Strict constructor/vtable/deleting-
-wrapper/body relationships resolved in installed executable as data. Pointer-only
-destruction entry callback invalidates the current birth, with tombstones and
-fresh address-reuse births. It runs outside SDK clear callbacks and releases its
-book/client locks before native body execution. Pinned retained observer; Stop
-detaches/drains pointer callbacks only. Normal/absolute suites each35processes.
-No retirement confirmation, lifetime pin, birth pruning or shared NPC admission.
+## Direction after local batch validation
 
-Live Lifetime-2 passed both native restarts. Destructor audits99entered/99returned/
-99invalidated/0unknown then198/198/198/0. All3observers attached. Eleven paired
-healthy audits (5+3+3),83matched/no rejected/untracked/conflicting IDs. Fresh
-constructor marks99->198->297. Valid old-job cuts3/4pending0; separate restart
-zero samples94entries/94returns and184/184. New missions settled83jobs; final
-271entries/188returns/83outstanding, loop5980. Full log/result saved at
-research/checks/playtest-22-solo-lifetime-2. Game closed. Do not repeat unchanged.
+Continue native pool preparation/control and then restricted two-PC authority/
+apply using existing party/core, not a replacement multiplayer framework. This
+prototype controls two actors locally; it is not PrepareNpcScene proof. Larger
+pool admission, actors entering later, native lifetime/retirement recovery,
+canonical life/interaction application and multi-player NPC perception still
+need bindings. Existing stand-ins are deliberately unseen by NPCs.
+Two PCs are routine; use3/4for roster/fan-out/seat reuse/disconnect checks.
 
-This validates pointer-only destruction ENTRY invalidation live; global body
-return counts do not prove exact per-birth completion, optional free, worker
-barrier or whole-scene retirement. Next build per-identity lifetime/admission
-evidence around the proven birth invalidation/job cuts before confirming native
-scene retirement or enabling restricted guest NPC preparation. No pruning or
-ConfirmNpcSceneRetired binding from these counters. Preserve all prior packages.
-
-## Completed live checkpoint: Lifetime-3 exact per-birth completion evidence
-
-OPS0.1.15/native preview.4.life.3, diagnostics/lifetime-3. Check journal for final
-SDK/package/delivery receipts. Birth-keyed body-return records prevent an old
-return completing a new actor at the same address. Cuts include live identities
-and already-pending bodies, bind unique book instance/prune epoch, and lose
-validity when their evidence is pruned. Stop clears entry+completion callbacks;
-no client pointer/lock spans native body. Both native configurations37processes.
-
-Live Lifetime-3 passed both native restarts: valid cuts3/4 each captured99
-identities with99destructor entries and99exact body returns, old observed jobs0.
-Completed-birth counters99then198, zero completion rejection/unknown actors.
-Twelve paired action/job audits (6+3+3) matched83healthy NPCs without rejected/
-untracked/conflicting IDs. Constructor marks99->198->297. Restart zero samples
-96entries/96returns and186/186; newmissions settled83jobs. Final273/190/83,
-loop6425. Full log/result at research/checks/playtest-23-solo-lifetime-3.
-Game closed. Do not repeat this unchanged restart observation diagnostic.
-
-This validates exact receipts for the captured sets. Separately sampled cuts
-do not close future producers or prove optional free/all-worker/whole-scene
-retirement. No preparation/readiness/pruning/retirement binding is enabled.
-
-Next retain fail-closed admission and focus native
-pool preparation/control bindings toward a restricted two-PC NPC test. Reuse
-existing NpcActionPhase, mutation gate, ownership arbiter and party transport;
-do not replace the working movement/launcher foundations or promise full scene
-retirement from these read-only observations alone.
-
-## Immediate engineering step — solo remains sufficient
-
-Hold-2 startup failed before selection: job/action creation status 9, hold
-arbiter not attempted. Actual reports showed no VirtualAlloc/heap attempts,
-zero near candidates. Read-only live scans at all three verified entries found
-1,212,416 free bytes but zero aligned 4K candidates within both +/-1GiB and
-+/-2GiB-minus64K; largest free extent 61,440 bytes. The already-built inspector
-resolved all site relationships and the live prefixes matched. Saved evidence:
-research/checks/playtest-19-solo-hold-2. User closed the game normally. This is
-an allocation-location failure, not a tested NPC control or selection result.
-
-Hold-3 (OPS 0.1.12 / preview.4.hold.3) adds opt-in verified absolute entries.
-COOP_MINHOOK_ABSOLUTE_ENTRIES generates a documented local MinHook derivative
-without editing pinned originals. It allocates pages anywhere, patches fourteen
-bytes with a register-preserving absolute jump, copies whole instructions and
-keeps upstream thread/IP mapping. Unknown prefixes, relative/RIP-based stolen
-instructions and short/hot-patch entries are refused. Normal backend defaults
-remain unchanged. All 28 absolute-mode and all 28 normal-mode CTest processes
-pass, including a forced far trampoline with the entire nearby 4GiB reserved,
-original execution and exact restoration, concurrent installation and existing
-native cancellation/ownership refusal cases. Check journal for final SDK build,
-package/delivery receipts. The subsequent live result above confirms attachment.
-
-Completed startup procedure (do not repeat unchanged): Hold-3 Install/Repair, solo Freeform, wait 15 seconds, reply in
-mission and leave running. Check backend=absolute-14-verified-prefix plus all
-three attachments/healthy audits before asking for Restart/F8. Then reuse the
-standing entrance NPC, not a walking guard; wait 25 seconds and quit normally.
-Hold-1 live startup attached all three hooks, but two F8 requests selected no
-actor. The user was next to the standing entrance NPC working over oil, and
-could not reach a walking guard without a knockout. Do not require a walking
-guard or blame the user's positioning. That NPC may be a mechanic/civilian;
-the role-filter explanation is not established by the coarse Hold-1 log.
-Saved checks/playtest-18-solo-hold-1/Host.log and result.json. No native hold ran.
-
-Hold-2 (OPS 0.1.11 / preview.4.hold.2) allows the nearest conscious non-target
-native NPC, including civilians, while preserving all birth/identity/scheduled
-slot/job/ownership gates. A selection audit counts exact rejection stages and
-nearest eligible distance. Check journal for build/package/delivery receipts.
-Startup: install Hold-2, solo Freeform, wait 15 seconds, reply in mission, leave
-running. After all three attachments are confirmed: native Restart once,
-approach the standing entrance NPC within 8m, F8 once, wait 25 seconds, quit.
-No knockout/disguise or reaching another guard is needed. Standing visuals may
-look unchanged; judge native hold/return/resume from the log. No repeated blind F8.
-
-Private Hold-1 (OPS 0.1.10 / preview.4.hold.1) now implements the first limited
-local cycle. Check the research journal for final build/package/delivery receipts
-before asking the user to launch. Recipe: diagnostics/hold-1. The user is ready
-to test when preparation is finished; HITMAN was left closed. No friend needed.
-
-The retained action bridge reuses NpcActionPhase::Boundary with per-boundary
-immutable configuration. It admits an optional control callback under the short
-observer mutex, releases that mutex, then runs control with an atomic in-flight
-context pin. Stop deactivates admission and drains both callback types before
-client destruction; never call Stop from inside either callback. Private SDK
-control rejects OnFrameUpdate reentry and releases its session try-lock before
-calling native control. No legacy custom loop hook is stacked on the observer.
-
-Native hold arbitration is a pinned pass-through hook on the verified actor
-setter. Watch is one actor per process, never rebound. Our exact-stack marker
-is consumed once; external/recursive calls count as interference and refuse
-subsequent controller calls. Game setter calls are never suppressed. Existing
-holds are refused. This does not establish all native hold sources, cross-thread
-ordering, physical actor retirement or multiplayer readiness.
-
-Startup only: install Hold-1, load solo Freeform, wait 15 seconds, reply in mission.
-Confirm job, action and hold-arbiter attachment before further steps. Then native
-Restart Mission once, approach a conscious walking guard within 8m (closest
-guard), press F8 once with HITMAN focused. The test requires a fresh birth after
-attachment, scheduled fresh identity/slot and exactly one observed active job.
-It confirms held flags + native job return + cleared pointers, holds 8 seconds,
-resumes only its owned hold, and verifies a new native job. User watches for
-15 more seconds, quits normally and reports stop/resume/other NPC behavior.
-Do not attack, disguise, pause or restart during the cycle. One selected actor
-per process. Refusal/failure logs explain why; never repeat F8 blindly.
-
-All 28 SDK-free native CTest processes pass, including new retained fiber
-cancellation/resume, shutdown without the observer mutex, wrong stack/identity,
-external/recursive script holds and integrated arbitration. Player build must
-omit fixture fault injection. The private flag defaults OFF; public OPS 0.1.3
-and prior immutable candidates remain untouched. Hold-1 has no live result yet.
-Startup checks matter because intermittent allocation reliability is unproven.
-
-OPS 0.1.9 / preview.4.action.5 passed its first complete native job-observation test. Both hooks installed with consistent allocation reports. Eighteen paired action/job audits (7 + 7 + 4 across constructor marks 99, 198, 297) stayed healthy, with all 83 NPCs matched, actor lists locked, zero identity rejections/conflicts and zero native job pointers without an observed active entry. The first restart was sampled at entered=returned=97, outstanding=0. The second restart's first sample already had one job: entered=199, returned=198, outstanding=1. Do not invent an observed zero barrier there. Each new mission settled back to 83 outstanding jobs; no sampled cumulative outstanding-work growth. Last counters 289 entered, 206 returned, 83 outstanding, loop calls 10,940.
-
-During knockout/disguise, one native held flag was observed, with matching unit/actor flags and 82 active jobs. This is game/script-owned behavior: our controller must never resume an NPC merely because it is held. Saved full log/result: research/checks/playtest-17-solo-action-5, SHA 78fa806992b80736c84793f5474e1ae39589ba1f7b87eca2a5af711d0d889590. User finished and closed the game. No repeat of this completed observer test is needed.
-
-1. Reuse the verified cancellation/cleanup/dispatch relationships, NpcActionPhase control primitive, birth tracking and mutation gate for a limited one-NPC local hold/resume binding. The retained observation callback currently holds its callback mutex plus a session try-lock while reading. Do not invoke a yielding/cancelling native control operation under either lock, and do not stack the legacy custom action-loop patch on the existing retained observer patch. Establish one retained entry bridge with an explicit validated control phase and safely detached client lifetime before enabling control.
-2. Bind each selected operation to fresh actor identity, constructor birth, exact table slot and scene/scope/lease. Preserve explicit unknown coverage for pre-attachment jobs and reused unit addresses. Observed job returns across restart are useful evidence but not an engine physical-retirement acknowledgement. SDK pre-clear remains insufficient; never acknowledge multiplayer NPC readiness from it.
-3. Distinguish controller-owned holds from game/script-owned holds. Refuse an already-held actor. Confirm native job completion/cancellation and agreed native flags before acknowledging hold; resume only the same hold owned by the controller and the same still-valid actor generation. Scene clear, actor replacement, mismatched flags or untracked work must refuse safely.
-4. Prepare a separately versioned one-NPC solo hold/resume candidate with the exact public 0.1.3 rollback only after the boundary/lifetime/refusal fixtures pass. Verify native job return and patrol resumption, not only a Boolean or empty pointers. Two/four PCs are unnecessary for this step.
-
-The original intermittent MinHook allocation refusal is not proven fixed by one successful Action-5 run. Keep exact allocation tracing; confirm attachment before every new live control test. Fix the cosmetic AllocationPath classification: a successful creation using an existing near page/table currently says no-near-code-candidate because it allocated nothing. Only classify that as a failed search when actual status is MH_ERROR_MEMORY_ALLOC. No reinstall is needed solely to repeat that diagnostic label.
-
-Action-4 is withdrawn: it mixed shared report layouts during concurrent edits/build. Its allocation telemetry is invalid. Action-5 clean build froze finalized headers before compilation and added sizeof-based LayoutTag linker guards. The matching-layout fixture links/runs; stale 80-byte layout is rejected. All 20 native processes, SDK ABI, package installer/rollback/updater staging and archive/payload/vendor integrity checks passed. Preserve all immutable artifacts and public OPS 0.1.3. No control or physical lifetime proof has been claimed.
-
-## First shared-NPC test — two PCs
-
-After local control/lifecycle bindings are verified, connect host-authority capture and guest preparation/apply through the existing party/core. Begin with a restricted Freeform test of host patrol movement, knockout and death replication. Verify guest-native behavior and interaction protection before admitting guest actions. Existing stand-ins are deliberately unseen by NPCs; host authority alone does not solve multi-player perception.
-
-Then add guest actions, simultaneous interactions and restart/rejoin recovery. Keep two PCs as the routine development setup. Use three/four for roster, fan-out, seat reuse and disconnect/late-join checks after the same core is stable. No shared extraction/objective system is required merely to label and run the initial restricted NPC test, but do not call that full co-op gameplay.
-
-## Product direction
-
-Host-controlled persistent party, native mission selection/restart and automatic admission remain the target; manual Ready/Start is temporary. Prefer native menus and use launcher mission controls as a fallback. Shared objectives/extraction and the complete mission loop remain later bindings.
-
-The optional pause rule is unanimous explicit pause by admitted mission players, resuming on any unpause while leaving other menus open. Focus loss, tutorials and map screens are not votes. Keep this separate from native NPC holds, and flag any large UI/engine detour before expanding it.
-
-Finish compilation before launching the game. Use no screen capture. The already-built coop_npc_site_inspector --pid mode has now passed against the running game and is available for future read-only diagnosis.
+Product target remains4players, host-controlled persistent lobby and native
+mission/restart following, automatic admission rather than manual Ready/Start,
+then shared objectives/extraction. Unanimous explicit pause is optional and
+separate; focus loss/tutorials/map are not votes. Avoid a major pause detour.

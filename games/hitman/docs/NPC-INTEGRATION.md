@@ -752,3 +752,35 @@ cover already-pending bodies, wrong/duplicate returns, book address reuse,
 pruned evidence, survivor cuts and bounded history refusal. Stop-during-native
 now includes a registered completion callback and a destroyed client. SDK and
 package checks/receipts belong to the separately versioned private Lifetime-3.
+
+
+## Pool-1: two-NPC local control prototype
+
+The existing native hold arbiter now has separate legacy and ticket-bound pool
+modes. Fixed process-lifetime slots publish immutable scope/NPC/birth/lease
+metadata through the actor pointer. Native calls observe atomic per-actor
+interference, owned state and retirement. The exact-stack one-shot marker also
+binds the current record, so recursively controlling another watched actor is
+external for that actor. Every game call passes through. Our own marked call
+can be suppressed if retirement/interference was observed since its precheck.
+Ticket operations pin the current mutation binding; resume additionally requires
+local-owner permission. Pool records never evict/rebind addresses, leases or
+scopes. Native destructor ingress retires the exact matching birth watch.
+This does not close all native hold writers or arbitrary cross-thread races.
+
+NpcActionPhase::SetHeld reuses this ticket path, with the legacy mode preserved.
+The private COOP_NPC_POOL_DIAGNOSTICS flag requires hold/destruction diagnostics
+and defaults OFF. A solo F8 cycle selects two nearest fresh eligible non-target
+NPCs, binds/watches both, confirms each owned native hold/job drainage, waits8s,
+resumes each with a local-owner grant and confirms two new jobs. It does not
+change the native scheduling span, skip the original loop, admit network actors
+or implement whole-scene preparation. Partial failure stops rather than resuming
+an uncertain hold; this fixed-scope prototype requires a new process to retry.
+Control callbacks drain before destruction observation is stopped at shutdown.
+
+Normal and absolute native suites each pass44processes: six new pool-arbiter
+cases cover independent ownership/collision, nested other-actor script calls,
+retired/reused/stale bindings, capacity, owner-grant resume and recursive same-
+actor interference; a retained native fiber case validates ticket-bound cancel/
+resume. Existing legacy/control/lifetime cases remain passing. SDK live batch
+behavior is a separately versioned Pool-1 test; see its recipe and journal.
