@@ -1472,6 +1472,9 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const bool destruction=lifetime && NpcActorDestructionObserver::Install(lifetime,&m_World,
             [](void* world,void* actor) noexcept {
                 const auto birth=static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionEntry(actor);
+#ifdef COOP_NPC_CATALOG
+                static_cast<SdkWorld*>(world)->InvalidateCatalogNpcPose(actor,birth);
+#endif
                 NpcHoldArbiter::Invalidate(actor,birth);
                 return birth;
             },

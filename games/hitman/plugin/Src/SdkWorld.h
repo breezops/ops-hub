@@ -95,6 +95,10 @@ public:
     bool ApplyNpcBaseline(uint64_t id,const coop::PartyNpcState&) override;
     bool ResumeNpc(uint64_t id) override;
     bool CaptureNpc(uint64_t id,coop::PartyNpcState&) override;
+    bool CaptureNpcPose(uint64_t id,coop::Pose&) override;
+    bool PresentNpcPose(uint64_t id,const coop::Pose&) override;
+    void ClearNpcPresentationPose(uint64_t id) override;
+    void InvalidateCatalogNpcPose(const void* actor,uint64_t birth) noexcept;
     void StepPartyNpcCatalog(NpcActionPhase::Boundary&);
     void SetNpcCatalogHost(bool host) { m_CatalogHost=host; }
 #endif
@@ -627,6 +631,15 @@ private:
         std::optional<coop::PartyNpcState> baseline, receipt;
     };
     CatalogActor* FindCatalogActor(uint64_t id);
+    struct CatalogPoseBinding {
+        NpcMutationGate::Ticket ticket;
+        void* animator=nullptr;
+        bool source=false, reported=false;
+    };
+    CatalogPoseBinding* BindCatalogAnimator(const NpcMutationGate::Ticket&,bool source);
+    void RefreshCatalogPoseSources();
+    std::array<CatalogPoseBinding,2> m_CatalogPoseBindings;
+    std::mutex m_CatalogPoseMutex;
     bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&);
     void RefuseNpcCatalog(const char* reason);
     std::string NpcCatalogError() const;

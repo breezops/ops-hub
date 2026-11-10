@@ -103,7 +103,70 @@ Catalog-1 is staged for the first live test at
 the SDK ABI check, synthetic installation and exact OPS 0.1.3 rollback, and
 archive and delivered payload verification. ZIP SHA-256
 `ec1f74151fd35826f8fb84adadb0dd717834829e9e47d53d6ccfacd3bb16a55d`.
-Live movement and stability of the two guest actor transforms are pending.
+OPS HUB now serves 0.1.17 through the launcher update channel.
+
+## Catalog-1 live result
+
+Both PCs matched Terry Norfolk (`c174e1bfd2f4a861`) and Joseph Harding
+(`c827956846e4ffa1`) and confirmed both initial holds and the same starting
+positions. The host resumed both native jobs. Later audits still showed both
+actors held and drained on the guest while the host ran their simulation.
+The guest saw Terry turn toward the host. Terry ended his phone idle on the
+host, while the guest still saw the phone pose and prop. Longer walking paths
+and Joseph's movement were not exercised. The logs record the stand-in's
+perceptibility guard on both PCs. The guest could not elicit the host's reaction.
+Both logs are preserved locally in `research/checks/playtest-25-two-pc-catalog-1`.
+
+### Reuse from the original two-player tests
+
+The original test ran upstream 0.13.94 beta, protocol 16. Foundation 1–3
+extended that same two-player session. The beta host log records live NPC pose
+traffic, ownership changes in both directions and replicated alert floors. The
+existing `WatchNpcPoses`, `GetNpcPose`, `ShowNpcPose` and `ClearNpcPose` paths use
+the same `PoseHook` for animated NPCs. The first Catalog follow-up can reuse that
+capture and playback with the packed `MsgNpcPose` codec and the existing pose
+buffer. Start with full poses for the two catalog actors. A full 256-bone frame
+uses 1,055 bytes before the party envelope, within the current payload budget.
+Bind reads and writes to each catalog ticket's actor birth and current animator.
+Accept the current owner's frames within the current room epoch and clear the
+animator override on scope stop, actor retirement or a stale stream. Verify
+guest body and hand motion during Terry's phone idle transition. Check phone
+visibility independently. The legacy held-item path scans Agent 47's inventory
+and supplies a repository item to the partner avatar. Terry's scripted prop
+needs a native binding if it persists after pose playback.
+
+The beta let either local Agent 47 affect NPCs. The host assigned a calm NPC to
+the nearer player, used contact and chase exceptions, and kept alert NPCs with
+their current simulator. The avatar stand-ins had the same unseen guard in the
+first beta test. The existing alert-floor path capped mirrored tension, allowing
+one PC to show suspicion while the other was caught. Use this as the precedent
+for the party's nearest-player policy. The party already models acknowledged
+release, prepare and commit. Catalog-1's native watches are fixed to one lease,
+and the live runtime still needs validated player-position input and native
+handoff support. A safe handoff should be verified with the guest's real local
+47 before tackling simultaneous perception of multiple players.
+
+Foundation 1 added corpse-state and drag fixes. Foundation 2's native nude-bit
+scan verified that the first outfit pickup disables taking the corpse's original
+outfit again. Its transform-only drag stream made the body follow, with an offset
+and a jump at the end of the locker animation. Foundation 3's paired logs verify
+native outfit-bag creation and pickup in both directions. Its drag tuning still
+caught on doorways. Preserve the native body, clothing and bag routines as
+building blocks and route later interactions through the party's scoped NPC
+authority. The first beta run confirmed host restart following on both PCs and
+recorded that extraction completed only for the host.
+
+## Catalog-2 pose test
+
+Catalog-2 reuses the legacy packed `MsgNpcPose` codec, pose buffer and animator
+hook for Terry and Joseph. The host sends independent full frames at up to
+12 Hz per actor. A guest accepts only host frames for its installed living
+catalog actors in the current epoch. The adapter binds exact actor births and
+animators, requires matching bone counts, and clears stale overrides and
+bindings before a matching actor's destructor body runs. The separate build
+identity prevents mixed Catalog-1 and Catalog-2 rooms. Guest-triggered NPC
+attention is outside this host-authority test. The first live pass should
+compare Terry's turn, arm and hand motion, and the phone prop itself.
 
 Product target remains4players, host-controlled persistent lobby and native
 mission/restart following, automatic admission rather than manual Ready/Start,

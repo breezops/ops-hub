@@ -48,8 +48,9 @@ struct PartyNpcOptions {
     // Private builds can bind a fixed catalog of stable entity IDs. All peers
     // in such a build must use the same catalog and a distinct room build ID.
     std::set<uint64_t> fixedCatalog;
+    bool streamPoses = false;
     bool ValidCatalog() const {
-        return fixedCatalog.empty() || (policy==PartyNpcPolicy::HostOnly &&
+        return fixedCatalog.empty() ? !streamPoses : (policy==PartyNpcPolicy::HostOnly &&
             fixedCatalog.size()<=capacity && !fixedCatalog.contains(0));
     }
     bool AcceptsNpc(uint64_t npc) const {
@@ -127,6 +128,9 @@ public:
     virtual bool ApplyNpcBaseline(uint64_t, const PartyNpcState&) = 0;
     virtual bool ResumeNpc(uint64_t) = 0;
     virtual bool CaptureNpc(uint64_t, PartyNpcState&) = 0;
+    virtual bool CaptureNpcPose(uint64_t, Pose&) { return false; }
+    virtual bool PresentNpcPose(uint64_t, const Pose&) { return false; }
+    virtual void ClearNpcPresentationPose(uint64_t) {}
 };
 class PartyNpcReplica {
 public:
@@ -138,6 +142,7 @@ public:
     void RetryPending(); // Actor/template may become available after its catalog entry.
     bool Pop(PartyNpcMessage&);
     bool Running(uint64_t npc) const;
+    bool PresentingHostNpc(uint64_t npc) const;
     bool Stopped() const { return m_Stopped; }
     bool Stop();
     bool StopConfirmed() const { return m_StopConfirmed; }

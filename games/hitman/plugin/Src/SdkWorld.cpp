@@ -2790,6 +2790,14 @@ SdkWorld::CatalogPreparation SdkWorld::PrepareNpcCatalog(const std::set<uint64_t
 
 void SdkWorld::StopNpcCatalog() {
     m_CatalogPhase=CatalogPhase::Stopped;
+    {
+        std::lock_guard lock(m_CatalogPoseMutex);
+        for (auto& binding:m_CatalogPoseBindings) {
+            if (binding.animator && !binding.source) PoseHook::ClearPoseFor(binding.animator);
+            binding={};
+        }
+        RefreshCatalogPoseSources();
+    }
     for (auto& actor:m_CatalogActors) { actor.baseline.reset(); actor.receipt.reset(); }
     if (m_CatalogScope && NpcMutationGate::Clear(m_CatalogScope)) m_CatalogScope=0;
 }
@@ -2866,6 +2874,85 @@ bool SdkWorld::CaptureNpc(uint64_t id,coop::PartyNpcState& state) {
     if (state.life==coop::PartyNpcLife::Alive && !state.stripped) return true;
     RefuseNpcCatalog("host NPC left living transform scope");
     return false;
+}
+
+void SdkWorld::RefreshCatalogPoseSources() {
+    std::array<void*,2> watched{};
+    size_t count=0;
+    for (const auto& binding:m_CatalogPoseBindings)
+        if (binding.animator && binding.source) watched[count++]=binding.animator;
+    PoseHook::SetWatched(std::span(watched).first(count));
+}
+
+SdkWorld::CatalogPoseBinding* SdkWorld::BindCatalogAnimator(const NpcMutationGate::Ticket& ticket,bool source) {
+    // m_CatalogPoseMutex serializes binding with the pre-destruction callback.
+    NpcMutationGate::Pin pin(ticket);
+    auto* actor=static_cast<ZActor*>(ticket.actor);
+    if (!pin || m_NpcActorBirths.Find(actor)!=ticket.birth || FindFreshPartyNpc(ticket.npc)!=actor || ActorDown(actor)) return nullptr;
+    auto* animator=AnimatorOf(actor);
+    const auto slot=std::find(m_CatalogIds.begin(),m_CatalogIds.end(),ticket.npc);
+    if (slot==m_CatalogIds.end()) return nullptr;
+    auto& binding=m_CatalogPoseBindings[slot-m_CatalogIds.begin()];
+    if (binding.animator==animator && binding.ticket.birth==ticket.birth && binding.source==source) return &binding;
+    if (binding.animator && !binding.source) PoseHook::ClearPoseFor(binding.animator);
+    binding={ticket,animator,source};
+    if (source) RefreshCatalogPoseSources();
+    return &binding;
+}
+
+bool SdkWorld::CaptureNpcPose(uint64_t id,coop::Pose& pose) {
+    auto* actor=FindCatalogActor(id);
+    if (!m_CatalogHost || !actor || actor->phase!=CatalogActorPhase::Running) return false;
+    std::lock_guard lock(m_CatalogPoseMutex);
+    auto* binding=BindCatalogAnimator(actor->ticket,true);
+    if (!binding || !PoseHook::WatchedPose(binding->animator,m_NpcPoseBones,true) || m_NpcPoseBones.size()<2) return false;
+    if (!binding->reported) {
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","First host pose captured entity=%016llx bones=%zu",
+            static_cast<unsigned long long>(id),m_NpcPoseBones.size());
+        binding->reported=true;
+    }
+    BonesToPose(m_NpcPoseBones,pose);
+    return true;
+}
+
+bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Pose& pose) {
+    auto* actor=FindCatalogActor(id);
+    if (m_CatalogHost || !actor || actor->phase!=CatalogActorPhase::Held || !actor->receipt ||
+        !NpcHoldArbiter::OwnsHold(actor->ticket) || NpcHoldArbiter::ExternalCalls(actor->ticket)) return false;
+    std::lock_guard lock(m_CatalogPoseMutex);
+    auto* binding=BindCatalogAnimator(actor->ticket,false);
+    if (!binding || !binding->animator) return false;
+    if (!binding->reported) {
+        const auto nativeCount=PoseHook::NativePoseOf(binding->animator,m_NpcPoseBones);
+        if (nativeCount) {
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","Guest animator observed entity=%016llx native=%u streamed=%zu",
+                static_cast<unsigned long long>(id),nativeCount,pose.rotations.size());
+            binding->reported=true;
+        }
+    }
+    PoseToBones(pose,m_NpcPoseBones);
+    return PoseHook::SetPoseFor(binding->animator,m_NpcPoseBones,true);
+}
+
+void SdkWorld::ClearNpcPresentationPose(uint64_t id) {
+    std::lock_guard lock(m_CatalogPoseMutex);
+    for (auto& binding:m_CatalogPoseBindings) {
+        if (binding.ticket.npc!=id || binding.source) continue;
+        if (binding.animator) PoseHook::ClearPoseFor(binding.animator);
+        binding={};
+    }
+}
+
+void SdkWorld::InvalidateCatalogNpcPose(const void* actor,uint64_t birth) noexcept {
+    if (!birth) return;
+    std::lock_guard lock(m_CatalogPoseMutex);
+    for (auto& binding:m_CatalogPoseBindings) {
+        if (binding.ticket.actor!=actor || binding.ticket.birth!=birth) continue;
+        if (binding.animator && !binding.source) PoseHook::ClearPoseFor(binding.animator);
+        const bool wasSource=binding.source;
+        binding={};
+        if (wasSource) RefreshCatalogPoseSources();
+    }
 }
 
 bool SdkWorld::WriteCatalogTransform(const NpcMutationGate::Ticket& ticket,const coop::Transform& xf) {

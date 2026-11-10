@@ -375,6 +375,13 @@ bool PartyNpcReplica::Pop(PartyNpcMessage& message) {
 bool PartyNpcReplica::Running(uint64_t npc) const {
     const auto it=m_Npcs.find(npc); return it!=m_Npcs.end() && it->second.running;
 }
+bool PartyNpcReplica::PresentingHostNpc(uint64_t npc) const {
+    const auto it=m_Npcs.find(npc);
+    if(m_Stopped || m_Self.id==1 || it==m_Npcs.end()) return false;
+    const auto& local=it->second;
+    return local.generation==1 && local.owner.id==1 && local.frozen && !local.suspended &&
+        local.state.life==PartyNpcLife::Alive && !local.state.stripped;
+}
 void PartyNpcReplica::RetryPending() {
     if(m_Stopped) return;
     for(auto& [npc,local]:m_Npcs) {

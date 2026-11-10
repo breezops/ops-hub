@@ -7,6 +7,18 @@ bool HostKind(PartyNpcKind kind) {
     return kind==PartyNpcKind::Commit || kind==PartyNpcKind::Canonical || kind==PartyNpcKind::Quiesce || kind==PartyNpcKind::Prepare || kind==PartyNpcKind::Freeze;
 }
 bool Direct(PartyNpcKind kind) { return kind==PartyNpcKind::Quiesce || kind==PartyNpcKind::Prepare; }
+constexpr uint8_t kNpcPosePacket=static_cast<uint8_t>(MsgType::NpcPose);
+constexpr double kPoseTimeout=0.75;
+bool ValidFullPose(const Pose& pose) {
+    const auto position=[](Vec3 p) {
+        return std::fabs(p.x)<=32 && std::fabs(p.y)<=32 && std::fabs(p.z)<=32;
+    };
+    return pose.rotations.size()>=2 && pose.rotations.size()<=kMaxPoseBones && position(pose.rootPos) &&
+        position(pose.pelvisPos) && std::all_of(pose.rotations.begin(),pose.rotations.end(),[](Quat q) {
+            const auto length=Dot(q,q);
+            return length>=0.25f && length<=4.f;
+        });
+}
 }
 PartyNpcSync::PartyNpcSync(PartyRoom& room,IPartyNpcWorld& world,PartyNpcOptions options)
     :m_Room(room),m_World(world),m_Options(options) {}
@@ -24,7 +36,7 @@ bool PartyNpcSync::Start() {
     m_Host.reset();
     if(m_Room.Status().host) m_Host=std::make_unique<PartyNpcAuthority>(m_Scope,m_Options);
     if(m_Replica->Stopped() || (m_Host && m_Host->Failed())) { Fail(); return false; }
-    m_Known.clear(); m_Locations.clear(); m_NextReport=m_NextPolicy=m_NextRefresh=0; m_Active=true;
+    m_Known.clear(); m_Locations.clear(); m_NextReport=m_NextPolicy=m_NextRefresh=m_NextPose=0; m_Active=true;
     return true;
 }
 void PartyNpcSync::Fail() {
@@ -35,6 +47,8 @@ void PartyNpcSync::Fail() {
 void PartyNpcSync::Stop() {
     const bool notify=m_Active && Current();
     m_Active=false;
+    for(const auto& [npc,stream]:m_Poses) if(stream.applied) m_World.ClearNpcPresentationPose(npc);
+    m_Poses.clear();
     if(m_Host) m_Host->Stop();
     if(m_Replica) m_Replica->Stop();
     m_Known.clear(); m_Locations.clear();
@@ -69,6 +83,7 @@ bool PartyNpcSync::ApplyHost(const PartyNpcMessage& message) {
 bool PartyNpcSync::Receive(const PartyGameEvent& event,double now) {
     if(!m_Active || !Current()) { if(m_Active) Stop(); return false; }
     if(event.epoch!=m_Scope.epoch || !m_Scope.Contains({event.source,event.incarnation}) || !std::isfinite(now) || now<0) return false;
+    if(!event.payload.empty() && event.payload.front()==kNpcPosePacket) return ReceivePose(event,now);
     PartyNpcMessage message;
     if(!DecodePartyNpc(event.payload,message) || message.session!=m_Scope.session || message.epoch!=m_Scope.epoch) return false;
     if(event.channel==PartyChannel::HostWorld && event.source==1 && HostKind(message.kind)) {
@@ -80,6 +95,57 @@ bool PartyNpcSync::Receive(const PartyGameEvent& event,double now) {
         return m_Host->Receive({event.source,event.incarnation},message,now);
     }
     return false;
+}
+bool PartyNpcSync::ReceivePose(const PartyGameEvent& event,double now) {
+    if(!m_Options.streamPoses || m_Host || event.channel!=PartyChannel::HostWorld || event.source!=1 || event.reliable) return false;
+    MsgNpcPose packet;
+    const std::vector<uint8_t> body(event.payload.begin()+1,event.payload.end());
+    if(!Decode(body,packet) || packet.epoch!=m_Scope.epoch || !packet.full ||
+        !m_Options.AcceptsNpc(packet.id) || !m_Replica->PresentingHostNpc(packet.id)) return false;
+    Pose pose;
+    if(!packet.ApplyTo(pose) || !ValidFullPose(pose)) return false;
+    auto [it,inserted]=m_Poses.try_emplace(packet.id);
+    auto& stream=it->second;
+    if(!inserted && static_cast<int32_t>(packet.timeMs-stream.timeMs)<=0) return false;
+    if(!inserted && now-stream.received>=kPoseTimeout) stream.buffer.Clear();
+    stream.buffer.Push(now,packet.timeMs,pose);
+    stream.timeMs=packet.timeMs;
+    stream.received=now;
+    return true;
+}
+void PartyNpcSync::TickPoses(double now) {
+    if(m_Host) {
+        if(now<m_NextPose) return;
+        m_NextPose=now+1./12.;
+        for(const auto npc:m_Known) {
+            const auto* record=m_Host->Find(npc);
+            Pose pose;
+            if(!record || !record->confirmed || record->phase!=PartyNpcAuthority::Phase::Active ||
+                record->state.life!=PartyNpcLife::Alive || record->state.stripped || !m_Replica->Running(npc) ||
+                !m_World.CaptureNpcPose(npc,pose) || !ValidFullPose(pose)) continue;
+            MsgNpcPose packet;
+            packet.epoch=m_Scope.epoch;
+            packet.timeMs=static_cast<uint32_t>(static_cast<uint64_t>(now*1000.));
+            packet.id=npc;
+            packet.boneCount=static_cast<uint16_t>(pose.rotations.size());
+            packet.rootPos=pose.rootPos;
+            packet.pelvisPos=pose.pelvisPos;
+            packet.rotations=std::move(pose.rotations);
+            auto bytes=Encode(packet);
+            bytes.insert(bytes.begin(),kNpcPosePacket);
+            m_Room.SendGame(PartyChannel::HostWorld,bytes,false);
+        }
+        return;
+    }
+    for(auto& [npc,stream]:m_Poses) {
+        Pose pose;
+        const bool available=m_Replica->PresentingHostNpc(npc) && now-stream.received<kPoseTimeout && stream.buffer.Sample(now,pose);
+        if(available && m_World.PresentNpcPose(npc,pose)) stream.applied=true;
+        else if(stream.applied) {
+            m_World.ClearNpcPresentationPose(npc);
+            stream.applied=false;
+        }
+    }
 }
 void PartyNpcSync::Flush(double now) {
     if(!m_Active) return;
@@ -130,5 +196,6 @@ void PartyNpcSync::Tick(double now) {
         }
     }
     Flush(now);
+    if(m_Active && m_Options.streamPoses) TickPoses(now);
 }
 }

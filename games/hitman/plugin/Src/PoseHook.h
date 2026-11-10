@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <array>
+#include <span>
 #include <vector>
 #include "coop/PoseFrame.h"
 
@@ -73,11 +74,11 @@ void ClearPlayerTargets();
 
 // Extra targets (the partner's takedown victims): each animator is given its pose every frame
 // until cleared. False when all slots are in use.
-bool SetPoseFor(void* p_Animator, const std::vector<Bone>& p_Pose);
+bool SetPoseFor(void* p_Animator, const std::vector<Bone>& p_Pose, bool exactBoneCount = false);
 void ClearPoseFor(void* p_Animator);
 // Animators whose own pose is recorded (our NPCs near the partner, sent to them), and the latest.
-void SetWatched(const std::vector<void*>& p_Animators);
-bool WatchedPose(void* p_Animator, std::vector<Bone>& p_Out);
+void SetWatched(std::span<void* const> p_Animators);
+bool WatchedPose(void* p_Animator, std::vector<Bone>& p_Out, bool consume = false);
 // Diagnostics: an extra target's own first bones (before ours) and its bone count.
     uint32_t NativePoseOf(void* p_Animator, std::vector<Bone>& p_Out);
     void ClearExtraPoses();

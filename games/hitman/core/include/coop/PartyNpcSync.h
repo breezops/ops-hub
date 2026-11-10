@@ -1,5 +1,6 @@
 #pragma once
 #include "PartyNpcAuthority.h"
+#include "Interpolation.h"
 #include <set>
 
 namespace coop {
@@ -31,10 +32,20 @@ private:
     std::unique_ptr<PartyNpcReplica> m_Replica;
     std::set<uint64_t> m_Known;
     std::map<uint8_t,PartyNpcLocation> m_Locations;
+    struct PoseStream {
+        PoseBuffer buffer;
+        uint32_t timeMs=0;
+        double received=0;
+        bool applied=false;
+    };
+    std::map<uint64_t,PoseStream> m_Poses;
+    double m_NextPose=0;
     double m_NextReport=0, m_NextPolicy=0, m_NextRefresh=0;
     bool m_Active=false, m_Failed=false;
     bool Current() const;
     bool ApplyHost(const PartyNpcMessage&);
+    bool ReceivePose(const PartyGameEvent&,double now);
+    void TickPoses(double now);
     void Flush(double now);
     void Fail();
 };

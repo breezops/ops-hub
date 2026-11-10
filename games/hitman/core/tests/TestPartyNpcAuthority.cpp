@@ -20,6 +20,7 @@ PartyNpcOptions DelegatedOptions() {
 struct World:IPartyNpcWorld {
     std::map<uint64_t,PartyNpcState> states;
     std::map<uint64_t,bool> running;
+    std::map<uint64_t,Pose> sourcePoses, presentedPoses;
     bool freeze=true,apply=true,resume=true,capture=true,prepare=true;
     unsigned preparations=0;
     unsigned resumes=0, applies=0;
@@ -66,6 +67,15 @@ struct World:IPartyNpcWorld {
         if(!capture || !states.contains(npc)) return false;
         state=states[npc]; return true;
     }
+    bool CaptureNpcPose(uint64_t npc,Pose& pose) override {
+        const auto it=sourcePoses.find(npc);
+        if(it==sourcePoses.end()) return false;
+        pose=it->second; return true;
+    }
+    bool PresentNpcPose(uint64_t npc,const Pose& pose) override {
+        CHECK(!running[npc]); presentedPoses[npc]=pose; return true;
+    }
+    void ClearNpcPresentationPose(uint64_t npc) override { presentedPoses.erase(npc); }
 };
 struct Four {
     PartyNpcAuthority host{Scope(),DelegatedOptions()};
@@ -368,6 +378,40 @@ TEST(PartyNpcSync_TwoAndFourPeersRunTheSameOwnershipAndDeathPipeline) {
         n.Step(0.5);
         for(size_t i=0;i<count;++i) CHECK(n.worlds[i].states[55].life==PartyNpcLife::Dead);
     }
+}
+
+TEST(PartyNpcSync_FixedNpcPosesFanOutAndClearAfterSilenceOrStop) {
+    PartyNpcOptions options; options.fixedCatalog={55}; options.streamPoses=true;
+    NetworkNpc n(4,774,options);
+    REQUIRE(n.Begin()); REQUIRE(n.Add());
+    auto& pose=n.worlds[0].sourcePoses[55];
+    pose.rotations.resize(kMaxPoseBones); pose.pelvisPos.z=0.3f;
+    n.Step(1.);
+    CHECK(n.worlds[0].presentedPoses.empty());
+    for(size_t i=1;i<n.count;++i) {
+        REQUIRE(n.worlds[i].presentedPoses.contains(55));
+        CHECK(n.worlds[i].presentedPoses.at(55).rotations.size()==kMaxPoseBones);
+        CHECK(n.worlds[i].presentedPoses.at(55).pelvisPos.z==0.3f);
+    }
+    MsgNpcPose forged;
+    forged.epoch=n.rooms[0]->Status().epoch; forged.id=55; forged.boneCount=2; forged.rotations.resize(2);
+    forged.timeMs=static_cast<uint32_t>(n.now*1000.)+100;
+    auto bytes=Encode(forged); bytes.insert(bytes.begin(),static_cast<uint8_t>(MsgType::NpcPose));
+    auto peer=n.Identity(2);
+    PartyGameEvent event{peer.id,peer.incarnation,forged.epoch,PartyChannel::HostWorld,bytes,false};
+    CHECK(!n.sync[1]->Receive(event,n.now));
+    const auto host=n.Identity(0); event.source=host.id; event.incarnation=host.incarnation;
+    event.channel=PartyChannel::Pose;
+    CHECK(!n.sync[1]->Receive(event,n.now));
+    event.channel=PartyChannel::HostWorld; event.reliable=true;
+    CHECK(!n.sync[1]->Receive(event,n.now));
+
+    n.worlds[0].sourcePoses.clear(); n.Step(1.);
+    for(size_t i=1;i<n.count;++i) CHECK(n.worlds[i].presentedPoses.empty());
+    n.worlds[0].sourcePoses[55].rotations.resize(2); n.Step(0.5);
+    REQUIRE(n.worlds[1].presentedPoses.contains(55));
+    n.sync[0]->Stop(); n.Step(0.5);
+    for(size_t i=1;i<n.count;++i) CHECK(n.worlds[i].presentedPoses.empty());
 }
 
 TEST(PartyNpc_HostOnlyIsDefaultAndNeverIssuesGuestLeaseAttempts) {
