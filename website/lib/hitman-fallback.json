@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "project": "hitman",
+  "version": "0.1.0",
+  "mod_build": "0.13.94-four-player.preview.2",
+  "game_version": "3.290.1",
+  "runtime": 1,
+  "protocol": 2,
+  "path": "/downloads/hitman/HITMAN-Coop-0.1.0.zip",
+  "sha256": "62506fecf45dc852d4d4f9b2b9b8b6c15574a5f15ae204fcef68ea4b52177b96",
+  "bytes": 13614933
+}

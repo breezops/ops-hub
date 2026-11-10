@@ -32,3 +32,21 @@ Stray publication and website source deployment are still separate owner-managed
 flows. This workflow does not compile native mods or deploy arbitrary website
 changes. Add each future game's channel deliberately with its own credential and
 validation rules; never use the repository-wide latest-release endpoint.
+
+## Existing tags and verification
+
+Create release tags from a commit that includes `.github/workflows/publish-hitman.yml`.
+Pull the merged main branch before preparing the next release. Old tags created
+before the workflow existed cannot trigger that workflow retroactively: use the
+manual retry entry point for those releases.
+
+The initial hitman-v0.1.0 channel was verified by GitHub Actions manual dispatch:
+https://github.com/breezops/ops-hub/actions/runs/42730501808 (success).
+The existing immutable ZIP remained 13,614,933 bytes with SHA-256
+62506fecf45dc852d4d4f9b2b9b8b6c15574a5f15ae204fcef68ea4b52177b96.
+This is a real hosted upload/manifest verification, not a native gameplay test.
+
+Site source is mirrored under website/. When deploying it through the owner Sites
+flow, preserve the Site ID and D1 binding and declare `r2: "BUCKET"` in the retained
+hosting manifest. Preserve the configured secret HITMAN_PUBLISH_TOKEN_SHA256.
+Do not upload source-repository credentials into GitHub Actions.
