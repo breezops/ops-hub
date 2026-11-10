@@ -55,6 +55,9 @@ struct Fixture {
     bool valid=true,hold=true,pinObserved=false,removeRefused=false;
     bool failCleanup=false,noNativeChange=false,throwCallback=false,wrongStack=false,invalidateOnCall=false;
     bool canceled=false,converted=false;
+    bool observeOnly=false,observationIdentity=true,changeObservationIdentity=false;
+    unsigned observationChecks=0;
+    Observation observation;
     void* mainFiber=nullptr;
     void* jobFiber=nullptr;
     Result result;
@@ -87,6 +90,13 @@ struct Fixture {
     }
     static void WrongStack(void* opaque) {
         auto& f=*static_cast<Fixture*>(opaque); f.result=f.active->SetHeld(f.ticket,f.hold);
+        if (f.observeOnly) f.observation=f.active->Observe(f.actor.data(),55,1);
+    }
+    static bool ObserveIdentity(void* opaque,const void* actor,uint64_t npc,uint64_t birth,int32_t& id) {
+        auto& f=*static_cast<Fixture*>(opaque); id=f.validationId;
+        ++f.observationChecks;
+        return f.observationIdentity && actor==f.actor.data() && npc==55 && birth==1 &&
+            (!f.changeObservationIdentity || f.observationChecks%2==1);
     }
     static void Callback(void* opaque,Boundary& boundary) {
         auto& f=*static_cast<Fixture*>(opaque); ++f.callbacks;
@@ -96,7 +106,10 @@ struct Fixture {
             AlternateStack other;
             if (!other.code || !other.stack) return;
             f.active=&boundary; other.Run(&WrongStack,&f); f.active=nullptr;
-        } else f.result=boundary.SetHeld(f.ticket,f.hold);
+        } else {
+            f.result=boundary.SetHeld(f.ticket,f.hold);
+            if (f.observeOnly) f.observation=boundary.Observe(f.actor.data(),55,1);
+        }
     }
     bool Install() {
         return ticket.actor && PhaseEntry() && JobEntry() && NpcActionProbe::Install(JobEntry()) &&
@@ -208,6 +221,43 @@ TEST(NpcActionPhase_CancellationResumesAndDrainsTheOriginalSuspendedJob) {
     CHECK(f.canceled); CHECK(f.pinObserved); CHECK(f.result.state==State::Complete);
     CHECK(NpcActionProbe::Inspect(f.Unit()).outstanding==0);
     CHECK(f.Unit()[0x2c]&1); CHECK(f.loopCalls==1);
+}
+
+TEST(NpcActionPhase_ReadOnlyBoundaryNeedsNoProbeOrMutationScopeAndCannotControl) {
+    Fixture f;
+    REQUIRE(NpcMutationGate::Clear(f.scope)); // No active mutation gate during this diagnostic.
+    f.scope=0; f.observeOnly=true;
+    REQUIRE(!NpcActionProbe::Installed());
+    Config config{&f,nullptr,&Fixture::Callback,GetCurrentThreadId(),&Fixture::ObserveIdentity,false};
+    REQUIRE(NpcActionPhase::Install(f.Sites(),config));
+    CHECK(NpcActionPhase::Healthy());
+    const auto actor=f.actor; const auto table=f.table;
+    f.Run();
+    CHECK(f.observation.valid && f.observation.runtimeId==0);
+    CHECK(f.observation.native.coherent() && !f.observation.native.held());
+    CHECK(f.result.state==State::Refused && f.nativeCalls==0 && f.loopCalls==1);
+    CHECK(f.actor==actor && f.table==table && !NpcMutationGate::CurrentScope());
+    CHECK(!NpcActionProbe::Installed());
+    auto changed=config; changed.allowControl=true;
+    CHECK(!NpcActionPhase::Install(f.Sites(),changed)); // Cannot silently upgrade a live diagnostic.
+    f.actor[0x117d]=0x40; // Observation reports a mismatch; it never repairs it.
+    f.Run(); CHECK(f.observation.valid && !f.observation.native.coherent());
+    f.observationIdentity=false; f.Run(); CHECK(!f.observation.valid);
+    f.observationIdentity=true; f.changeObservationIdentity=true; f.observationChecks=0;
+    f.Run(); CHECK(!f.observation.valid); // Identity must still match after native reads.
+    CHECK(f.nativeCalls==0 && f.loopCalls==4);
+}
+
+TEST(NpcActionPhase_ReadOnlyBoundaryRejectsOtherStacksAndUnscheduledActors) {
+    Fixture f; f.observeOnly=true;
+    Config config{&f,nullptr,&Fixture::Callback,GetCurrentThreadId(),&Fixture::ObserveIdentity,false};
+    auto missing=config; missing.observe=nullptr;
+    CHECK(!NpcActionPhase::Install(f.Sites(),missing));
+    REQUIRE(NpcActionPhase::Install(f.Sites(),config));
+    f.wrongStack=true; f.Run(); CHECK(!f.observation.valid && f.observationChecks==0);
+    f.wrongStack=false; f.ids={2,3}; f.Run(); CHECK(!f.observation.valid);
+    f.ids={0,1}; Put<uintptr_t>(f.Unit(),8,1); f.Run(); CHECK(!f.observation.valid);
+    CHECK(f.nativeCalls==0 && f.loopCalls==3);
 }
 
 // Fault status deliberately latches for the process. Keep this after the other

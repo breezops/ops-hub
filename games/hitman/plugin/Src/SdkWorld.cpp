@@ -2552,12 +2552,17 @@ uint64_t SdkWorld::CurrentPartyNpcBirth(uint64_t id) const {
 }
 bool SdkWorld::ValidatePartyNpcAtActionBoundary(const NpcMutationGate::Ticket& ticket,int32_t& runtimeId) const {
     if (!ticket.scope || NpcMutationGate::CurrentScope()!=ticket.scope ||
-        !PartyGameThread() || GetCurrentThreadId()!=PartyGameThread() ||
-        !Globals::ActorManager || !Globals::ActorManager->m_bLockActorLists) return false;
+        !ValidatePartyNpcObservationAtActionBoundary(ticket.actor,ticket.npc,ticket.birth,runtimeId)) return false;
     const auto current=NpcMutationGate::Find(ticket.scope,ticket.npc,ticket.birth,ticket.lease);
-    if (!ticket.actor || current.actor!=ticket.actor || m_NpcActorBirths.Find(ticket.actor)!=ticket.birth) return false;
-    const auto* actor=FindFreshPartyNpc(ticket.npc);
-    if (!actor || actor!=ticket.actor) return false;
+    return current.actor==ticket.actor;
+}
+bool SdkWorld::ValidatePartyNpcObservationAtActionBoundary(const void* expected,uint64_t npc,uint64_t birth,int32_t& runtimeId) const {
+    runtimeId=-1;
+    if (!expected || !npc || !birth || !PartyGameThread() || GetCurrentThreadId()!=PartyGameThread() ||
+        !Globals::ActorManager || !Globals::ActorManager->m_bLockActorLists || !m_NpcActorBirths.Healthy() ||
+        m_NpcActorBirths.Find(expected)!=birth) return false;
+    const auto* actor=FindFreshPartyNpc(npc);
+    if (!actor || actor!=expected) return false;
     runtimeId=actor->m_nActorRuntimeId;
     return true;
 }

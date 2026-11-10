@@ -78,6 +78,33 @@ the current movement preview or the experimental NPC action primitive.
 
 ## Reuse and implementation order
 
+### Bounded native pause investigation
+
+Use the existing `GamePause` named-request binding for shared pause rather than
+freezing individual NPCs. It already locates the native request list, adds a
+mod-owned request and releases that request through the SDK. The plugin's
+`eUpdateAlways` path is intended to keep networking alive while paused. These
+are reusable mechanisms, not proof of the unanimous policy in-game.
+
+The remaining native question is whether the local pause menu can stay open
+with its simulation-pause request suppressed. Verify that separately before
+building party pause coordination. `UI_Menus` covers other menus too; its
+presence alone is not an explicit pause-menu vote. Likewise, `m_LastMenu` is
+recorded before `TryOpenMenu` succeeds and can be stale, so it is not sufficient
+as the authoritative vote. Identify accepted menu open/close state, preserve
+menu input blocking, and keep unrelated loading/script pause requests intact.
+
+If that narrow native binding is verified, route current, admitted-player votes
+through the host and drive one dedicated party pause request. Validate one-menu
+open (world runs), all menus open (world stops), any menu closed (world resumes),
+then departure/reconnect and restart. Do not use the legacy partner-pause path,
+whose rule pauses for any one partner, as the party coordinator.
+
+If keeping menus open requires substantial UI replacement or broad engine
+patches, report that cost before expanding this optional mechanic. The native
+NPC hold/resume work below remains necessary for shared world authority and
+must not be presented as work required merely to pause the game.
+
 The legacy backend already has native RestartLevel discovery, deferred restart
 execution, restart-event observation and echo suppression. Reuse those helpers
 with host-only party commands rather than creating one legacy Session per guest.

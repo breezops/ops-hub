@@ -64,7 +64,7 @@ struct NpcActionPhase::Bridge {
     static void Run(void* table,const void* span) {
         const auto callers=g_Callers.fetch_add(1)+1;
         if (g_Installed && GetCurrentThreadId()!=g_Config.gameThread) g_Healthy=false;
-        if (g_Installed && g_Healthy && !NpcActionProbe::InstalledFor(g_Sites.actions.job)) g_Healthy=false;
+        if (g_Installed && g_Healthy && g_Config.allowControl && !NpcActionProbe::InstalledFor(g_Sites.actions.job)) g_Healthy=false;
         if (g_Installed && g_Healthy && callers==1) {
             Boundary boundary;
             std::array<uintptr_t,2> bounds{};
@@ -94,11 +94,25 @@ auto Patch() {
 }
 }
 
-NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::Ticket& ticket,bool held) {
+bool NpcActionPhase::Boundary::ActiveHere() const {
     const auto* tib=reinterpret_cast<const NT_TIB*>(NtCurrentTeb());
     const auto self=reinterpret_cast<uintptr_t>(this);
-    if (!m_Active || !g_Installed || !g_Healthy || Stack()!=m_Stack ||
-        self<reinterpret_cast<uintptr_t>(tib->StackLimit) || self>=m_Stack) return {};
+    return m_Active && g_Installed && g_Healthy && GetCurrentThreadId()==g_Config.gameThread && Stack()==m_Stack &&
+        self>=reinterpret_cast<uintptr_t>(tib->StackLimit) && self<m_Stack;
+}
+NpcActionPhase::Observation NpcActionPhase::Boundary::Observe(const void* actor,uint64_t npc,uint64_t birth) const {
+    if (!ActiveHere() || !g_Config.observe || !actor || !npc || !birth) return {};
+    int32_t id=-1;
+    if (!g_Config.observe(g_Config.context,actor,npc,birth,id) || id<0 || id>=static_cast<int32_t>(m_Ids.size()) ||
+        std::find(m_Ids.begin(),m_Ids.begin()+m_Count,id)==m_Ids.begin()+m_Count) return {};
+    NpcBehaviorReadback::Snapshot state;
+    if (!NpcBehaviorReadback::Read(g_Sites.table,actor,id,state)) return {};
+    int32_t current=-1;
+    if (!g_Config.observe(g_Config.context,actor,npc,birth,current) || current!=id) return {};
+    return {true,id,state}; // Includes conflicting flags; observation grants no mutation permission.
+}
+NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::Ticket& ticket,bool held) {
+    if (!ActiveHere() || !g_Config.allowControl) return {};
     NpcMutationGate::Pin pin(ticket);
     if (!pin || (!held && NpcMutationGate::BlocksInteraction(ticket.actor)) ||
         !NpcActionProbe::InstalledFor(g_Sites.actions.job)) return {};
@@ -129,12 +143,13 @@ NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::
 
 bool NpcActionPhase::Install(const CrashGuards::NpcBehaviorSites& sites,Config config) {
     std::lock_guard lock(g_Install);
-    if (!g_Healthy || !sites || !config.validate || !config.callback ||
-        !config.gameThread || config.gameThread!=GetCurrentThreadId() || !NpcActionProbe::InstalledFor(sites.actions.job)) return false;
+    if (!g_Healthy || !sites || !config.callback || !config.gameThread || config.gameThread!=GetCurrentThreadId()) return false;
+    if (config.allowControl ? (!config.validate || !NpcActionProbe::InstalledFor(sites.actions.job)) : !config.observe) return false;
     if (g_Installed) {
         std::array<uint8_t,15> actual;
         return sites.actions.loop==g_Entry && sites.actorControl==g_Sites.actorControl && sites.table==g_Sites.table &&
             config.context==g_Config.context && config.validate==g_Config.validate && config.callback==g_Config.callback && config.gameThread==g_Config.gameThread &&
+            config.observe==g_Config.observe && config.allowControl==g_Config.allowControl &&
             Read(g_Entry,actual.data(),actual.size()) && actual==Patch();
     }
     if ((g_Entry && sites.actions.loop!=g_Entry) || g_Callers.load() || !Executable(sites.actions.loop) || !Executable(sites.actorControl)) return false;
@@ -160,7 +175,7 @@ bool NpcActionPhase::Install(const CrashGuards::NpcBehaviorSites& sites,Config c
 bool NpcActionPhase::Remove() {
     std::lock_guard lock(g_Install);
     if (!g_Installed) return true;
-    if (g_Callers.load() || NpcActionProbe::Diagnostics().outstanding) return false;
+    if (g_Callers.load() || (g_Config.allowControl && NpcActionProbe::Diagnostics().outstanding)) return false;
     std::array<uint8_t,15> actual;
     if (!Read(g_Entry,actual.data(),actual.size()) || actual!=Patch() || !Write(g_Entry,Prologue.data(),Prologue.size())) return false;
     g_Installed=false; return true;
@@ -168,5 +183,5 @@ bool NpcActionPhase::Remove() {
 bool NpcActionPhase::Installed() { return g_Installed; }
 bool NpcActionPhase::Healthy() {
     std::lock_guard lock(g_Install);
-    return g_Installed && g_Healthy && NpcActionProbe::InstalledFor(g_Sites.actions.job);
+    return g_Installed && g_Healthy && (!g_Config.allowControl || NpcActionProbe::InstalledFor(g_Sites.actions.job));
 }

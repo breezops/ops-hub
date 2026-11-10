@@ -69,6 +69,9 @@ public:
     // Called only under the action boundary's metadata pin. Checks fresh SDK
     // lists/slot/identity; actual native lifetime boundary still needs live proof.
     bool ValidatePartyNpcAtActionBoundary(const NpcMutationGate::Ticket&,int32_t& runtimeId) const;
+    // Read-only identity validation at that same boundary, without a mutation
+    // scope. Used by observation mode; never authorizes actor control.
+    bool ValidatePartyNpcObservationAtActionBoundary(const void* actor,uint64_t npc,uint64_t birth,int32_t& runtimeId) const;
     void TracePartyNpcIdentity(); // Diagnostic build only; reads/counts, no NPC controls.
     // nativeContract is this PC's native ContractSessionId, never a room/peer
     // value. The future adapter must obtain it before acknowledging readiness.

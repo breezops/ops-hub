@@ -337,6 +337,36 @@ This supports the observed constructor coverage and runtime-slot relationships
 for this Freeform run. It does not validate other missions, multiple PCs, the
 action-loop invocation context, hold/resume side effects or physical teardown.
 
+The next observation path now uses the existing action-loop boundary in an
+explicit read-only configuration. `NpcActionPhase::Config::allowControl=false`
+requires a fresh observation validator, does not require a job probe, and makes
+every `SetHeld` request refuse. `Boundary::Observe` verifies the current game
+thread/stack, scheduled runtime ID, fresh stable ID/birth and native table actor
+pointer. It validates identity again after reading. The SDK validator requires
+the actor-list lock and healthy constructor tracking without enabling a mutation
+scope. No preview automatically installs this observer yet.
+
+`NpcBehaviorReadback` copies the supported actor/unit flags and action/task/job
+pointers through checked reads. It reports conflicting flags rather than fixing
+them. A missing pointer or apparently drained record is an observation only,
+not proof that native workers are finished or that an actor can be retired.
+
+Read-only inspection of the 3.290.1 AI update established why neighboring SDK
+frame callbacks are insufficient: the caller sets `m_bLockActorLists` before
+updating behavior, invokes both verified reasoning/action loops while locked,
+then clears the flag before returning. Registering at the next SDK priority
+does not execute within that window. An experimental adjacent-priority sampler
+was discarded before packaging or playtesting. Installation of the actual
+action-loop observer still requires an established native-quiescent point;
+neither a priority name nor this binary inspection alone establishes that.
+
+Six additional fixtures cover read-only native memory inspection and actual
+observer-hook execution: invalid/unreadable memory, runtime/pointer mismatch,
+conflicting flags, identity changes during observation, execution-stack and
+scheduled-ID checks, original-loop execution, and refusal of actor control.
+The suite now contains 272 tests: 203 core, 10 pose, 6 guards, 44 native NPC and
+9 phase tests. These are modeled checks, not live observer validation.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.
