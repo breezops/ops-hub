@@ -3,7 +3,7 @@
 Shared source workspace for independent game mods and launchers.
 
 - `games/stray/CoopMod`: Stray Lua mod, Python launcher/transport and native UI sources.
-- `games/hitman`: reserved for the Hitman maintainer; no Stray files belong here.
+- `games/hitman`: HITMAN native mod, launcher and independent release channel.
 - `games/planet-zoo-2`: Planet Zoo 2 Co-op, in development; no release yet.
 - `website`: OPS HUB website and existing lobby service source.
 - `projects.json`: project directory and independent release-tag mapping.
@@ -20,9 +20,11 @@ GitHub collaborators after the owner's repository has been created.
 Use tags `stray-vX.Y.Z` and `hitman-vX.Y.Z`. Each game must have its own archive,
 version manifest, changelog and updater URL. Never use the repository-wide
 "latest release" endpoint to update a game: it could refer to the other game.
-Existing Stray downloads remain hosted by the current site. Publishing automation
-is not connected yet. Private repository release assets require authentication;
-public downloads must remain on the site or a separately public release channel.
+HITMAN releases now publish automatically when a `hitman-vX.Y.Z` GitHub release
+is published with its ZIP, checksum, changelog and manifest attached. See
+[release publishing](docs/RELEASE-PUBLISHING.md). Existing Stray downloads and its
+manual publishing flow are unchanged. Private GitHub assets are transferred by
+Actions to public OPS HUB downloads; players do not need GitHub authentication.
 
 ## Stray build status
 
@@ -38,5 +40,7 @@ release claiming that migration is fixed.
 
 The existing production deployment belongs to the site owner. Its hosting identity,
 runtime secrets and Git credentials are not in this repository. GitHub collaboration
-does not itself grant production deployment access. Connect an authenticated
-publishing workflow before claiming either maintainer can deploy automatically.
+does not itself grant website-source deployment access. HITMAN release uploads
+use a dedicated authenticated publisher; arbitrary website changes still deploy
+through the owner's existing Sites project. No general source-push deployment
+pipeline is configured.

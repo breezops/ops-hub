@@ -1,3 +1,5 @@
+import { handleHitman } from "../lib/hitman-publisher.mjs";
+import hitmanFallback from "../lib/hitman-fallback.json";
 import { handleService } from "../lib/lobby-service.mjs";
 import release from "../public/release.json";
 import handler from "vinext/server/fetch-handler";
@@ -6,6 +8,8 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 
 const worker = {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+    const hitman=await handleHitman(request,env,hitmanFallback);
+    if(hitman)return hitman;
     const response=await handleService(request,env,release);
     if(response)return response;
     let binding = ctx.props?.CONNECTORS;
