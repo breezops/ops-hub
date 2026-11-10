@@ -555,3 +555,27 @@ All twenty native test processes pass. The replacement SDK build uses a fresh
 empty directory after shared source/header edits are finalized and frozen.
 This prevents reuse of the mismatched intermediates; full game startup remains
 required before claiming the replacement diagnostic works live.
+
+Action-5's complete solo run now passes native job observation across two
+restarts. Eighteen paired action/job audits stayed healthy for all 83 actors,
+with no identity rejection, conflicting flags or job pointer lacking an observed
+entry. Constructor marks advanced 99 -> 198 -> 297. At the first restart the
+sampled counters were 97 entered / 97 returned / 0 outstanding. At the second,
+the first sample was already 199 / 198 / 1: do not claim an observed zero barrier.
+Steady state returned to 83 outstanding calls in each fresh mission, without
+sampled cumulative growth. Final counts were 289 / 206 / 83 and 10,940 loop calls.
+
+During knockout/disguise one actor/unit native held flag was observed, with 82
+outstanding jobs. The game can own such a hold; future control must refuse an
+already-held actor and resume only the exact hold and actor generation it owns.
+Original-call returns do not substitute for physical actor retirement or make
+the SDK pre-clear event a multiplayer readiness acknowledgement. Keep control
+disabled until a validated control phase can run without holding the observer's
+callback/session locks across native cancellation, with identity/birth/slot and
+hold-ownership checks. Do not stack the legacy custom phase patch on this hook.
+
+Creation allocator reports are consistent in this run. The action hook reused
+existing buffer/table storage successfully without a new allocation. Its current
+no-near-code-candidate heuristic label is misleading on success; only infer a
+failed search with actual status 9. This does not require repeating the passed
+job test. The original intermittent allocation refusal remains unproven fixed.
