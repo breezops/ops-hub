@@ -4,11 +4,28 @@
 
 Canonical workspace: M:\ChatGPT Projects. Public multiplayer remains OPS 0.1.3 / preview.4. Preserve it, Foundation 4.1 and all immutable private candidates.
 
-Earlier private OPS 0.1.6 / native preview.4.action.2 established the solo action observer. Its first run passed 14 native action audits: 10 before and 4 after restart, all 83 NPCs matched with locked actor lists, no rejected/untracked IDs, no conflicting flags and healthy observation. The user knocked out a guard and changed outfit before restarting. Constructor watermark 99 -> 198, the same SDK thread, and a final native-loop count of 8,340. This is read-only validation; no NPC hold/resume or shared world control has been tested.
+Earlier private OPS 0.1.6 / native preview.4.action.2 established the solo action observer. Its first run passed 14 native action audits: 10 before and 4 after restart, all 83 NPCs matched with locked actor lists, no rejected/untracked IDs, no conflicting flags and healthy observation. The user knocked out a guard and changed outfit before restarting. Constructor watermark 99 -> 198, the same SDK thread, and a final native-loop count of 8,340. This earlier run established read-only validation; see the later Hold-3 result below for local hold/resume. Shared world control remains untested.
 
 Action.1 failed in hook creation despite valid live sites, entry bytes, successful module pinning and initialized MinHook. Its exact return code was not saved. Action.2 waits for loaded Freeform and records precise failure stages; it installed successfully in the tested run. Do not attribute the original observer refusal to disk space. The user's disk-space concern described the earlier game crash. Storage has been moved/freed separately.
 
 The source and preserved ZIP/checksum for action.2 are on M:. The user test folder is R:\Hitman COOP test\HITMAN-Coop-Action-2 and includes exact public 0.1.3 rollback. No site release was published. Do not repeat the same identity/read-only test without a regression or new uncertainty.
+
+## Latest live result: Hold-3 passed one solo cycle
+
+All three verified absolute-entry hooks attached successfully. After native
+Restart, all 83 fresh NPCs had observed jobs. F8 selected Ewan Roberts
+(civilian), birth 131, 1.62m away. HOLD confirmed original job return plus clear
+action/task/job pointers at 12:43:41; RESUME flags confirmed at 12:43:49 and a
+new job was observed 25ms later. During hold: 82 outstanding, one held/drained.
+After resume: 83 outstanding, zero held, healthy matched identities through
+three subsequent audits. Full log/result: research/checks/playtest-20-solo-hold-3.
+The game is closed. This validates one local native cycle, not physical actor
+retirement, every hold source, multiplayer synchronization or visual patrol.
+
+Next engineering: review native scene-clear/actor retirement and lifetime
+admission before wiring restricted guest NPC authority. Keep the proven solo
+primitive and normal multiplayer package preserved. Do not repeat the unchanged
+F8 test; another test should address a specific new boundary or regression.
 
 ## Immediate engineering step — solo remains sufficient
 
@@ -31,9 +48,9 @@ remain unchanged. All 28 absolute-mode and all 28 normal-mode CTest processes
 pass, including a forced far trampoline with the entire nearby 4GiB reserved,
 original execution and exact restoration, concurrent installation and existing
 native cancellation/ownership refusal cases. Check journal for final SDK build,
-package/delivery receipts before prompting. No live absolute-mode claim yet.
+package/delivery receipts. The subsequent live result above confirms attachment.
 
-Next startup: Hold-3 Install/Repair, solo Freeform, wait 15 seconds, reply in
+Completed startup procedure (do not repeat unchanged): Hold-3 Install/Repair, solo Freeform, wait 15 seconds, reply in
 mission and leave running. Check backend=absolute-14-verified-prefix plus all
 three attachments/healthy audits before asking for Restart/F8. Then reuse the
 standing entrance NPC, not a walking guard; wait 25 seconds and quit normally.
@@ -53,7 +70,44 @@ running. After all three attachments are confirmed: native Restart once,
 approach the standing entrance NPC within 8m, F8 once, wait 25 seconds, quit.
 No knockout/disguise or reaching another guard is needed. Standing visuals may
 look unchanged; judge native hold/return/resume from the log. No repeated blind F8.
-Private Hold-1 (OPS 0.1.10 / preview.4.hold.1) now implements the first limitedlocal cycle. Check the research journal for final build/package/delivery receiptsbefore asking the user to launch. Recipe: diagnostics/hold-1. The user is readyto test when preparation is finished; HITMAN was left closed. No friend needed.The retained action bridge reuses NpcActionPhase::Boundary with per-boundaryimmutable configuration. It admits an optional control callback under the shortobserver mutex, releases that mutex, then runs control with an atomic in-flightcontext pin. Stop deactivates admission and drains both callback types beforeclient destruction; never call Stop from inside either callback. Private SDKcontrol rejects OnFrameUpdate reentry and releases its session try-lock beforecalling native control. No legacy custom loop hook is stacked on the observer.Native hold arbitration is a pinned pass-through hook on the verified actorsetter. Watch is one actor per process, never rebound. Our exact-stack markeris consumed once; external/recursive calls count as interference and refusesubsequent controller calls. Game setter calls are never suppressed. Existingholds are refused. This does not establish all native hold sources, cross-threadordering, physical actor retirement or multiplayer readiness.Startup only: install Hold-1, load solo Freeform, wait 15 seconds, reply in mission.Confirm job, action and hold-arbiter attachment before further steps. Then nativeRestart Mission once, approach a conscious walking guard within 8m (closestguard), press F8 once with HITMAN focused. The test requires a fresh birth afterattachment, scheduled fresh identity/slot and exactly one observed active job.It confirms held flags + native job return + cleared pointers, holds 8 seconds,resumes only its owned hold, and verifies a new native job. User watches for15 more seconds, quits normally and reports stop/resume/other NPC behavior.Do not attack, disguise, pause or restart during the cycle. One selected actorper process. Refusal/failure logs explain why; never repeat F8 blindly.All 28 SDK-free native CTest processes pass, including new retained fibercancellation/resume, shutdown without the observer mutex, wrong stack/identity,external/recursive script holds and integrated arbitration. Player build mustomit fixture fault injection. The private flag defaults OFF; public OPS 0.1.3and prior immutable candidates remain untouched. Hold-1 has no live result yet.Startup checks matter because intermittent allocation reliability is unproven.
+
+Private Hold-1 (OPS 0.1.10 / preview.4.hold.1) now implements the first limited
+local cycle. Check the research journal for final build/package/delivery receipts
+before asking the user to launch. Recipe: diagnostics/hold-1. The user is ready
+to test when preparation is finished; HITMAN was left closed. No friend needed.
+
+The retained action bridge reuses NpcActionPhase::Boundary with per-boundary
+immutable configuration. It admits an optional control callback under the short
+observer mutex, releases that mutex, then runs control with an atomic in-flight
+context pin. Stop deactivates admission and drains both callback types before
+client destruction; never call Stop from inside either callback. Private SDK
+control rejects OnFrameUpdate reentry and releases its session try-lock before
+calling native control. No legacy custom loop hook is stacked on the observer.
+
+Native hold arbitration is a pinned pass-through hook on the verified actor
+setter. Watch is one actor per process, never rebound. Our exact-stack marker
+is consumed once; external/recursive calls count as interference and refuse
+subsequent controller calls. Game setter calls are never suppressed. Existing
+holds are refused. This does not establish all native hold sources, cross-thread
+ordering, physical actor retirement or multiplayer readiness.
+
+Startup only: install Hold-1, load solo Freeform, wait 15 seconds, reply in mission.
+Confirm job, action and hold-arbiter attachment before further steps. Then native
+Restart Mission once, approach a conscious walking guard within 8m (closest
+guard), press F8 once with HITMAN focused. The test requires a fresh birth after
+attachment, scheduled fresh identity/slot and exactly one observed active job.
+It confirms held flags + native job return + cleared pointers, holds 8 seconds,
+resumes only its owned hold, and verifies a new native job. User watches for
+15 more seconds, quits normally and reports stop/resume/other NPC behavior.
+Do not attack, disguise, pause or restart during the cycle. One selected actor
+per process. Refusal/failure logs explain why; never repeat F8 blindly.
+
+All 28 SDK-free native CTest processes pass, including new retained fiber
+cancellation/resume, shutdown without the observer mutex, wrong stack/identity,
+external/recursive script holds and integrated arbitration. Player build must
+omit fixture fault injection. The private flag defaults OFF; public OPS 0.1.3
+and prior immutable candidates remain untouched. Hold-1 has no live result yet.
+Startup checks matter because intermittent allocation reliability is unproven.
 
 OPS 0.1.9 / preview.4.action.5 passed its first complete native job-observation test. Both hooks installed with consistent allocation reports. Eighteen paired action/job audits (7 + 7 + 4 across constructor marks 99, 198, 297) stayed healthy, with all 83 NPCs matched, actor lists locked, zero identity rejections/conflicts and zero native job pointers without an observed active entry. The first restart was sampled at entered=returned=97, outstanding=0. The second restart's first sample already had one job: entered=199, returned=198, outstanding=1. Do not invent an observed zero barrier there. Each new mission settled back to 83 outstanding jobs; no sampled cumulative outstanding-work growth. Last counters 289 entered, 206 returned, 83 outstanding, loop calls 10,940.
 
