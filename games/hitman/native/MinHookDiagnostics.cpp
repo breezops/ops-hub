@@ -88,7 +88,7 @@ extern "C" LPVOID WINAPI CoopMhHeapReAlloc(HANDLE heap,DWORD flags,LPVOID memory
     if (g_Report) { ++g_Report->heapAttempts; if (!result) ++g_Report->heapFailures; }
     SetLastError(error); return result;
 }
-int MinHookDiagnostics::Create(void* target,void* detour,void** original,Report& report) {
+int MinHookDiagnostics::Create(void* target,void* detour,void** original,Report& report,LayoutTag<sizeof(Report)>) {
     report={};
     auto* previous=g_Report; g_Report=&report;
     const auto status=MH_CreateHook(target,detour,original);

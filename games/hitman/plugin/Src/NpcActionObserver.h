@@ -31,7 +31,7 @@ struct Config { void* context=nullptr; Validate validate=nullptr; Callback callb
 struct Stats { uint64_t entered=0,callbacks=0,busy=0; bool installed=false,active=false,healthy=false; };
 enum class InstallStage { NotAttempted, InvalidConfig, AlreadyAttempted, EntryRead, EntryMismatch, ModulePin, LibraryInit, HookCreate, MissingOriginal, HookEnable, Installed };
 struct InstallReport { InstallStage stage=InstallStage::NotAttempted; int hookStatus=0; uint32_t lastError=0; MinHookDiagnostics::Report allocations; };
-InstallReport Installation();
+InstallReport Installation(MinHookDiagnostics::LayoutTag<sizeof(InstallReport)> = {});
 const char* StageName(InstallStage);
 // Uses MinHook's thread-aware entry patching. Requires the complete untouched
 // verified site bundle and the already observed SDK game-update thread.

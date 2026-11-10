@@ -536,3 +536,22 @@ is removed, and concurrent independent report capture/reset. All twenty native
 CTest processes pass. Fault injection is compiled only into the SDK-free fixture
 library; it is absent from the player build. This is diagnostic evidence for the
 next startup check, not a claimed fix for the live intermittent allocation error.
+
+The Action-4 live startup reported successful attachment and eight job/action
+audits (last 99 entries, 16 returns, 83 outstanding), but the diagnostic artifact
+was invalid. A report header was expanded while SDK compilation was already
+running. Saved object disassembly confirmed the old Installation implementation
+copied 96 bytes while its final caller expected 128. The resulting extra fields
+were invalid; a misplaced logging condition printed scan data on success too.
+The user quit normally. Discard this allocation telemetry and do not promote
+that build's observations to verified job or actor-lifetime proof.
+
+Action-5 fixes the condition and encodes sizeof(Report)/sizeof(InstallReport)
+into Create and both Installation function signatures through LayoutTag types.
+An old caller/callee layout now requests a different linker symbol rather than
+silently exchanging incompatible data. The matching-layout fixture links and
+runs; a deliberately stale 80-byte report fails at the tagged linker symbol.
+All twenty native test processes pass. The replacement SDK build uses a fresh
+empty directory after shared source/header edits are finalized and frozen.
+This prevents reuse of the mismatched intermediates; full game startup remains
+required before claiming the replacement diagnostic works live.

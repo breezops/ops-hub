@@ -151,7 +151,7 @@ bool NpcActionProbe::InstallRetained(void* entry) {
     }
     g_Report.stage="installed"; g_Report.hookStatus=0; g_Report.lastError=0; return true;
 }
-NpcActionProbe::InstallReport NpcActionProbe::Installation() {
+NpcActionProbe::InstallReport NpcActionProbe::Installation(MinHookDiagnostics::LayoutTag<sizeof(InstallReport)>) {
     std::lock_guard lock(g_Install); return g_Report;
 }
 bool NpcActionProbe::Installed() { return g_Installed; }

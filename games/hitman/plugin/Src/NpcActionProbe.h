@@ -28,7 +28,7 @@ struct InstallReport {
     uint32_t lastError=0;
     MinHookDiagnostics::Report allocations;
 };
-InstallReport Installation();
+InstallReport Installation(MinHookDiagnostics::LayoutTag<sizeof(InstallReport)> = {});
 bool Installed();
 bool InstalledFor(const void* entry);
 Stats Diagnostics();

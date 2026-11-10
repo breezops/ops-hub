@@ -113,7 +113,7 @@ bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Confi
     g_InstallReport.stage=InstallStage::Installed; g_InstallReport.hookStatus=0; g_InstallReport.lastError=0;
     return true;
 }
-NpcActionObserver::InstallReport NpcActionObserver::Installation() {
+NpcActionObserver::InstallReport NpcActionObserver::Installation(MinHookDiagnostics::LayoutTag<sizeof(InstallReport)>) {
     std::lock_guard lock(g_Install); return g_InstallReport;
 }
 const char* NpcActionObserver::StageName(InstallStage stage) {

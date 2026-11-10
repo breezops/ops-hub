@@ -1452,11 +1452,11 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         if (jobsInstalled) m_World.MarkPartyNpcJobAttachment();
         const auto jobReport=NpcActionProbe::Installation();
         const auto traceAllocation=[](const char* observer,const MinHookDiagnostics::Report& a,int status) {
-            if (status==9) CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
                 "%s creation allocator evidence=%s queries=%llu free-region-queries=%llu query-failures=%llu last-query-error=%u virtual-attempts=%llu virtual-successes=%llu virtual-failures=%llu last-virtual-bytes=%llu last-virtual-error=%u heap-attempts=%llu heap-failures=%llu; tracing only; allocation policy unchanged",
                 observer,MinHookDiagnostics::AllocationPath(a),a.queries,a.freeRegions,a.queryFailures,a.queryError,
                 a.virtualAttempts,a.virtualSuccesses,a.virtualFailures,a.lastVirtualBytes,a.virtualError,a.heapAttempts,a.heapFailures);
-            CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
+            if (status==9) CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
                 "%s read-only near-range scan: complete=%d free-bytes=%llu aligned-4K-candidates=%llu largest-free-extent=%llu query-error=%u; aligned candidates are observations, not successful allocations",
                 observer,a.nearScanComplete?1:0,a.nearFreeBytes,a.nearAlignedCandidates,a.nearLargestFreeExtent,a.nearScanError);
         };
