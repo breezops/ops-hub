@@ -1,4 +1,5 @@
 #include "CrashGuards.h"
+#include "NpcActorLifetimeSites.h"
 #include <Windows.h>
 #include <TlHelp32.h>
 #include <cstdio>
@@ -37,11 +38,15 @@ int wmain(int argc,wchar_t** argv) {
     std::vector<uint8_t> image(nt->OptionalHeader.SizeOfImage);
     const auto* sections=IMAGE_FIRST_SECTION(nt);
     if (!fits(reinterpret_cast<const uint8_t*>(sections)-file.data(),nt->FileHeader.NumberOfSections*sizeof(IMAGE_SECTION_HEADER),file.size())) return 2;
-    uintptr_t from=0,to=0;
+    uintptr_t from=0,to=0,rfrom=0,rto=0;
     for (unsigned i=0;i<nt->FileHeader.NumberOfSections;++i) {
         const auto& section=sections[i];
         if (!fits(section.PointerToRawData,section.SizeOfRawData,file.size()) || !fits(section.VirtualAddress,section.SizeOfRawData,image.size())) return 2;
         std::memcpy(image.data()+section.VirtualAddress,file.data()+section.PointerToRawData,section.SizeOfRawData);
+        if (std::memcmp(section.Name,".rdata\0\0",8)==0) {
+            rfrom=reinterpret_cast<uintptr_t>(image.data()+section.VirtualAddress);
+            rto=rfrom+section.SizeOfRawData;
+        }
         if (std::memcmp(section.Name,".text\0\0\0",8)==0) {
             from=reinterpret_cast<uintptr_t>(image.data()+section.VirtualAddress);
             to=from+section.SizeOfRawData;
@@ -58,6 +63,8 @@ int wmain(int argc,wchar_t** argv) {
     const auto job=CrashGuardsTest::ActionJobInText(from,to);
     const auto actions=CrashGuardsTest::ActionSitesInText(from,to);
     const auto behavior=CrashGuardsTest::BehaviorSitesInText(from,to);
+    const auto lifetime=NpcActorLifetimeSites::Resolve(from,to,rfrom,rto,
+        nt->OptionalHeader.ImageBase,reinterpret_cast<uintptr_t>(image.data()));
     std::printf("job=%d action-sites=%d behavior-sites=%d\n",job?1:0,actions?1:0,behavior?1:0);
     if (behavior) {
         const auto base=reinterpret_cast<uintptr_t>(image.data());
@@ -65,5 +72,12 @@ int wmain(int argc,wchar_t** argv) {
             reinterpret_cast<uintptr_t>(behavior.actions.loop)-base,reinterpret_cast<uintptr_t>(behavior.actions.job)-base,
             reinterpret_cast<uintptr_t>(behavior.actorControl)-base,reinterpret_cast<uintptr_t>(behavior.table)-base);
     }
-    return behavior?0:1;
+    std::printf("actor-lifetime-sites=%d (relationships only; no physical retirement proof)\n",lifetime?1:0);
+    if (lifetime) {
+        const auto base=reinterpret_cast<uintptr_t>(image.data());
+        std::printf("Lifetime RVAs: constructor-anchor=%llx vtable=%llx deleting=%llx destructor=%llx\n",
+            reinterpret_cast<uintptr_t>(lifetime.constructorAnchor)-base,reinterpret_cast<uintptr_t>(lifetime.vtable)-base,
+            reinterpret_cast<uintptr_t>(lifetime.deletingDestructor)-base,reinterpret_cast<uintptr_t>(lifetime.destructor)-base);
+    }
+    return behavior && lifetime?0:1;
 }

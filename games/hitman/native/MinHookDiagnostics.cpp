@@ -16,9 +16,10 @@ bool ApprovedPrefix(void* target) {
     constexpr uint8_t job[]{0x40,0x53,0x48,0x83,0xec,0x20,0x48,0x8b,0xd9,0x48,0x8b,0x89,0xe0,0,0,0};
     constexpr uint8_t loop[]{0x40,0x56,0x41,0x54,0x41,0x55,0x41,0x56,0x48,0x83,0xec,0x38,0x4c,0x8b,0x02};
     constexpr uint8_t actor[]{0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x20,0x44,0x0f,0xb6,0x81,0x7d,0x11,0,0};
-    std::array<uint8_t,20> bytes{}; SIZE_T count=0;
+    constexpr uint8_t destructor[]{0x48,0x89,0x5c,0x24,0x10,0x48,0x89,0x74,0x24,0x18,0x48,0x89,0x7c,0x24,0x20,0x41,0x56,0x48,0x83,0xec,0x20};
+    std::array<uint8_t,21> bytes{}; SIZE_T count=0;
     if (!target || !ReadProcessMemory(GetCurrentProcess(),target,bytes.data(),bytes.size(),&count) || count!=bytes.size()) return false;
-    if (!std::memcmp(bytes.data(),job,sizeof(job)) || !std::memcmp(bytes.data(),loop,sizeof(loop)) || !std::memcmp(bytes.data(),actor,sizeof(actor))) return true;
+    if (!std::memcmp(bytes.data(),job,sizeof(job)) || !std::memcmp(bytes.data(),loop,sizeof(loop)) || !std::memcmp(bytes.data(),actor,sizeof(actor)) || !std::memcmp(bytes.data(),destructor,sizeof(destructor))) return true;
 #ifdef COOP_MINHOOK_ALLOC_TESTS
     // Fixture-only actor thunk replaces the native movzx with an absolute mov.
     if (!std::memcmp(bytes.data(),actor,10) && bytes[10]==0x48 && bytes[11]==0xb8) return true;

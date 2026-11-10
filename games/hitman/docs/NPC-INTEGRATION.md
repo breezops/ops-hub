@@ -678,3 +678,40 @@ Continue and the original SDK dispatch unchanged; native-return and physical
 retirement remain UNKNOWN. No new teardown hook or native control is enabled.
 The later binding still needs a verified lifetime barrier, not merely zero
 observed jobs or a completed scene load. Hold-3 remains separately preserved.
+
+
+## Lifetime-2: destruction-entry identity invalidation
+
+Offline inspection of installed3.290.1 links the SDK-known constructor's primary
+vtable assignment (anchor RVA1481ae) to vtable1d680c8, scalar deleting wrapper
+148900 and body destructor148940. The wrapper calls the body before its optional
+size0x1440 allocation free. The body's entry restores the same class vtable.
+NpcActorLifetimeSites verifies the complete constructor dataflow prefix, unique
+anchor, section bounds/alignment, wrapper call/delete-size/restore pattern,
+body prefix and same-vtable relationship. Mismatched, ambiguous, truncated or
+out-of-section chains reject. The inspector maps executable bytes as DATA and
+translates stored PE vtable pointers explicitly; it does not run game code.
+The actor-manager clear routine at16a630 clears several containers and delegates;
+that alone has not established the required worker/lifetime barrier.
+
+The opt-in COOP_NPC_DESTRUCTION_DIAGNOSTICS (default OFF, requires lifetime and
+identity diagnostics) attaches a separate pinned pass-through body observer.
+A short pointer callback marks the current birth invalid BEFORE native body
+execution. Find returns zero for that tombstone. A later observed construction
+at the same address issues a new monotonic birth; unknown destruction entries
+never invent a stamp. Tombstones do not reclaim capacity without an independently
+verified prune barrier. The callback/book locks are released before native code;
+Stop drains only pointer callbacks, detaches context and retains module/bridge/
+trampoline through native returns. It does not wait on or claim native teardown.
+Counters distinguish body entry/return, birth invalidation and unknown actors.
+
+Both hook configurations pass35native CTest processes, including four new
+retained destruction cases: invalidation before body and address reuse, client
+destruction after Stop while original body remains pending, nested native bodies,
+and bad-entry/unknown-actor refusals. Additional resolver and birth-book cases run
+inside the native suite. The absolute backend admits the exact21-byte destructor
+prefix (three whole relocation-free stores form its stolen15-byte span).
+No SDK ClearScene wrapper or new native control is enabled. Body return precedes
+optional allocation free; an entry stamp is not a lifetime pin against native
+concurrent destruction. No ConfirmNpcSceneRetired, birth pruning or guest NPC
+readiness binding is enabled from these observations.

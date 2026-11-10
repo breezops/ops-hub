@@ -5,6 +5,7 @@
 #include "NpcMutationGate.h"
 #include "NpcActionObserver.h"
 #include "NpcActionProbe.h"
+#include "NpcActorDestructionObserver.h"
 #include "NpcHoldArbiter.h"
 #include "GamePause.h"
 #include "Log.h"
@@ -227,6 +228,7 @@ void HitmanCoop::SaveBugReport(const std::string& p_Diagnostics) {
 }
 
 HitmanCoop::~HitmanCoop() {
+    NpcActorDestructionObserver::Stop(); // Drain pointer callbacks before destroying the birth book.
     NpcActionObserver::Stop(); // Detach our context before any world/session state is destroyed.
     PoseHook::Uninstall();
     CrashGuards::Uninstall();
@@ -1464,6 +1466,15 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         m_NpcActionObserverAttempted=true;
         const auto sites=m_GameVersion=="3.290.1" && m_Unsupported.empty()
             ? CrashGuards::VerifiedNpcBehaviorSites() : CrashGuards::NpcBehaviorSites{};
+#ifdef COOP_NPC_DESTRUCTION_DIAGNOSTICS
+        const auto lifetime=m_GameVersion=="3.290.1" && m_Unsupported.empty()
+            ? NpcActorLifetimeSites::ResolveMainModule() : NpcActorLifetimeSites::Sites{};
+        const bool destruction=lifetime && NpcActorDestructionObserver::Install(lifetime,&m_World,
+            [](void* world,void* actor) noexcept { return static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionEntry(actor); });
+        const auto destructionReport=NpcActorDestructionObserver::Installation();
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only destruction observer installed=%d sites=%d stage=%s status=%d; physical retirement UNKNOWN",
+            destruction?1:0,lifetime?1:0,destructionReport.stage,destructionReport.status);
+#endif
         // Resolve the entire untouched bundle before either entry is patched.
         const bool jobsInstalled=sites && NpcActionProbe::InstallRetained(sites.actions.job);
         if (jobsInstalled) m_World.MarkPartyNpcJobAttachment();
@@ -2394,6 +2405,16 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bo
 
 #ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
 void HitmanCoop::AuditNpcSceneEvidence() {
+#ifdef COOP_NPC_DESTRUCTION_DIAGNOSTICS
+    const auto destruction=NpcActorDestructionObserver::Diagnostics();
+    if (destruction.entered!=m_NpcDtorLastEntered || destruction.returned!=m_NpcDtorLastReturned) {
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only audit entered=%llu returned=%llu invalidated=%llu unknown=%llu installed=%d active=%d; body return is not allocation free or scene retirement proof",
+            static_cast<unsigned long long>(destruction.entered),static_cast<unsigned long long>(destruction.returned),
+            static_cast<unsigned long long>(destruction.invalidated),static_cast<unsigned long long>(destruction.unknown),
+            destruction.installed?1:0,destruction.active?1:0);
+        m_NpcDtorLastEntered=destruction.entered; m_NpcDtorLastReturned=destruction.returned;
+    }
+#endif
     const auto samples=m_NpcSceneEvidence.Snapshot();
     for (size_t i=0;i<samples.size();++i) {
         const auto& s=samples[i]; const auto& last=m_NpcSceneLast[i];

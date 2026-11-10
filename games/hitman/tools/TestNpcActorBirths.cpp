@@ -7,6 +7,27 @@
 
 using NpcActorBirths::Book;
 
+TEST(NpcActorBirths_DestructionEntryInvalidatesWithoutInventingRetirement) {
+    Book book; int actor=0,unknown=0;
+    CHECK(!book.ObserveDestructionEntry(nullptr));
+    CHECK(!book.ObserveDestructionEntry(&unknown)); CHECK(!book.Mark());
+    const auto first=book.ObserveConstruction(&actor);
+    REQUIRE(first);
+    CHECK(book.ObserveDestructionEntry(&actor)==first);
+    CHECK(!book.Find(&actor)); CHECK(!book.ObserveDestructionEntry(&actor));
+    CHECK(book.Mark()==first); CHECK(book.Healthy());
+    const auto replacement=book.ObserveConstruction(&actor);
+    CHECK(replacement>first); CHECK(book.Find(&actor)==replacement);
+    // A verified prune for an older generation cannot erase the replacement.
+    CHECK(book.PruneRetired(first,{})); CHECK(book.Find(&actor)==replacement);
+}
+TEST(NpcActorBirths_DestructionTombstonesDoNotReclaimUnverifiedCapacity) {
+    Book book(1); int actor=0,other=0;
+    REQUIRE(book.ObserveConstruction(&actor));
+    REQUIRE(book.ObserveDestructionEntry(&actor));
+    CHECK(!book.ObserveConstruction(&other)); CHECK(!book.Healthy());
+}
+
 TEST(NpcActorBirths_MissingConstructionNeverInventsAnIdentity) {
     Book book; int actor=0;
     CHECK(book.Find(&actor)==0); CHECK(book.Find(nullptr)==0);

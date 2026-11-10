@@ -50,6 +50,24 @@ worker barrier. Next: identify/verify a native lifetime boundary using local
 engine code/call relationships and read-only analysis before binding retirement
 confirmation, birth pruning or shared guest admission. Preserve Hold-3/life.1.
 
+## Prepared checkpoint: Lifetime-2 destruction-entry observer
+
+OPS0.1.14/native preview.4.life.2, recipe diagnostics/lifetime-2. Check journal
+for final build/package/delivery receipts. Strict constructor/vtable/deleting-
+wrapper/body relationships resolved in installed executable as data. Pointer-only
+destruction entry callback invalidates the current birth, with tombstones and
+fresh address-reuse births. It runs outside SDK clear callbacks and releases its
+book/client locks before native body execution. Pinned retained observer; Stop
+detaches/drains pointer callbacks only. Normal/absolute suites each35processes.
+No retirement confirmation, lifetime pin, birth pruning or shared NPC admission.
+
+Next solo startup: Lifetime-2 Install/Repair, Freeformwait15sreplyinmission.
+Confirm destruction plus job/action observers attached and83healthy identities.
+HOLD/F8OFF. Then nativeRestart/walk20s twice/quit. Inspect destructor entry/return,
+invalidated/unknown counts, cut drainage and fresh83NPC audits. This differs from
+Lifetime-1 by observing actual destructor-entry identity invalidation. Do not
+infer physical scene retirement from counts; keep all proven packages preserved.
+
 ## Immediate engineering step — solo remains sufficient
 
 Hold-2 startup failed before selection: job/action creation status 9, hold

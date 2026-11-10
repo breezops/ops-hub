@@ -39,7 +39,7 @@ register-preserving absolute entry jump, backs up/restores fourteen bytes and
 copies whole decoded instructions through that length. It retains upstream
 thread suspension/IP mapping and hook bookkeeping. Short/hot-patch functions
 and relative/RIP-based stolen instructions are refused. MinHookDiagnostics
-admits only verified job, action-loop and actor-control prefixes; fixture actor
+admits only verified job, action-loop, actor-control and actor-destructor prefixes; fixture actor
 thunks are accepted only in test builds. Raw MH_CreateHook must not bypass that
 prefix admission. This is not a general-purpose absolute-hook API. Retained
 lifetime and native drain restrictions remain unchanged; normal builds still

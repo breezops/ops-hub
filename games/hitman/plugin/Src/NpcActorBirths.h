@@ -14,6 +14,10 @@ public:
     static constexpr size_t Capacity=8192;
     explicit Book(size_t limit=Capacity):m_Limit(limit) { if (!limit || limit>Capacity) m_Healthy=false; }
     uint64_t ObserveConstruction(void* actor) noexcept;
+    // Pointer-only invalidation at an observed native destructor ENTRY. Returns
+    // the invalidated birth, or zero for unknown/already-invalid actors. Does
+    // not assert destructor return, free completion or a native worker barrier.
+    uint64_t ObserveDestructionEntry(void* actor) noexcept;
     uint64_t Find(const void* actor) const noexcept;
     uint64_t Mark() const noexcept;
     bool Healthy() const { return m_Healthy.load(); }
@@ -26,6 +30,7 @@ private:
     mutable std::mutex m_Mutex;
     mutable std::atomic<bool> m_Healthy=true;
     uint64_t m_Issued=0,m_Retired=0;
-    std::unordered_map<const void*,uint64_t> m_Births;
+    struct Entry { uint64_t birth=0; bool live=false; };
+    std::unordered_map<const void*,Entry> m_Births;
 };
 }

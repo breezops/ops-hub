@@ -63,6 +63,7 @@ public:
     // Constructor callback may run on workers: pointer-only metadata, no SDK
     // actor reads and no session lock. Construction entry is not completion.
     void ObservePartyNpcConstruction(void* actor) noexcept { m_NpcActorBirths.ObserveConstruction(actor); }
+    uint64_t ObservePartyNpcDestructionEntry(void* actor) noexcept { return m_NpcActorBirths.ObserveDestructionEntry(actor); }
     void ObservePartyGameThread(uint32_t thread) noexcept;
     uint32_t PartyGameThread() const;
     uint64_t CurrentPartyNpcBirth(uint64_t id) const;
