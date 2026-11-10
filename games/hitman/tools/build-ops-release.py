@@ -58,7 +58,7 @@ Keep the launcher open. For a damaged avatar, restart the native mission as inst
 REMOVE MOD removes tracked files while preserving saves. Previous Foundation
 4.1 and Preview 1 archives remain preserved separately by the maintainer.
 Updater downloads use the canonical OPS HUB host behind opscord.net. The HITMAN
-manifest must first be published by the site owner; a missing channel is reported.
+release manifest is published by the HITMAN release workflow; a missing channel is reported.
 ''', encoding='utf-8')
 shutil.copyfile(root/'docs/CHANGELOG-OPS.md',stage/'CHANGELOG.md')
 (stage/'BUILD-NOTES.md').write_text((root/'docs/LAUNCHER-AND-UPDATES.md').read_text(), encoding='utf-8')

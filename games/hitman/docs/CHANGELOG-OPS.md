@@ -1,5 +1,14 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.1 — 2026-11-09
+
+- Fix Install / repair and in-launcher updates rejecting their own running launcher.
+- Continue blocking changes while HITMAN or a destination game-folder launcher runs.
+- Capture setup output without a flashing console; display the actual error in the launcher.
+- Save setup logs and add an Open setup log button for successful and failed runs.
+- Use Windows PowerShell's own module paths even when inherited from PowerShell 7.
+- Native Preview 2 gameplay code and party protocol remain unchanged.
+
 ## 0.1.0 — 2026-11-09
 
 - Import HITMAN native/core source, development notes and experimental NPC source patch into games/hitman.
