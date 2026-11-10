@@ -3,6 +3,7 @@
 #include "coop/PartyAvatarPlayback.h"
 #include "coop/PartyPreviewRuntime.h"
 #include "FakeWorld.h"
+#include "coop/AvatarAppearance.h"
 #include "SimNetwork.h"
 #include "coop/LauncherProtocol.h"
 
@@ -446,4 +447,39 @@ TEST(PartyPreview_DamagedStandInInterruptsAndStopStartCannotReuseBrokenScene) {
         room.Step(1.);
         for(auto& peer:room.runtime) CHECK(peer->Status().phase==LobbyRoster::Phase::Playing);
     }
+}
+
+TEST(PartyAppearance_InitialSpawnAndStopKeepVisibilityGates) {
+    AvatarAppearance appearance;
+    appearance.BeginOutfitChange(false);
+    CHECK(!appearance.KeepVisible());
+    appearance.BeginOutfitChange(true);
+    CHECK(appearance.KeepVisible());
+    appearance.Hide();
+    CHECK(!appearance.KeepVisible());
+    appearance.BeginOutfitChange(false);
+    CHECK(!appearance.KeepVisible());
+}
+TEST(PartyAppearance_RepeatedBodyRebuildsStayVisibleUntilLatestRigIsStable) {
+    AvatarAppearance appearance;
+    appearance.BeginOutfitChange(true);
+    appearance.RigStable(1.2,1.0);
+    CHECK(appearance.KeepVisible());
+    appearance.BeginOutfitChange(false); // another request arrives before rematching
+    CHECK(appearance.KeepVisible());
+    appearance.RigStable(1.6,1.4); // new body replaced an interim rig
+    CHECK(appearance.KeepVisible());
+    appearance.RigStable(2.0,1.4);
+    CHECK(!appearance.KeepVisible());
+}
+TEST(PartyAppearance_ThreeRemotePlayersKeepIndependentTransitions) {
+    std::array<AvatarAppearance,3> avatars;
+    avatars[0].BeginOutfitChange(true);
+    avatars[1].BeginOutfitChange(true);
+    avatars[0].RigStable(2.0,1.0);
+    CHECK(!avatars[0].KeepVisible());
+    CHECK(avatars[1].KeepVisible());
+    CHECK(!avatars[2].KeepVisible());
+    avatars[1].Hide();
+    CHECK(!avatars[1].KeepVisible());
 }

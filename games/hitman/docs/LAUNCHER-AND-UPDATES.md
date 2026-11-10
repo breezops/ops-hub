@@ -1,17 +1,24 @@
-# OPS HUB HITMAN launcher 0.1.0
+# OPS HUB HITMAN launcher 0.1.2
 
 This release redesigns the existing WPF launcher and introduces a HITMAN-only
-update client. Its native mod is exactly Preview 2, build
-`0.13.94-four-player.preview.2`, game 3.290.1, party protocol 2. The three-player
-vault/takedown regression still needs live testing; no new native NPC authority
-is enabled here. Four slots are available; shared NPCs, bodies, items, objectives
+update client. Its native mod is Preview 3, build
+`0.13.94-four-player.preview.3`, game 3.290.1, party protocol 2. The prior two-PC
+Preview 2 test passed repeated close vaults and smooth movement; no new native NPC authority
+is enabled here. All players must update to this matching native build. Four slots are available; shared NPCs, bodies, items, objectives
 and extraction are not yet implemented in this backend.
 
 The interface follows DESIGN-BRIEF.txt: near-black/charcoal panels, sharp edges,
 crimson actions, restrained architectural geometry and a single session screen.
 Existing host/join/leave/ready/start/stop/reconnect/launch actions remain. Install,
 repair and tracked removal use the existing verified PowerShell installer.
-Notification sounds and upstream self-updates remain disabled.
+Notification sounds and upstream self-updates remain disabled. The window now
+fits the Windows work area, scrolls vertically when needed, and stacks the roster
+on narrower windows. Layout checks cover every control at 1120x820, 1120x690,
+800x600 and 640x480 logical pixels, including long errors and an open-log button. Version 0.1.1 fixes
+setup rejecting its own launcher. It captures stdout/stderr without a flashing
+console, keeps the actual error visible, saves a setup log, and exposes Open
+setup log. A launcher running from the destination game folder remains blocked
+to protect files in use; an extracted package or cached-release launcher is safe.
 
 ## Player update flow
 
@@ -31,31 +38,25 @@ Release archives include corresponding GPL source, credits/licenses and the SDK
 runtime. Foundation 4.1/Preview 1 backups remain preserved separately; they are
 not bundled into every player download. Previous archives are not overwritten. The site must publish ZIPs before publishing their manifest.
 
-## Site connection: verified facts and pending work
+## Site connection
 
-The supplied ops-hub README reserves games/hitman and independent hitman-v tags.
-The repository checkout has no root deployment workflow or authenticated Sites
-hosting manifest. The website contains a prepared HITMAN project listing, but
-the live listing currently says no download is available.
+Published `hitman-vX.Y.Z` GitHub releases now upload automatically to the existing
+OPS HUB site, through `.github/workflows/publish-hitman.yml`. Attach the ZIP,
+`.sha256`, `CHANGELOG-OPS.md` and `hitman-release.json` before publishing. The
+workflow verifies the package, uploads it, checks the public checksum, and only
+then changes the public manifest. Source pushes and draft releases do not publish.
+See the repository's `docs/RELEASE-PUBLISHING.md` for the owner-managed setup.
 
-On 2026-11-09 `https://opscord.net` and `/hitman/release.json` both returned 301
-to the root of `https://ops-hub.breezops.chatgpt.site`, dropping the path. The
-canonical host's `/hitman/release.json` returned 404. For this reason the updater
-uses that canonical OPS HUB HTTPS origin directly. Branding remains OPS HUB;
-opscord.net is the intended visitor address. Fix the domain forwarding so it
-preserves paths before switching the pinned updater origin to that domain.
+The public 0.1.0 manifest and ZIP were verified on 2026-11-09. The updater uses
+`https://ops-hub.breezops.chatgpt.site` directly because opscord.net forwarding
+currently drops paths. The public HITMAN feed is `/hitman/release.json`; downloads
+are under `/downloads/hitman/`. Stray's update channel remains separate.
 
-`tools/build-ops-release.py` produces a ready-to-host `publish` tree:
-
-- `downloads/hitman/HITMAN-Coop-0.1.0.zip`: immutable player download.
-- `hitman/release.json`: HITMAN-only manifest with version, protocol, build,
-  byte count and SHA-256. It is independent of Stray's release.json/API.
-
-Publishing this tree into the site's public assets and deploying the site is
-still required. Do not claim that a git push deploys this site until the owner's
-external deployment connection is confirmed. No site identity, deploy token,
-GitHub credentials, binaries, player logs, saves or game assets belong in git.
-The launcher reports an unpublished/unreachable channel without claiming success.
+The two-PC 0.1.0-to-0.1.1 installation succeeded. The new native outfit
+continuity and the guest's actual 200% scaling still require a live 0.1.2 check.
+Already-visible avatars use native pose while a new outfit rig is rematched;
+initial spawn/Stop/Leave still gate visibility. Remote writes are skipped if the
+body bone count changed. The engine can still briefly stream geometry out. No publishing credentials belong in source or player packages.
 
 ## Build and checks
 
@@ -70,6 +71,5 @@ It supplies the SDK runtime and redistribution licenses; rollback archives are n
 
 The updater rejects other games, wrong runtime/protocol/game, unsafe paths,
 cross-origin redirects, oversized downloads, duplicate/symlink ZIP entries and
-bad hashes. Its production happy path must be checked against the live published
-channel after the site owner connects deployment. Local staging and installer
+bad hashes. A new release must be checked against the live published channel. Local staging and installer
 fixtures do not prove an online update or game-session test.
