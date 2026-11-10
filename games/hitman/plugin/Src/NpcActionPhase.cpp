@@ -63,6 +63,7 @@ bool ReadState(const NpcMutationGate::Ticket& ticket,int32_t id,void* unit,Nativ
 struct NpcActionPhase::Bridge {
     static void Run(void* table,const void* span) {
         const auto callers=g_Callers.fetch_add(1)+1;
+        if (g_Installed && GetCurrentThreadId()!=g_Config.gameThread) g_Healthy=false;
         if (g_Installed && g_Healthy && !NpcActionProbe::InstalledFor(g_Sites.actions.job)) g_Healthy=false;
         if (g_Installed && g_Healthy && callers==1) {
             Boundary boundary;
@@ -102,7 +103,7 @@ NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::
     if (!pin || (!held && NpcMutationGate::BlocksInteraction(ticket.actor)) ||
         !NpcActionProbe::InstalledFor(g_Sites.actions.job)) return {};
     int32_t id=-1;
-    if (!g_Config.validate(g_Config.context,ticket,id) || id<0 || id>=8192 ||
+    if (!g_Config.validate(g_Config.context,ticket,id) || id<0 || id>=static_cast<int32_t>(m_Ids.size()) ||
         std::find(m_Ids.begin(),m_Ids.begin()+m_Count,id)==m_Ids.begin()+m_Count) return {};
     auto* unit=static_cast<uint8_t*>(g_Sites.table)+8+static_cast<size_t>(id)*0xf8;
     NativeState before;
@@ -128,11 +129,12 @@ NpcActionPhase::Result NpcActionPhase::Boundary::SetHeld(const NpcMutationGate::
 
 bool NpcActionPhase::Install(const CrashGuards::NpcBehaviorSites& sites,Config config) {
     std::lock_guard lock(g_Install);
-    if (!g_Healthy || !sites || !config.validate || !config.callback || !NpcActionProbe::InstalledFor(sites.actions.job)) return false;
+    if (!g_Healthy || !sites || !config.validate || !config.callback ||
+        !config.gameThread || config.gameThread!=GetCurrentThreadId() || !NpcActionProbe::InstalledFor(sites.actions.job)) return false;
     if (g_Installed) {
         std::array<uint8_t,15> actual;
         return sites.actions.loop==g_Entry && sites.actorControl==g_Sites.actorControl && sites.table==g_Sites.table &&
-            config.context==g_Config.context && config.validate==g_Config.validate && config.callback==g_Config.callback &&
+            config.context==g_Config.context && config.validate==g_Config.validate && config.callback==g_Config.callback && config.gameThread==g_Config.gameThread &&
             Read(g_Entry,actual.data(),actual.size()) && actual==Patch();
     }
     if ((g_Entry && sites.actions.loop!=g_Entry) || g_Callers.load() || !Executable(sites.actions.loop) || !Executable(sites.actorControl)) return false;

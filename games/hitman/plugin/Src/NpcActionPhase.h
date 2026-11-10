@@ -22,11 +22,16 @@ private:
     bool m_Active=false;
     uintptr_t m_Stack=0;
     size_t m_Count=0;
-    std::array<int32_t,8192> m_Ids;
+    std::array<int32_t,500> m_Ids; // SDK 4.2.1 native actor slots; crowd proxies are separate.
     friend struct Bridge;
 };
 using Callback=void (*)(void*,Boundary&);
-struct Config { void* context=nullptr; Validate validate=nullptr; Callback callback=nullptr; };
+struct Config {
+    void* context=nullptr;
+    Validate validate=nullptr;
+    Callback callback=nullptr;
+    uint32_t gameThread=0; // Captured from the SDK game update, not a network/render thread.
+};
 // Install/remove only at an externally established native-quiescent point.
 // Requires the corresponding job probe installed first. Config lifetime spans
 // every native invocation; stop producers and drain before removing/unloading.

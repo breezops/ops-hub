@@ -244,10 +244,15 @@ the bundle before installing the job probe, whose patch changes the job prefix.
 
 `NpcActionPhase` optionally wraps the action output loop. A callback receives a
 noncopyable permission valid on that native stack only, before original action
-scheduling. `SetHeld` requires an exact scope/birth/lease pin, a supplied fresh
+scheduling. Installation must occur on the explicitly identified SDK game thread;
+an unexpected execution thread latches unhealthy status before any callback.
+`SetHeld` requires an exact scope/birth/lease pin, a supplied fresh
 native identity/lifetime validator, membership in the current enabled-ID span,
 matching runtime ID, unit actor pointer and consistent actor/unit flags. It invokes the existing
-native actor function and verifies identity and state again afterward. A hold
+native actor function and verifies identity and state again afterward. Mutating
+operations and input spans are bounded to the SDK's 500 native actor slots;
+the old reasoning guard's larger address-comparison bound is not a memory-access
+bound for this helper. A hold
 completes only when both flags agree, the native action/job references are clear
 and the matching job probe has no outstanding call for that unit. A native return
 without those observations remains pending. Resume also requires local ownership

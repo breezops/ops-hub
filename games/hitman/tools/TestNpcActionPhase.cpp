@@ -51,6 +51,7 @@ struct Fixture {
     NpcMutationGate::Scope scope=0;
     NpcMutationGate::Ticket ticket;
     unsigned nativeCalls=0,loopCalls=0,callbacks=0;
+    int32_t validationId=0;
     bool valid=true,hold=true,pinObserved=false,removeRefused=false;
     bool failCleanup=false,noNativeChange=false,throwCallback=false,wrongStack=false,invalidateOnCall=false;
     bool canceled=false,converted=false;
@@ -81,7 +82,7 @@ struct Fixture {
         return {{PhaseEntry(),JobEntry(),reinterpret_cast<void*>(&NativeToggle),reinterpret_cast<void*>(&NativeToggle),reinterpret_cast<void*>(&NativeToggle)},reinterpret_cast<void*>(&NativeToggle),table.data()};
     }
     static bool Validate(void* opaque,const NpcMutationGate::Ticket& ticket,int32_t& id) {
-        auto& f=*static_cast<Fixture*>(opaque); id=0;
+        auto& f=*static_cast<Fixture*>(opaque); id=f.validationId;
         return f.valid && ticket.actor==f.actor.data();
     }
     static void WrongStack(void* opaque) {
@@ -99,7 +100,7 @@ struct Fixture {
     }
     bool Install() {
         return ticket.actor && PhaseEntry() && JobEntry() && NpcActionProbe::Install(JobEntry()) &&
-            NpcActionPhase::Install(Sites(),{this,&Validate,&Callback});
+            NpcActionPhase::Install(Sites(),{this,&Validate,&Callback,GetCurrentThreadId()});
     }
     void Run() { reinterpret_cast<void(*)(void*,const void*)>(PhaseEntry())(table.data(),&span); }
     static void WINAPI JobFiber(void* opaque) {
@@ -145,7 +146,10 @@ void NativeToggle(void* actor,bool held) {
 TEST(NpcActionPhase_RequiresMatchingProbeAndRestoresTheNativeLoop) {
     Fixture f; REQUIRE(PhaseEntry()); REQUIRE(JobEntry());
     std::array<uint8_t,15> before{}; std::memcpy(before.data(),PhaseEntry(),before.size());
+    CHECK(!NpcActionPhase::Install(f.Sites(),{&f,&Fixture::Validate,&Fixture::Callback,GetCurrentThreadId()}));
+    REQUIRE(NpcActionProbe::Install(JobEntry()));
     CHECK(!NpcActionPhase::Install(f.Sites(),{&f,&Fixture::Validate,&Fixture::Callback}));
+    CHECK(!NpcActionPhase::Install(f.Sites(),{&f,&Fixture::Validate,&Fixture::Callback,GetCurrentThreadId()+1}));
     REQUIRE(f.Install()); CHECK(NpcActionPhase::Healthy());
     f.Run(); CHECK(f.result.state==State::Complete); CHECK(f.result.changed);
     CHECK(f.nativeCalls==1); CHECK(f.loopCalls==1); CHECK(f.pinObserved); CHECK(f.removeRefused);
@@ -165,7 +169,9 @@ TEST(NpcActionPhase_RefusesInvalidIdentityAndDoesNotSkipNativeScheduling) {
     f.ids={2,3}; f.Run(); CHECK(f.result.state==State::Refused);
     f.ids={0,1}; f.actor[0x117d]=0x40; f.Run(); CHECK(f.result.state==State::Refused);
     f.actor[0x117d]=0; Put<uintptr_t>(f.Unit(),8,1); f.Run(); CHECK(f.result.state==State::Refused);
-    CHECK(f.nativeCalls==0); CHECK(f.loopCalls==6);
+    f.validationId=500; f.ids={500,1}; Put<int32_t>(f.actor.data(),0x119c,500);
+    f.Run(); CHECK(f.result.state==State::Refused);
+    CHECK(f.nativeCalls==0); CHECK(f.loopCalls==7);
 }
 
 TEST(NpcActionPhase_NativeReturnWithoutMatchingStateOrCleanupRemainsPending) {
