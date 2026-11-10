@@ -100,11 +100,11 @@ public:
     // Notification from the pre-clear hook, NOT a completed teardown. Preserve
     // enough native identity/worker state to verify this token after clearing.
     // The token is process-unique across rooms; zero is never issued.
-    virtual void BeginNpcSceneRetirement(uint64_t token) {}
+    virtual void BeginNpcSceneRetirement(uint64_t) {}
     // Only true after the native scene and its outstanding jobs are retired.
     // IsInScene=false, queued cancellation or entry into ClearScene is not proof.
     // Must recognize the exact token, including after another scene has loaded.
-    virtual bool ConfirmNpcSceneRetired(uint64_t token) { return false; }
+    virtual bool ConfirmNpcSceneRetired(uint64_t) { return false; }
     virtual bool FreezeNpc(uint64_t) = 0;
     virtual bool ApplyNpcBaseline(uint64_t, const PartyNpcState&) = 0;
     virtual bool ResumeNpc(uint64_t) = 0;
