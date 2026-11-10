@@ -39,6 +39,7 @@ std::atomic<uint32_t> g_TargetCount { 0 };
 
 std::vector<PoseHook::Bone> g_SourcePoses[c_Channels];
 bool g_SourceFresh[c_Channels] {};
+PoseHook::Frame g_SourceFrames[c_Channels];
 std::vector<PoseHook::Bone> g_TargetPose;
 bool g_HasTargetPose = false;
 bool g_AllPositions = false;
@@ -54,6 +55,9 @@ struct PlayerTarget {
     std::vector<int32_t> map;
     std::vector<uint8_t> mask;
     bool allPositions = false;
+    uint32_t expectedBoneCount = 0;
+    PoseHook::Frame frame;
+    PoseHook::FrameStats stats;
 };
 // Atomic pointers are only a fast rejection filter. Every match is checked
 // again under g_Mutex before touching the corresponding player record.
@@ -78,6 +82,30 @@ bool ReadablePose(const uint8_t* p_Out, PoseHook::Bone*& p_Bones, uint32_t& p_Co
     std::memcpy(&p_Bones, p_Out + 0x08, sizeof(p_Bones));
     std::memcpy(&p_Count, p_Out + 0x10, sizeof(p_Count));
     return p_Bones && p_Count > 0 && p_Count < 1024;
+}
+
+// The fourth argument is the animation world matrix in HITMAN 3.290.1.
+// Read only committed, readable pages; never touch a guard page.
+PoseHook::Frame ReadFrame(const void* world) {
+    PoseHook::Frame frame;
+    if (!world) return frame;
+    auto address = reinterpret_cast<uintptr_t>(world);
+    if (address > UINTPTR_MAX - 64) return frame;
+    for (auto cursor = address; cursor < address + 64;) {
+        MEMORY_BASIC_INFORMATION info {};
+        if (!VirtualQuery(reinterpret_cast<void*>(cursor), &info, sizeof(info)) ||
+            info.State != MEM_COMMIT || (info.Protect & (PAGE_GUARD | PAGE_NOACCESS)) ||
+            !(info.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY |
+                             PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) return frame;
+        const auto end = reinterpret_cast<uintptr_t>(info.BaseAddress) + info.RegionSize;
+        if (end <= cursor) return frame;
+        cursor = end;
+    }
+    float matrix[16];
+    SIZE_T bytes = 0;
+    if (ReadProcessMemory(GetCurrentProcess(), world, matrix, sizeof(matrix), &bytes) && bytes == sizeof(matrix))
+        frame.hasWorldRotation = coop::PoseWorldRotation(matrix, frame.worldRotation);
+    return frame;
 }
 
 void Update(void* p_This, void* p_In, uint8_t* p_Out, const void* p_World, uint64_t p_A5, uint64_t p_A6, uint64_t p_A7) {
@@ -120,17 +148,35 @@ void Update(void* p_This, void* p_In, uint8_t* p_Out, const void* p_World, uint6
     if (s_Player >= 0 && g_PlayerTargets[s_Player].animator == p_This) {
         auto& s_Target = g_PlayerTargets[s_Player];
         s_Target.native.assign(s_Bones, s_Bones + s_Count);
-        const size_t s_Copy = std::min<size_t>(s_Count,
-            s_Target.map.empty() ? s_Target.pose.size() : s_Target.map.size());
+        // A body can change on an animation worker before the game thread has
+        // rematched it. Record its native pose, but never apply the stale map
+        // to a different-sized rig in that intervening frame.
+        const size_t s_Copy = s_Target.expectedBoneCount && s_Target.expectedBoneCount != s_Count ? 0 :
+            std::min<size_t>(s_Count, s_Target.map.empty() ? s_Target.pose.size() : s_Target.map.size());
+        const auto targetFrame = s_Target.frame.hasWorldRotation ? ReadFrame(p_World) : PoseHook::Frame{};
+        const bool rebase = s_Target.frame.hasWorldRotation && targetFrame.hasWorldRotation;
+        if (s_Copy && !rebase) ++s_Target.stats.unavailable;
+        const auto delta = coop::Multiply(coop::InverseRotation(targetFrame.worldRotation), s_Target.frame.worldRotation);
         for (size_t i = 0; i < s_Copy; ++i) {
             if (i < s_Target.mask.size() && !s_Target.mask[i])
                 continue;
             const int32_t s_From = s_Target.map.empty() ? static_cast<int32_t>(i) : s_Target.map[i];
             if (s_From < 0 || static_cast<size_t>(s_From) >= s_Target.pose.size())
                 continue;
-            WriteRotation(s_Bones[i], s_Target.pose[s_From].rot);
+            auto bone = s_Target.pose[s_From];
+            // Only the true skeleton root changes reference frame. Child bones
+            // remain parent-relative; movement direction never substitutes for facing.
+            if (rebase && i == 0 && s_From == 0) {
+                ++s_Target.stats.rebased;
+                s_Target.stats.lastCorrectionRadians = coop::AngleBetween({}, delta);
+                const auto q = coop::Normalize(coop::Multiply(delta, {bone.rot[0],bone.rot[1],bone.rot[2],bone.rot[3]}));
+                const auto pos = coop::Rotate(delta, {bone.pos[0],bone.pos[1],bone.pos[2]});
+                bone.rot[0]=q.x; bone.rot[1]=q.y; bone.rot[2]=q.z; bone.rot[3]=q.w;
+                bone.pos[0]=pos.x; bone.pos[1]=pos.y; bone.pos[2]=pos.z;
+            }
+            WriteRotation(s_Bones[i], bone.rot);
             if (s_Target.allPositions || i < 2)
-                std::memcpy(s_Bones[i].pos, s_Target.pose[s_From].pos, sizeof(s_Bones[i].pos));
+                std::memcpy(s_Bones[i].pos, bone.pos, sizeof(s_Bones[i].pos));
         }
     }
 
@@ -139,11 +185,12 @@ void Update(void* p_This, void* p_In, uint8_t* p_Out, const void* p_World, uint6
         g_WatchedFresh[s_Watched] = true;
     }
 
-    if (s_Source >= 0) {
+    if (s_Source >= 0 && p_This == g_Sources[s_Source].load()) {
         if (s_Source == 0)
             g_SourceCount = s_Count;
 
         g_SourcePoses[s_Source].assign(s_Bones, s_Bones + s_Count);
+        g_SourceFrames[s_Source] = ReadFrame(p_World);
         g_SourceFresh[s_Source] = true;
     }
 
@@ -234,8 +281,12 @@ void PoseHook::Uninstall() {
 
     g_Table = nullptr;
 
-    for (auto& s_Source : g_Sources)
-        s_Source = nullptr;
+    for (size_t i=0; i<c_Channels; ++i) {
+        g_Sources[i] = nullptr;
+        g_SourceFresh[i] = false;
+        g_SourcePoses[i].clear();
+        g_SourceFrames[i] = {};
+    }
 
     for (auto& s_Extra : g_Extras)
         s_Extra = nullptr;
@@ -256,8 +307,14 @@ bool PoseHook::Installed() {
 }
 
 void PoseHook::SetSource(void* p_Animator, size_t p_Channel) {
-    if (p_Channel < c_Channels)
+    if (p_Channel >= c_Channels) return;
+    std::lock_guard lock(g_Mutex);
+    if (g_Sources[p_Channel].load() != p_Animator) {
+        g_SourcePoses[p_Channel].clear();
+        g_SourceFrames[p_Channel] = {};
+        g_SourceFresh[p_Channel] = false;
         g_Sources[p_Channel] = p_Animator;
+    }
 }
 
 void PoseHook::SetTarget(void* p_Animator) {
@@ -301,9 +358,11 @@ bool PoseHook::BindPlayerTarget(uint8_t p_Id, uint64_t p_Incarnation, void* p_An
 bool PoseHook::SetPlayerTargetPose(uint8_t p_Id, uint64_t p_Incarnation,
                                   const std::vector<Bone>& p_Pose, bool p_AllPositions,
                                   const std::vector<int32_t>& p_Map,
-                                  const std::vector<uint8_t>& p_Mask) {
+                                  const std::vector<uint8_t>& p_Mask, uint32_t p_ExpectedBoneCount, const Frame& p_Frame) {
     if (p_Id < 1 || p_Id > 4 || !p_Incarnation ||
-        p_Pose.size() > 1023 || p_Map.size() > 1023 || p_Mask.size() > 1023)
+        p_Pose.size() > 1023 || p_Map.size() > 1023 || p_Mask.size() > 1023 || p_ExpectedBoneCount > 1023 ||
+        (p_Frame.hasWorldRotation && (!std::isfinite(coop::Dot(p_Frame.worldRotation, p_Frame.worldRotation)) ||
+            coop::Dot(p_Frame.worldRotation, p_Frame.worldRotation) < .001f)))
         return false;
     std::lock_guard s_Lock(g_Mutex);
     auto& s_Target = g_PlayerTargets[p_Id - 1];
@@ -315,6 +374,8 @@ bool PoseHook::SetPlayerTargetPose(uint8_t p_Id, uint64_t p_Incarnation,
     s_Target.map = p_Map;
     s_Target.mask = p_Mask;
     s_Target.allPositions = p_AllPositions;
+    s_Target.expectedBoneCount = p_ExpectedBoneCount;
+    s_Target.frame = p_Frame;
     return true;
 }
 
@@ -328,6 +389,15 @@ bool PoseHook::PlayerTargetNativePose(uint8_t p_Id, uint64_t p_Incarnation, std:
         return false;
     p_Out = s_Target.native;
     return !p_Out.empty();
+}
+
+bool PoseHook::PlayerFrameStats(uint8_t p_Id, uint64_t p_Incarnation, FrameStats& p_Out) {
+    if (p_Id < 1 || p_Id > 4 || !p_Incarnation) return false;
+    std::lock_guard lock(g_Mutex);
+    const auto& target = g_PlayerTargets[p_Id-1];
+    if (!target.animator || target.incarnation != p_Incarnation) return false;
+    p_Out = target.stats;
+    return true;
 }
 
 bool PoseHook::ClearPlayerTarget(uint8_t p_Id, uint64_t p_Incarnation) {
@@ -350,13 +420,14 @@ void PoseHook::ClearPlayerTargets() {
     }
 }
 
-bool PoseHook::TakeSourcePose(std::vector<Bone>& p_Out, size_t p_Channel) {
+bool PoseHook::TakeSourcePose(std::vector<Bone>& p_Out, size_t p_Channel, Frame* p_Frame) {
     std::lock_guard s_Lock(g_Mutex);
 
     if (p_Channel >= c_Channels || !g_SourceFresh[p_Channel])
         return false;
 
     p_Out = g_SourcePoses[p_Channel];
+    if (p_Frame) *p_Frame = g_SourceFrames[p_Channel];
     g_SourceFresh[p_Channel] = false;
     return true;
 }

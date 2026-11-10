@@ -25,6 +25,7 @@ public sealed class LauncherUpdate {
     readonly JavaScriptSerializer json=new JavaScriptSerializer();
     public string ModBuild { get { return config.mod_build; } }
     public string ReleaseVersion { get { return config.release_version; } }
+    public string LastSetupLog { get; private set; }
     public LauncherUpdate() : this(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"updater-config.json"),
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"OpsHub","HitmanCoop")) {}
     public LauncherUpdate(string configFile,string storage) {
@@ -167,8 +168,29 @@ public sealed class LauncherUpdate {
         string installer=Path.Combine(folder,"Install-Friend.ps1");
         if(!File.Exists(installer)) throw new IOException("Extract the complete launcher package before installing.");
         string powershell=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\powershell.exe");
-        var start=new ProcessStartInfo(powershell,"-NoProfile -ExecutionPolicy Bypass -File \""+installer+"\" -Mode "+mode){UseShellExecute=true};
-        return await Task.Run(()=>{ using(Process process=Process.Start(start)) {process.WaitForExit();return process.ExitCode;} });
+        var start=new ProcessStartInfo(powershell,"-NoProfile -STA -ExecutionPolicy Bypass -File \""+installer+"\" -Mode "+mode){
+            UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true,
+            WorkingDirectory=Path.GetFullPath(folder)
+        };
+        // Windows PowerShell must use its own modules, even when the launcher
+        // inherits a PowerShell 7/custom environment from its parent process.
+        start.EnvironmentVariables["PSModulePath"]=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),@"WindowsPowerShell\Modules")+
+            ";"+Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),@"WindowsPowerShell\v1.0\Modules");
+        string logs=Path.Combine(home,"logs");Directory.CreateDirectory(logs);
+        LastSetupLog=Path.Combine(logs,"setup-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N").Substring(0,8)+".txt");
+        using(Process process=Process.Start(start)) {
+            Task<string> stdout=process.StandardOutput.ReadToEndAsync(),stderr=process.StandardError.ReadToEndAsync();
+            await Task.WhenAll(stdout,stderr,Task.Run(()=>process.WaitForExit()));
+            string output=stdout.Result+Environment.NewLine+stderr.Result;
+            File.WriteAllText(LastSetupLog,output);
+            if(process.ExitCode!=0) {
+                string detail="Setup returned exit code "+process.ExitCode+".";
+                foreach(string line in output.Split(new[]{'\r','\n'},StringSplitOptions.RemoveEmptyEntries))
+                    if(line.Trim().StartsWith("SETUP STOPPED:",StringComparison.OrdinalIgnoreCase)) detail=line.Trim();
+                throw new IOException(detail+Environment.NewLine+"Setup log: "+LastSetupLog);
+            }
+            return process.ExitCode;
+        }
     }
     public void Activate(string stage) {
         string full=Path.GetFullPath(stage),root=Path.Combine(home,"releases")+Path.DirectorySeparatorChar;
@@ -186,6 +208,11 @@ public sealed class LauncherUpdate {
         string target=Path.GetFullPath(record["folder"]),root=Path.Combine(home,"releases")+Path.DirectorySeparatorChar;
         if(!target.StartsWith(root,StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Invalid saved launcher location.");
         if(String.Equals(target.TrimEnd('\\'),AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase)) return false;
+        var selected=json.Deserialize<Configuration>(File.ReadAllText(Path.Combine(target,"updater-config.json")));
+        if(selected==null || !ValidVersion(selected.release_version)) throw new InvalidDataException("Invalid saved launcher version.");
+        // Opening a newer complete download must not forward back to an older
+        // cached launcher (especially when the old window does not fit).
+        if(new Version(selected.release_version)<new Version(ReleaseVersion)) return false;
         string launcher=Path.Combine(target,"HITMAN-Coop-Party-Preview.exe");
         if(HashFile(launcher)!=record["sha256"]) throw new InvalidDataException("The saved launcher failed its integrity check. Use Install / repair.");
         Process.Start(new ProcessStartInfo(launcher){UseShellExecute=true});return true;

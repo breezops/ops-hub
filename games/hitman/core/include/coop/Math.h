@@ -69,6 +69,8 @@ struct Pose {
     std::vector<Quat> rotations;
     Vec3 rootPos;
     Vec3 pelvisPos;
+    bool hasWorldRotation = false;
+    Quat worldRotation;
 };
 
 inline Pose Lerp(const Pose& a, const Pose& b, float t) {
@@ -83,6 +85,9 @@ inline Pose Lerp(const Pose& a, const Pose& b, float t) {
 
     s_Out.rootPos = Lerp(a.rootPos, b.rootPos, t);
     s_Out.pelvisPos = Lerp(a.pelvisPos, b.pelvisPos, t);
+    s_Out.hasWorldRotation = a.hasWorldRotation && b.hasWorldRotation;
+    if (s_Out.hasWorldRotation)
+        s_Out.worldRotation = Nlerp(a.worldRotation, b.worldRotation, t);
     return s_Out;
 }
 

@@ -179,6 +179,8 @@ void SdkWorld::OnSceneCleared() {
     m_LegacyAvatar.puppet.Forget();
     m_TakedownVictim = nullptr;
     PoseHook::SetSource(nullptr);
+    m_LocalBones.clear();
+    m_LocalPoseFrame = {};
     PoseHook::SetTarget(nullptr);
     PoseHook::ClearTargetPose();
     PoseHook::SetSource(nullptr, 1);
@@ -1376,8 +1378,10 @@ bool SdkWorld::GetLocalPose(coop::Pose& p_Out) {
 
     std::vector<PoseHook::Bone> s_Fresh;
 
-    if (PoseHook::TakeSourcePose(s_Fresh))
+    if (PoseHook::TakeSourcePose(s_Fresh, 0, &m_LocalPoseFrame))
         m_LocalBones = std::move(s_Fresh);
+    p_Out.hasWorldRotation = m_PartyPresentation.Status().phase == coop::LobbyRoster::Phase::Playing && m_LocalPoseFrame.hasWorldRotation;
+    p_Out.worldRotation = m_LocalPoseFrame.worldRotation;
 
     if (m_LocalBones.size() < 2)
         return false;
@@ -1399,6 +1403,7 @@ void SdkWorld::ShowRemotePose(const coop::Pose& p_Pose) {
 }
 
 void SdkWorld::ShowRemotePose(RemoteAvatarState& avatar, const coop::Pose& p_Pose) {
+    avatar.remotePoseFrame = {p_Pose.hasWorldRotation, p_Pose.worldRotation};
     avatar.remoteBones.resize(p_Pose.rotations.size());
 
     for (size_t i = 0; i < p_Pose.rotations.size(); ++i) {
@@ -1447,6 +1452,11 @@ void SdkWorld::ShowRemotePose(RemoteAvatarState& avatar, const coop::Pose& p_Pos
     if (avatar.entity && !avatar.partnerHidden && !m_Mirror) {
         bool s_Ready = avatar.partnerRig == 1 && s_LayoutOk && m_Now - avatar.partnerRigReadyAt > 0.1;
         bool s_GaveUp = false;
+        const bool s_WasChanging = avatar.appearance.KeepVisible();
+        if (s_Ready) avatar.appearance.RigStable(m_Now, avatar.partnerRigReadyAt);
+        const bool s_KeepVisible = avatar.playerId && avatar.appearance.KeepVisible();
+        if (s_WasChanging && !s_KeepVisible && m_Trace)
+            m_Trace("party outfit: player " + std::to_string(avatar.playerId) + " rig stable, visible throughout rematch");
 
         if (s_Ready)
             avatar.rigHiddenSince = -1.0;
@@ -1455,7 +1465,7 @@ void SdkWorld::ShowRemotePose(RemoteAvatarState& avatar, const coop::Pose& p_Pos
         else if (m_Now - avatar.rigHiddenSince > 3.0)
             s_Ready = s_GaveUp = true; // shown as it is (until the match is made) rather than not at all
 
-        if (!s_Ready) {
+        if (!s_Ready && !s_KeepVisible) {
             if (!avatar.rigHidden && m_Trace)
                 m_Trace("partner: hidden until its skeleton is matched");
 
@@ -1476,6 +1486,11 @@ void SdkWorld::ShowRemotePose(RemoteAvatarState& avatar, const coop::Pose& p_Pos
 
             if (m_Trace)
                 m_Trace(s_GaveUp ? "partner: shown though its skeleton isn't matched yet" : "partner: shown, posed with the matched skeleton");
+        }
+        else if (s_KeepVisible) {
+            // Do not add an artificial blackout to an already-visible outfit
+            // transition. Until rematched, pose writes are cleared above.
+            avatar.entity.SetProperty("m_bVisible", true);
         }
     }
 
@@ -1845,7 +1860,7 @@ void SdkWorld::SetRemoteSkeleton(RemoteAvatarState& avatar, const std::vector<in
 
     // Matched again (hidden meanwhile) as soon as their poses are in it.
     if (avatar.actor) {
-        ResetPartnerRig(avatar, 0.05);
+        ResetPartnerRig(avatar, avatar.appearance.KeepVisible() ? 0.0 : 0.05);
         avatar.skeletonRematches = 0;
     }
 
@@ -2070,6 +2085,7 @@ void SdkWorld::HideRemoteAvatar() {
 }
 
 void SdkWorld::HideRemoteAvatar(RemoteAvatarState& avatar) {
+    avatar.appearance.Hide();
     if (!avatar.entity || avatar.partnerHidden)
         return;
 
@@ -2237,6 +2253,13 @@ void SdkWorld::ApplyPartnerOutfit(RemoteAvatarState& avatar) {
     }
 
 
+    avatar.appearance.BeginOutfitChange(avatar.playerId && !avatar.partnerHidden &&
+        !avatar.rigHidden && avatar.partnerRig == 1 && avatar.standInShownLogged);
+    if (avatar.playerId && m_Trace)
+        m_Trace("party outfit: player " + std::to_string(avatar.playerId) + " applying " + s_Use.repositoryId +
+            (avatar.appearance.KeepVisible() ? ", keeping visibility during rematch" : ", initial/hidden avatar uses readiness gate"));
+    // Stop old-layout writes before asking the engine to replace the body.
+    ClearAvatarPose(avatar);
     Functions::ZActor_SetOutfit->Call(avatar.actor, s_KitRef, s_Use.charset, s_Variation, false);
     avatar.standInWears = s_Use.repositoryId;
 
@@ -2248,8 +2271,9 @@ void SdkWorld::ApplyPartnerOutfit(RemoteAvatarState& avatar) {
             "because the game crashes with a suit on a stand-in. Look for their name tag.");
     }
 
-    // Matched again for the new body (see CheckPartnerSkeleton), hidden meanwhile.
-    ResetPartnerRig(avatar, 0.5);
+    // Rematch as soon as a fresh native pose/rig is available. Keep an already
+    // visible party avatar on screen in its native pose while this happens.
+    ResetPartnerRig(avatar, avatar.appearance.KeepVisible() ? 0.0 : 0.5);
     avatar.skeletonRematches = 0;
 
     if (!s_Original.empty()) {
@@ -2271,6 +2295,7 @@ void SdkWorld::ResetPartnerRig(RemoteAvatarState& avatar, double p_CheckIn) {
     ClearAvatarPose(avatar);
     avatar.partnerRig = 0;
     avatar.partnerRigCheckAt = m_Now + p_CheckIn;
+    avatar.nextRigProbeAt = avatar.partnerRigCheckAt;
     avatar.rigParents.clear();
     avatar.boneMap.clear();
     if (!avatar.playerId) {
@@ -2284,8 +2309,9 @@ void SdkWorld::CheckPartnerSkeleton() {
 }
 
 void SdkWorld::CheckPartnerSkeleton(RemoteAvatarState& avatar) {
-    if (!avatar.actor || avatar.partnerRig != 0 || m_Now < avatar.partnerRigCheckAt)
+    if (!avatar.actor || avatar.partnerRig != 0 || m_Now < avatar.nextRigProbeAt)
         return;
+    avatar.nextRigProbeAt = m_Now + 0.03;
 
     // Decided by the two skeletons' layouts (their parent tables), never by comparing poses: those
     // differ whenever the two are doing different things, and 0.5.1 waited for them to match,

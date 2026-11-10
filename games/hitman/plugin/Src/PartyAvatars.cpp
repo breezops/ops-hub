@@ -6,6 +6,7 @@
 #include <Glacier/ZPhysics.h>
 #include <Glacier/ZSpatialEntity.h>
 #include <cmath>
+#include <cstdio>
 
 namespace {
 bool Finite(coop::Vec3 v) {
@@ -35,7 +36,8 @@ void SdkWorld::ApplyAvatarPose(RemoteAvatarState& avatar) {
             PoseHook::ClearTargetPose();
     } else {
         PoseHook::SetPlayerTargetPose(avatar.playerId, avatar.incarnation,
-            avatar.partnerRig == 1 ? avatar.remoteBones : std::vector<PoseHook::Bone>{}, false, avatar.boneMap);
+            avatar.partnerRig == 1 ? avatar.remoteBones : std::vector<PoseHook::Bone>{}, false, avatar.boneMap, {},
+            avatar.partnerRig == 1 ? (avatar.rigParents.empty() ? AvatarBoneCount(avatar) : static_cast<uint32_t>(avatar.rigParents.size())) : 0, avatar.remotePoseFrame);
     }
 }
 
@@ -101,6 +103,7 @@ bool SdkWorld::ApplyPartyRoster(const coop::PartyRoomStatus& status) {
         if (newEpoch || avatar.incarnation != member->incarnation || avatar.playerId != id) {
             HideRemoteAvatar(avatar);
             avatar.remoteBones.clear();
+            avatar.remotePoseFrame = {};
             avatar.remoteParents.clear();
             avatar.remotePoseTime = -100.;
             avatar.partnerWantedTime = 0.;
@@ -140,7 +143,8 @@ bool SdkWorld::ShowPartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch,
 bool SdkWorld::ShowPartyPose(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Pose& pose) {
     auto* avatar = PartyAvatar(id, incarnation, epoch);
     if (!avatar || pose.rotations.size() < 2 || pose.rotations.size() > coop::kMaxPoseBones ||
-        !Finite(pose.rootPos) || !Finite(pose.pelvisPos))
+        !Finite(pose.rootPos) || !Finite(pose.pelvisPos) ||
+        (pose.hasWorldRotation && !Finite(pose.worldRotation)))
         return false;
     for (const auto& rotation : pose.rotations)
         if (!Finite(rotation))
@@ -221,17 +225,22 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
             if (!PoseHook::BindPlayerTarget(avatar.playerId, avatar.incarnation, animator))
                 continue;
             avatar.poseAnimator = animator;
-            ResetPartnerRig(avatar, 0.3);
+            ResetPartnerRig(avatar, avatar.appearance.KeepVisible() ? 0.0 : 0.3);
         }
         const void* body = avatar.actor->m_pAnimatedActor;
         const void* skeleton = *reinterpret_cast<void* const*>(static_cast<const uint8_t*>(animator) + 0x50);
         const uint32_t bones = AvatarBoneCount(avatar);
-        const bool changed = avatar.partnerRig == 1 && avatar.skeletonRematches < 4 &&
-            ((avatar.rigBody && avatar.rigBody != body) ||
-             (avatar.rigSkeleton && avatar.rigSkeleton != skeleton) || (avatar.rigBones && bones && avatar.rigBones != bones));
+        // Bone-count changes always need a fresh map: the worker correctly
+        // rejects the old map, so suppressing this after several changes would
+        // leave the player in native pose indefinitely. Only pointer churn is
+        // capped; ordinary pose traffic cannot select a new native bone count.
+        const bool changed = avatar.partnerRig == 1 &&
+            ((avatar.rigBones && bones && avatar.rigBones != bones) ||
+             (avatar.skeletonRematches < 4 && ((avatar.rigBody && avatar.rigBody != body) ||
+              (avatar.rigSkeleton && avatar.rigSkeleton != skeleton))));
         if (changed) {
             ++avatar.skeletonRematches;
-            ResetPartnerRig(avatar, 0.3);
+            ResetPartnerRig(avatar, avatar.appearance.KeepVisible() ? 0.0 : 0.3);
         }
         avatar.rigBody = body;
         avatar.rigAnimator = animator;
@@ -248,6 +257,18 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
             ApplyAvatarPose(avatar);
         else
             ClearAvatarPose(avatar);
+        if (m_Trace && m_Now - avatar.frameTraceAt >= 10.) {
+            avatar.frameTraceAt = m_Now;
+            PoseHook::FrameStats stats;
+            if (PoseHook::PlayerFrameStats(avatar.playerId, avatar.incarnation, stats)) {
+                char line[200];
+                std::snprintf(line, sizeof(line), "party-frame: player %u source=%s rebased=%llu unavailable=%llu correction=%.1fdeg",
+                    avatar.playerId, avatar.remotePoseFrame.hasWorldRotation ? "world" : "legacy",
+                    static_cast<unsigned long long>(stats.rebased), static_cast<unsigned long long>(stats.unavailable),
+                    stats.lastCorrectionRadians * 57.29578f);
+                m_Trace(line);
+            }
+        }
     }
 }
 

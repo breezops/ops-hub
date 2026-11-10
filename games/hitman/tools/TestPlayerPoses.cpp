@@ -5,6 +5,7 @@
 #include <cstring>
 #include <thread>
 #include <atomic>
+#include <Windows.h>
 
 namespace {
 using UpdateFn = void (*)(void*, void*, uint8_t*, const void*, uint64_t, uint64_t, uint64_t);
@@ -34,17 +35,111 @@ struct Fixture {
     }
     ~Fixture() { PoseHook::Uninstall(); }
     bool Install() { return PoseHook::Install(&animators[0]); }
-    std::vector<PoseHook::Bone> Run(size_t p_Index, float p_Value = 1.f) {
-        std::vector<PoseHook::Bone> s_Bones(4, MakeBone(p_Value));
+    std::vector<PoseHook::Bone> Run(size_t p_Index, float p_Value = 1.f, uint32_t p_Count = 4, const void* world = nullptr) {
+        std::vector<PoseHook::Bone> s_Bones(p_Count, MakeBone(p_Value));
         std::array<uint8_t, 24> s_Output {};
         auto* s_Data = s_Bones.data();
         uint32_t s_Count = static_cast<uint32_t>(s_Bones.size());
         std::memcpy(s_Output.data() + 8, &s_Data, sizeof(s_Data));
         std::memcpy(s_Output.data() + 16, &s_Count, sizeof(s_Count));
-        reinterpret_cast<UpdateFn>(table[1])(&animators[p_Index], nullptr, s_Output.data(), nullptr, 0, 0, 0);
+        reinterpret_cast<UpdateFn>(table[1])(&animators[p_Index], nullptr, s_Output.data(), world, 0, 0, 0);
         return s_Bones;
     }
 };
+std::array<float,16> World(coop::Quat q) {
+    return {1-2*(q.y*q.y+q.z*q.z),2*(q.x*q.y+q.w*q.z),2*(q.x*q.z-q.w*q.y),0,
+            2*(q.x*q.y-q.w*q.z),1-2*(q.x*q.x+q.z*q.z),2*(q.y*q.z+q.w*q.x),0,
+            2*(q.x*q.z+q.w*q.y),2*(q.y*q.z-q.w*q.x),1-2*(q.x*q.x+q.y*q.y),0,
+            10,20,30,1};
+}
+coop::Quat Rotation(const PoseHook::Bone& bone) {
+    return {bone.rot[0],bone.rot[1],bone.rot[2],bone.rot[3]};
+}
+}
+
+TEST(PlayerPoses_AnimationFrameTravelsWithSourceAndResetsOnRebind) {
+    Fixture f;
+    REQUIRE(f.Install());
+    PoseHook::SetSource(&f.animators[0]);
+    const auto q=coop::Normalize({.2f,.3f,.1f,.8f});
+    auto matrix=World(q);
+    f.Run(0,42,4,matrix.data());
+    std::vector<PoseHook::Bone> bones;
+    PoseHook::Frame frame;
+    REQUIRE(PoseHook::TakeSourcePose(bones,0,&frame));
+    CHECK(bones[0].pos[0]==42);
+    CHECK(frame.hasWorldRotation);
+    CHECK(coop::AngleBetween(frame.worldRotation,q)<.001f);
+    f.Run(0,43,4,matrix.data());
+    PoseHook::SetSource(&f.animators[1]);
+    CHECK(!PoseHook::TakeSourcePose(bones,0,&frame));
+    f.Run(1,44);
+    REQUIRE(PoseHook::TakeSourcePose(bones,0,&frame));
+    CHECK(!frame.hasWorldRotation);
+    f.Run(1,45,4,matrix.data());
+    PoseHook::Uninstall();
+    CHECK(!PoseHook::TakeSourcePose(bones,0,&frame));
+}
+
+TEST(PlayerPoses_ThreeFramesPreserveFacingStrafingAndLocalChildBones) {
+    Fixture f;
+    REQUIRE(f.Install());
+    for (uint8_t id=2;id<=4;++id) {
+        REQUIRE(PoseHook::BindPlayerTarget(id,id,&f.animators[id-1]));
+        const auto source=coop::Normalize({.1f*id,.3f,-.2f,.8f});
+        const auto target=coop::Normalize({.3f,.1f*id,.4f,.5f});
+        const auto root=coop::Normalize({.2f,.6f,-.3f,.1f*id});
+        auto matrix=World(target);
+        auto bone=MakeBone(.25f);
+        bone.rot[0]=root.x;bone.rot[1]=root.y;bone.rot[2]=root.z;bone.rot[3]=root.w;
+        REQUIRE(PoseHook::SetPlayerTargetPose(id,id,{bone,bone,bone},false,{}, {},4,{true,source}));
+        const auto actual=f.Run(id-1,1,4,matrix.data());
+        CHECK(coop::AngleBetween(coop::Multiply(target,Rotation(actual[0])),coop::Multiply(source,root))<.001f);
+        CHECK(coop::AngleBetween(Rotation(actual[1]),root)<.001f);
+        CHECK(actual[1].pos[0]==.25f);
+        CHECK(actual[2].pos[0]==1); // Preserve target limb lengths.
+        CHECK(actual[0].pos[3]==.25f);
+        CHECK(coop::Distance(coop::Rotate(target,{actual[0].pos[0],actual[0].pos[1],actual[0].pos[2]}),
+            coop::Rotate(source,{.25f,.25f,.25f}))<.0001f);
+        // No movement vector is involved. The same facing survives strafing,
+        // backward travel and an idle turn at the same world position.
+        CHECK(coop::AngleBetween(Rotation(f.Run(id-1,99,4,matrix.data())[0]),Rotation(actual[0]))<.001f);
+        CHECK(f.Run(id-1,1,5,matrix.data())[0].pos[0]==1); // Rig guard remains active.
+        const auto fallback=f.Run(id-1,1,4,nullptr);
+        CHECK(coop::AngleBetween(Rotation(fallback[0]),root)<.001f);
+        PoseHook::FrameStats stats;
+        REQUIRE(PoseHook::PlayerFrameStats(id,id,stats));
+        CHECK(stats.rebased==2);
+        CHECK(stats.unavailable==1);
+        CHECK(!PoseHook::PlayerFrameStats(id,id+1,stats));
+    }
+}
+
+TEST(PlayerPoses_UnreadableAndGuardedWorldFramesFallBackSafely) {
+    Fixture f;
+    REQUIRE(f.Install());
+    PoseHook::SetSource(&f.animators[0]);
+    std::vector<PoseHook::Bone> bones;
+    PoseHook::Frame frame;
+    f.Run(0,1,4,reinterpret_cast<void*>(1));
+    REQUIRE(PoseHook::TakeSourcePose(bones,0,&frame));
+    CHECK(!frame.hasWorldRotation);
+    auto* memory=VirtualAlloc(nullptr,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
+    REQUIRE(memory!=nullptr);
+    auto matrix=World({});
+    std::memcpy(memory,matrix.data(),64);
+    DWORD previous=0;
+    const bool guarded=VirtualProtect(memory,4096,PAGE_READWRITE|PAGE_GUARD,&previous)!=0;
+    CHECK(guarded);
+    if (guarded) {
+        f.Run(0,1,4,memory);
+        CHECK(PoseHook::TakeSourcePose(bones,0,&frame));
+        CHECK(!frame.hasWorldRotation);
+        MEMORY_BASIC_INFORMATION info {};
+        VirtualQuery(memory,&info,sizeof(info));
+        CHECK((info.Protect&PAGE_GUARD)!=0); // Reading did not consume the guard.
+    }
+    VirtualFree(memory,0,MEM_RELEASE);
 }
 
 TEST(PlayerPoses_ThreeDistinctRigsNativeDiagnosticsAndLocalCapture) {
@@ -196,4 +291,28 @@ TEST(PlayerPoses_UninstallClearsEveryRemoteRigBeforeReinstall) {
     CHECK(result[0].pos[0] == 15.f);
     CHECK(result[1].pos[0] == 1.f);
     CHECK(result[2].pos[0] == 1.f);
+}
+
+TEST(PlayerPoses_OutfitBodyCountChangeNeverUsesThePreviousRigMap) {
+    Fixture f;
+    REQUIRE(f.Install());
+    REQUIRE(PoseHook::BindPlayerTarget(2,10,&f.animators[1]));
+    REQUIRE(PoseHook::BindPlayerTarget(4,30,&f.animators[3]));
+    std::vector<PoseHook::Bone> pose(4,MakeBone(42.f));
+    REQUIRE(PoseHook::SetPlayerTargetPose(2,10,pose,false,{}, {},4));
+    REQUIRE(PoseHook::SetPlayerTargetPose(4,30,pose,false,{}, {},4));
+    CHECK(f.Run(1)[0].pos[0]==42.f);
+    CHECK(f.Run(1,7.f,5)[0].pos[0]==7.f); // new body retains native pose
+    std::vector<PoseHook::Bone> native;
+    REQUIRE(PoseHook::PlayerTargetNativePose(2,10,native));
+    CHECK(native.size()==5); // game thread can now rematch the new rig
+    CHECK(f.Run(3)[0].pos[0]==42.f); // other player is unaffected
+    REQUIRE(PoseHook::SetPlayerTargetPose(2,10,pose,false,{0,1,2,3,-1},{},5));
+    auto rematched=f.Run(1,7.f,5);
+    CHECK(rematched[0].pos[0]==42.f);
+    CHECK(rematched[4].pos[0]==7.f);
+    CHECK(!PoseHook::SetPlayerTargetPose(2,10,pose,false,{}, {},1024));
+    CHECK(f.Run(1,7.f,4)[0].pos[0]==7.f); // stale/invalid map still cannot apply
+    REQUIRE(PoseHook::SetPlayerTargetPose(2,10,{},false));
+    CHECK(f.Run(1,7.f,5)[0].pos[0]==7.f);
 }
