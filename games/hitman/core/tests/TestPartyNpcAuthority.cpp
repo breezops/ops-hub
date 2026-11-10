@@ -23,6 +23,8 @@ struct World:IPartyNpcWorld {
     bool freeze=true,apply=true,resume=true,capture=true,prepare=true;
     unsigned preparations=0;
     unsigned resumes=0;
+    unsigned catalogPreparations=0, catalogStops=0;
+    std::set<uint64_t> preparedCatalog;
     std::vector<uint64_t> retirements;
     std::set<uint64_t> retired;
     unsigned retirementChecks=0;
@@ -36,6 +38,15 @@ struct World:IPartyNpcWorld {
         for (const auto& [npc,state]:states) if (!FreezeNpc(npc)) return false;
         return true;
     }
+    CatalogPreparation PrepareNpcCatalog(const std::set<uint64_t>& ids) override {
+        ++catalogPreparations;
+        if (!prepare) return CatalogPreparation::Pending;
+        for (const auto id:ids) if (!states.contains(id)) return CatalogPreparation::Refused;
+        for (const auto id:ids) if (!FreezeNpc(id)) return CatalogPreparation::Pending;
+        preparedCatalog=ids;
+        return CatalogPreparation::Ready;
+    }
+    void StopNpcCatalog() override { ++catalogStops; }
     bool FreezeNpc(uint64_t npc) override {
         if(!freeze) return false;
         running[npc]=false; if(onFreeze) onFreeze(npc); if(check) check(); return true;
@@ -450,7 +461,8 @@ struct RuntimeNpcLab {
     std::array<std::unique_ptr<PartyPreviewRuntime>,4> games;
     size_t count;
     double now=0;
-    explicit RuntimeNpcLab(size_t players=4,bool enable=true,PartyNpcOptions options={}):count(players) {
+    explicit RuntimeNpcLab(size_t players=4,bool enable=true,PartyNpcOptions options={},
+                           std::optional<PartyNpcOptions> guestOptions={}):count(players) {
         for(size_t i=0;i<count;++i) {
             sources[i].inScene=true;
             sources[i].scene.scene="assembly:/_PRO/Scenes/Missions/TheFacility/_Scene_Mission_Polarbear_Module_002_B.entity";
@@ -468,7 +480,15 @@ struct RuntimeNpcLab {
             Endpoint host{0x0a000001,47047};
             auto room=i==0?PartyRoom::Host(net->Open(host),config):
                 PartyRoom::Join(net->Open({uint32_t(0x0a000001+i),uint16_t(50001+i)}),host,config,now);
-            games[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i],enable?&natives[i]:nullptr,options);
+            games[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i],
+                enable?&natives[i]:nullptr,i && guestOptions?*guestOptions:options);
+        }
+    }
+    void AddNpc(uint64_t id) {
+        for(size_t i=0;i<count;++i) {
+            auto npc=sources[i].npcs[55]; npc.id=id;
+            sources[i].npcs[id]=npc;
+            natives[i].states[id]={};
         }
     }
     void Step(double seconds) {
@@ -660,6 +680,76 @@ TEST(PartyNpcRuntime_AllNativeScenesMustBePreparedBeforeAnyLeaseRuns) {
     lab.Step(2);
     for(size_t i=0;i<4;++i) CHECK(lab.games[i]->SharedNpcsActive());
     CHECK(lab.natives[0].running[55]);
+}
+
+TEST(PartyNpcRuntime_FixedCatalogWaitsForEveryPeerAndLeavesOtherActorsLocal) {
+    PartyNpcOptions options; options.fixedCatalog={55,56};
+    for(size_t count:{size_t(2),size_t(4)}) {
+        RuntimeNpcLab lab(count,true,options);
+        lab.AddNpc(56); lab.AddNpc(57);
+        for(size_t i=0;i<count;++i) lab.natives[i].running[57]=true;
+        lab.natives[count-1].prepare=false;
+        CHECK(!lab.Begin());
+        CHECK(lab.games[0]->Status().phase==LobbyRoster::Phase::Loading);
+        CHECK(lab.natives[count-1].catalogPreparations>0);
+        for(size_t i=0;i<count;++i) CHECK(lab.natives[i].resumes==0);
+
+        lab.natives[count-1].prepare=true;
+        lab.Step(2);
+        lab.natives[0].states[55].xf.pos.x=7;
+        lab.natives[0].states[56].xf.pos.x=19;
+        lab.natives[0].states[57].xf.pos.x=28;
+        lab.Step(2);
+        for(size_t i=0;i<count;++i) {
+            CHECK(lab.games[i]->SharedNpcsActive());
+            CHECK(lab.natives[i].preparations==0);
+            CHECK(lab.natives[i].preparedCatalog==options.fixedCatalog);
+            CHECK(lab.natives[i].running[55]==(i==0));
+            CHECK(lab.natives[i].running[56]==(i==0));
+            CHECK(lab.natives[i].running[57]);
+            CHECK(lab.natives[i].states[55].xf.pos.x==7);
+            CHECK(lab.natives[i].states[56].xf.pos.x==19);
+            CHECK(lab.natives[i].states[57].xf.pos.x==(i==0?28:0));
+        }
+    }
+}
+
+TEST(PartyNpcRuntime_StoppingDuringCatalogPreparationCancelsTheNativeAttempt) {
+    PartyNpcOptions options; options.fixedCatalog={55,56};
+    RuntimeNpcLab lab(2,true,options); lab.AddNpc(56);
+    lab.natives[1].prepare=false;
+    CHECK(!lab.Begin());
+    REQUIRE(lab.games[0]->Status().phase==LobbyRoster::Phase::Loading);
+    REQUIRE(lab.games[0]->Lobby()); lab.Step(1);
+    for(size_t i=0;i<2;++i) {
+        CHECK(lab.natives[i].catalogStops==1);
+        CHECK(lab.natives[i].resumes==0);
+        CHECK(!lab.games[i]->Ready());
+    }
+}
+
+TEST(PartyNpcRuntime_GuestRejectsCommitForActorOutsideItsPreparedCatalog) {
+    PartyNpcOptions host; host.fixedCatalog={55};
+    PartyNpcOptions guest; guest.fixedCatalog={56};
+    std::set<uint64_t> guestFrozen;
+    RuntimeNpcLab lab(2,true,host,guest); lab.AddNpc(56);
+    lab.natives[1].onFreeze=[&](uint64_t id) { guestFrozen.insert(id); };
+    lab.Begin(); lab.Step(1);
+    CHECK(lab.games[0]->Status().phase==LobbyRoster::Phase::Interrupted);
+    CHECK(guestFrozen==guest.fixedCatalog);
+    CHECK(lab.natives[1].catalogStops==1);
+    CHECK(!lab.games[1]->SharedNpcsActive());
+}
+
+TEST(PartyNpcRuntime_MissingFixedActorInterruptsBeforeAnyCommit) {
+    PartyNpcOptions options; options.fixedCatalog={55,56};
+    RuntimeNpcLab lab(2,true,options); lab.AddNpc(56);
+    lab.natives[1].states.erase(56);
+    CHECK(!lab.Begin());
+    CHECK(lab.games[0]->Status().phase==LobbyRoster::Phase::Interrupted);
+    CHECK(lab.natives[0].resumes==0);
+    CHECK(lab.natives[1].catalogStops==1);
+    CHECK(!lab.games[0]->SharedNpcsActive());
 }
 
 TEST(PartyNpcRuntime_GuestLeaveAndNativeSceneLossStopEveryReplica) {

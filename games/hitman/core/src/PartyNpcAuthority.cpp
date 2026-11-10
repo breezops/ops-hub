@@ -82,7 +82,7 @@ bool DecodePartyNpc(const std::vector<uint8_t>& bytes, PartyNpcMessage& result) 
 }
 
 PartyNpcAuthority::PartyNpcAuthority(PartyNpcScope scope, PartyNpcOptions options):m_Scope(scope),m_Options(options) {
-    if ((options.policy!=PartyNpcPolicy::HostOnly && options.policy!=PartyNpcPolicy::NearestPlayer) ||
+    if (!options.ValidCatalog() || (options.policy!=PartyNpcPolicy::HostOnly && options.policy!=PartyNpcPolicy::NearestPlayer) ||
         !ScopeValid(scope) || !options.capacity || options.capacity>4096 || !options.queueLimit || options.queueLimit>16384 ||
         !Time(options.retry) || options.retry<0.05 || !Time(options.transferTimeout) || options.transferTimeout<=options.retry ||
         !Time(options.minimumHold) || !Time(options.locationMaxAge) || options.locationMaxAge<=0 ||
@@ -102,7 +102,7 @@ bool PartyNpcAuthority::Emit(uint8_t target,uint64_t npc,PartyNpcKind kind,const
     return true;
 }
 bool PartyNpcAuthority::Register(uint64_t npc,const PartyNpcState& state,double now) {
-    if (m_Stopped || !npc || !Time(now) || !ValidPartyNpcState(state) || m_Npcs.contains(npc) || m_Npcs.size()>=m_Options.capacity) return false;
+    if (m_Stopped || !m_Options.AcceptsNpc(npc) || !Time(now) || !ValidPartyNpcState(state) || m_Npcs.contains(npc) || m_Npcs.size()>=m_Options.capacity) return false;
     Record record; record.owner={1,m_Scope.incarnations[0]}; record.state=state; record.changed=now; record.retryAt=now+m_Options.retry; record.snapshotAt=now+m_Options.baselineInterval;
     m_Npcs.emplace(npc,record); return Emit(0,npc,PartyNpcKind::Commit,record);
 }

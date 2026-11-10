@@ -56,33 +56,45 @@ Shutdown drains control before detaching actor destruction observation.
 Both normal/absolute native configurations pass44CTest processes, including
 independent owners/script collisions, recursive other-actor interference,
 retired/address reuse/stale lease/scope/capacity refusal, owner-grant resume and
-ticket-bound retained fiber cancellation/resume. SDK controller live behavior
-remains unvalidated until Pool-1's solo test. Shared sources/headers finalized
+ticket-bound retained fiber cancellation/resume. The live result below validates the two-actor cycle in Freeform Training. Shared sources/headers finalized
 before SDK build; no mixed-layout objects.
 
-## Next user test
+## Pool-1 live result
 
-Close old launcher, open R:\Hitman COOP test\HITMAN-Coop-Pool-1, Install/Repair,
-Launch, soloFreeformwait15sreplyinmission. Confirm all FOUR job/action/destruction/
-hold-arbiter hooks installed plus83healthy identities. Pool/HOLD/DESTRUCTION/
-LIFETIME/IDENTITY/ACTION flags ON; absolute backend ON. Do not assume legacy
-protocol19 header is party protocol; party remains2, UDP47047.
-
-After startup confirmed: nativeRestart ONCE, stay near entrance, F8 ONCE with
-game focused, wait30seconds without interactions/pause/restart, quit normally.
-No walking guard, knockout, disguise, host/join/Ready or friend needed. The log
-names both selected NPCs. Standing visuals may look unchanged. Check both
-owned holds/drained jobs and both new jobs, not just flags or global counts.
-If startup/refusal fails, diagnose; do not ask repeated unchanged retries.
+All four hooks attached. After one mission restart, F8 selected Terry Norfolk
+and Joseph Harding. Both original jobs returned and both owned holds were
+confirmed at 14:40:38.824. Resume was confirmed at 14:40:46.833, and both new
+jobs were observed at 14:40:46.863. The final audit recorded 83 active jobs,
+zero held NPCs and healthy identities. The game is closed. Evidence is saved
+at research/checks/playtest-24-solo-pool-1/Host.log.
 
 ## Direction after local batch validation
 
-Continue native pool preparation/control and then restricted two-PC authority/
-apply using existing party/core, not a replacement multiplayer framework. This
-prototype controls two actors locally; it is not PrepareNpcScene proof. Larger
-pool admission, actors entering later, native lifetime/retirement recovery,
-canonical life/interaction application and multi-player NPC perception still
-need bindings. Existing stand-ins are deliberately unseen by NPCs.
+The private runtime now supports a fixed catalog of stable NPC entity IDs. In
+this mode every peer must confirm that those exact actors are held and drained
+before the room starts. Only the host runs their simulation. Other NPCs keep
+their local behavior. Stopping during loading cancels preparation even before
+any commit arrives. Reuse requires confirmed native retirement. Private packages
+using this mode need a distinct room build ID and identical catalogs on all PCs.
+All 207 core tests passed, including two- and four-peer catalog admission,
+host-only updates, loading cancellation, missing actors and out-of-catalog
+commits. The Pool-enabled SDK plugin compiled with these changes.
+
+The Pool-1 selection path now exercises the exact-ID binding helper. It resolves
+and checks all requested actors at the retained action boundary before opening
+the mutation scope and registering watches. Its selected-actor log now records
+entity IDs alongside labels and births. The existing live Pool-1 log predates
+this change and does not contain the two entity IDs.
+
+Next, connect catalog preparation and acknowledged freeze, baseline apply and
+resume through the retained native boundary. Sequence pending native operations
+so polling a pending resume cannot reissue a completed freeze or baseline write.
+Resolve the same two mission actors on both PCs and begin with living actor
+transforms under host authority. Use the existing room admission, transport and
+replica. Production still supplies no native party NPC adapter. Whole-scene pool
+admission, native retirement recovery, canonical life/interaction application
+and multi-player NPC perception need further bindings. Existing stand-ins are
+deliberately unseen by NPCs.
 Two PCs are routine; use3/4for roster/fan-out/seat reuse/disconnect checks.
 
 Product target remains4players, host-controlled persistent lobby and native

@@ -3,6 +3,7 @@
 #include <map>
 #include <deque>
 #include <optional>
+#include <set>
 
 namespace coop {
 enum class PartyNpcLife : uint8_t { Alive, Unconscious, Dead };
@@ -44,6 +45,16 @@ struct PartyNpcOptions {
     size_t capacity = 1024, queueLimit = 4096;
     double retry = 0.25, transferTimeout = 3., minimumHold = 2., locationMaxAge = 1., baselineInterval=1.;
     float hysteresis = 5.f, delegationRadius = 50.f;
+    // Private builds can bind a fixed catalog of stable entity IDs. All peers
+    // in such a build must use the same catalog and a distinct room build ID.
+    std::set<uint64_t> fixedCatalog;
+    bool ValidCatalog() const {
+        return fixedCatalog.empty() || (policy==PartyNpcPolicy::HostOnly &&
+            fixedCatalog.size()<=capacity && !fixedCatalog.contains(0));
+    }
+    bool AcceptsNpc(uint64_t npc) const {
+        return npc && (fixedCatalog.empty() || fixedCatalog.contains(npc));
+    }
 };
 
 std::vector<uint8_t> EncodePartyNpc(const PartyNpcMessage&);
@@ -91,12 +102,19 @@ private:
 // canonical baseline. The old void SetNpcPuppet API is not sufficient proof.
 class IPartyNpcWorld {
 public:
+    enum class CatalogPreparation { Pending, Ready, Refused };
     virtual ~IPartyNpcWorld() = default;
     // Before the room acknowledges Loading: hold all local NPC simulation,
     // including actors entering the pool later, until individual leases resume
     // it. True requires a real worker fence, not just queued puppet requests.
     // Default refuses native startup for adapters that have not implemented it.
     virtual bool PrepareNpcScene() { return false; }
+    // Ready requires a held and drained local instance of every listed actor.
+    // The native adapter checks unique identity, birth, and its own hold.
+    virtual CatalogPreparation PrepareNpcCatalog(const std::set<uint64_t>&) { return CatalogPreparation::Refused; }
+    // Called even if loading ended before the first commit. Revoke pending
+    // native writes/resumes and retain teardown evidence for this catalog.
+    virtual void StopNpcCatalog() {}
     // Notification from the pre-clear hook, NOT a completed teardown. Preserve
     // enough native identity/worker state to verify this token after clearing.
     // The token is process-unique across rooms; zero is never issued.

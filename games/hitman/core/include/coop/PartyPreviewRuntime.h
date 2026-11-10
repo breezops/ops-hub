@@ -10,6 +10,7 @@ class PartyPreviewRuntime {
 public:
     PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
                         IPartyNpcWorld* npcWorld = nullptr, PartyNpcOptions npcOptions = {});
+    ~PartyPreviewRuntime();
     void Tick(double now);
     bool Ready();
     bool Start();
@@ -24,6 +25,7 @@ public:
         const auto fault = m_Sink.PartyPreviewError();
         if (!fault.empty()) return fault;
         if (m_NpcRetirementPending) return "Waiting for native NPC scene teardown to finish.";
+        if (m_NpcCatalogSpent) return m_Message + " Reload Freeform Training before starting another session.";
         return m_NpcStopFault ? "NPC simulation did not confirm it stopped. Reload Freeform Training on this PC." : m_Message;
     }
     bool SharedNpcsActive() const { return m_Npcs && m_Npcs->Active(); }
@@ -43,7 +45,11 @@ private:
     bool m_NpcRetirementPending = false;
     uint64_t m_NpcRetirement = 0;
     bool m_NpcScenePrepared = false;
+    bool m_NpcCatalogStarted = false, m_NpcCatalogSpent = false;
     void StopNpcs();
+    bool InterruptNpcs(const char* reason);
+    void PrepareNpcs();
+    bool RegisterFixedCatalog(double now);
     bool UpdateNpcs(double now, bool presenting);
     uint32_t m_Epoch = 0;
     double m_NextSend = 0, m_NextMetadata = 0, m_NextLoaded = 0;

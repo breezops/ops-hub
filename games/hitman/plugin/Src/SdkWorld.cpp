@@ -2709,6 +2709,50 @@ void SdkWorld::StepSoloNpcHold(NpcActionPhase::Boundary& boundary) {
 #endif
 }
 
+#ifdef COOP_NPC_POOL_DIAGNOSTICS
+bool SdkWorld::CanBeginPartyNpcHold(NpcActionPhase::Boundary& boundary, ZActor* actor, uint64_t id, uint64_t birth) const {
+    if (!birth || birth<=m_NpcJobAttachmentMark) return false;
+    const auto sample=boundary.Observe(actor,id,birth);
+    if (!sample.valid || !sample.native.coherent() || sample.native.held() || !sample.native.job ||
+        ActorDown(actor) || actor->m_bContractTarget) return false;
+    const auto jobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(sample.native.unit));
+    return jobs.healthy && jobs.observed && jobs.outstanding==1;
+}
+
+bool SdkWorld::BindPartyNpcHoldCatalog(NpcActionPhase::Boundary& boundary, std::span<const uint64_t> ids,
+                                      std::span<NpcMutationGate::Ticket> tickets) {
+    if (ids.empty() || ids.size()!=tickets.size() || ids.size()>NpcHoldArbiter::Capacity || NpcMutationGate::CurrentScope()) return false;
+    struct Identity { ZActor* actor; uint64_t birth; };
+    std::vector<Identity> identities;
+    identities.reserve(ids.size());
+    std::set<uint64_t> seen;
+    // Resolve every ID in the same native boundary before opening a scope.
+    for (const auto id:ids) {
+        if (!seen.insert(id).second) return false;
+        auto* actor=FindFreshPartyNpc(id);
+        if (!actor) return false;
+        const auto birth=m_NpcActorBirths.Find(actor);
+        if (!CanBeginPartyNpcHold(boundary,actor,id,birth)) return false;
+        identities.push_back({actor,birth});
+    }
+    const auto scope=NpcMutationGate::Begin();
+    if (!scope) return false;
+    const auto reject=[&] {
+        NpcMutationGate::Clear(scope);
+        std::fill(tickets.begin(),tickets.end(),NpcMutationGate::Ticket{});
+        return false;
+    };
+    for (size_t i=0;i<ids.size();++i) {
+        const auto& [actor,birth]=identities[i];
+        if (!NpcMutationGate::Bind(scope,ids[i],actor,birth,1)) return reject();
+        tickets[i]=NpcMutationGate::Find(scope,ids[i],birth,1);
+    }
+    for (const auto& ticket:tickets)
+        if (!NpcHoldArbiter::Watch(ticket)) return reject();
+    return true;
+}
+#endif
+
 void SdkWorld::StepSoloNpcPool(NpcActionPhase::Boundary& boundary) {
 #ifdef COOP_NPC_POOL_DIAGNOSTICS
     if (!m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) || PartyGameThread()!=GetCurrentThreadId()) return;
@@ -2724,7 +2768,7 @@ void SdkWorld::StepSoloNpcPool(NpcActionPhase::Boundary& boundary) {
         }
         coop::Transform local;
         if (!GetLocalAvatar(local)) { CoopLog::Warn("npc-pool","Selection refused: local position unavailable");return; }
-        struct Candidate { ZActor* actor;uint64_t npc,birth;float distance; };
+        struct Candidate { uint64_t npc;float distance; };
         std::vector<Candidate> eligible;
         size_t stale=0,rejected=0;
         for(const auto& entry:Globals::ActorManager->m_activatedActors) {
@@ -2732,33 +2776,27 @@ void SdkWorld::StepSoloNpcPool(NpcActionPhase::Boundary& boundary) {
             if (!actor || !entry.m_entityRef || !entry.m_entityRef->GetType() || ActorDown(actor) || actor->m_bContractTarget) continue;
             const uint64_t npc=entry.m_entityRef->GetType()->m_nEntityID,birth=m_NpcActorBirths.Find(actor);
             if (!birth || birth<=m_NpcJobAttachmentMark) { ++stale;continue; }
-            const auto sample=boundary.Observe(actor,npc,birth);
-            if (!sample.valid || !sample.native.coherent() || sample.native.held() || !sample.native.job) { ++rejected;continue; }
-            const auto jobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(sample.native.unit));
+            if (!CanBeginPartyNpcHold(boundary,actor,npc,birth)) { ++rejected;continue; }
             const auto* spatial=entry.m_entityRef.QueryInterface<ZSpatialEntity>();
-            if (!jobs.healthy || !jobs.observed || jobs.outstanding!=1 || !spatial) { ++rejected;continue; }
+            if (!spatial) { ++rejected;continue; }
             const auto distance=coop::Distance(local.pos,ToTransform(spatial->GetObjectToWorldMatrix()).pos);
             if (!std::isfinite(distance)) { ++rejected;continue; }
-            eligible.push_back({actor,npc,birth,distance});
+            eligible.push_back({npc,distance});
         }
         CoopLog::Fmt(coop::LogLevel::Info,"npc-pool","Selection audit eligible=%zu stale-birth=%zu rejected=%zu; two nearest conscious non-target NPCs; fresh restart required",eligible.size(),stale,rejected);
         if (eligible.size()<m_SoloPoolTickets.size()) return;
         std::sort(eligible.begin(),eligible.end(),[](const auto& a,const auto& b) {
             return a.distance==b.distance?a.npc<b.npc:a.distance<b.distance;
         });
-        const auto scope=NpcMutationGate::Begin();
-        m_SoloHoldUsed=true; m_SoloHoldTicket={};m_SoloHoldTicket.scope=scope;
-        if (!scope) { fail("exclusive scope unavailable");return; }
+        m_SoloHoldUsed=true;
+        const std::array ids{eligible[0].npc,eligible[1].npc};
+        if (!BindPartyNpcHoldCatalog(boundary,ids,m_SoloPoolTickets)) { fail("exact-ID hold catalog binding refused");return; }
         for(size_t i=0;i<m_SoloPoolTickets.size();++i) {
-            const auto& c=eligible[i];
-            if (!NpcMutationGate::Bind(scope,c.npc,c.actor,c.birth,1)) { fail("identity binding refused");return; }
-            m_SoloPoolTickets[i]=NpcMutationGate::Find(scope,c.npc,c.birth,1);
-        }
-        for(size_t i=0;i<m_SoloPoolTickets.size();++i) {
-            if (!NpcHoldArbiter::Watch(m_SoloPoolTickets[i])) { fail("fixed-scope hold watch refused");return; }
+            const auto& ticket=m_SoloPoolTickets[i];
             m_SoloPoolOwned[i]=false;
-            CoopLog::Fmt(coop::LogLevel::Info,"npc-pool","Selected member=%zu name=%s distance=%.1fm birth=%llu",
-                i+1,NpcLabel(eligible[i].actor).c_str(),eligible[i].distance,static_cast<unsigned long long>(eligible[i].birth));
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-pool","Selected member=%zu name=%s distance=%.1fm entity=%016llx birth=%llu",
+                i+1,NpcLabel(static_cast<ZActor*>(ticket.actor)).c_str(),eligible[i].distance,
+                static_cast<unsigned long long>(ticket.npc),static_cast<unsigned long long>(ticket.birth));
         }
         m_SoloHoldTicket=m_SoloPoolTickets[0];m_SoloHoldPhase=1;m_SoloHoldDeadline=m_Now+5.;
     }

@@ -17,7 +17,7 @@ bool PartyNpcSync::Current() const {
 }
 bool PartyNpcSync::Start() {
     PartyNpcScope next;
-    if(m_Active || m_Failed || !PartyNpcScope::FromRoom(m_Room.Status(),next) || next==m_Scope) return false;
+    if(m_Active || m_Failed || !m_Options.ValidCatalog() || !PartyNpcScope::FromRoom(m_Room.Status(),next) || next==m_Scope) return false;
     m_Scope=next;
     m_Self={m_Room.Status().self,m_Scope.incarnations[m_Room.Status().self-1]};
     m_Replica=std::make_unique<PartyNpcReplica>(m_Scope,m_Self,m_World,m_Options.capacity);
@@ -58,6 +58,7 @@ bool PartyNpcSync::Propose(uint64_t npc,PartyIdentity peer,double now) {
 }
 bool PartyNpcSync::ApplyHost(const PartyNpcMessage& message) {
     if(!HostKind(message.kind) || !m_Scope.Contains(message.owner)) return false;
+    if(!m_Options.AcceptsNpc(message.npc)) { Fail(); return false; }
     if(Direct(message.kind) && message.owner.id!=m_Self.id) return true;
     if(message.kind==PartyNpcKind::Commit && !m_Known.contains(message.npc)) {
         if(m_Known.size()>=m_Options.capacity) { Fail(); return false; }

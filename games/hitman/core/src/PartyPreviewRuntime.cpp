@@ -20,30 +20,82 @@ PartyPreviewRuntime::PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameW
     : m_Room(std::move(room)), m_Source(source), m_Sink(sink), m_Playback(sink),
       m_NpcWorld(npcWorld), m_NpcOptions(npcOptions) {}
 
+PartyPreviewRuntime::~PartyPreviewRuntime() {
+    if (m_NpcCatalogStarted) StopNpcs();
+}
+
 void PartyPreviewRuntime::StopNpcs() {
-    if (!m_Npcs) return;
-    if (m_Npcs->Active() || !m_Npcs->StopConfirmed()) m_Npcs->Stop();
-    if (!m_Npcs->StopConfirmed()) m_NpcStopFault=true;
+    if (m_Npcs) {
+        if (m_Npcs->Active() || !m_Npcs->StopConfirmed()) m_Npcs->Stop();
+        if (!m_Npcs->StopConfirmed()) m_NpcStopFault=true;
+    }
+    if (m_NpcCatalogStarted) {
+        m_Npcs.reset();
+        m_NpcWorld->StopNpcCatalog();
+        m_NpcCatalogStarted=false;
+        m_NpcScenePrepared=false;
+        m_NpcCatalogSpent=true;
+    }
+}
+
+bool PartyPreviewRuntime::InterruptNpcs(const char* reason) {
+    StopNpcs();
+    m_Message=reason;
+    m_Room->ReportSceneLost();
+    return false;
+}
+
+void PartyPreviewRuntime::PrepareNpcs() {
+    if (m_NpcOptions.fixedCatalog.empty()) {
+        m_NpcScenePrepared=m_NpcWorld->PrepareNpcScene();
+    } else {
+        if (!m_NpcOptions.ValidCatalog()) {
+            InterruptNpcs("Invalid shared NPC catalog.");
+            return;
+        }
+        m_NpcCatalogStarted=true;
+        using Preparation=IPartyNpcWorld::CatalogPreparation;
+        const auto result=m_NpcWorld->PrepareNpcCatalog(m_NpcOptions.fixedCatalog);
+        if (result==Preparation::Refused) {
+            InterruptNpcs("Native preparation refused the shared NPC catalog.");
+            return;
+        }
+        m_NpcScenePrepared=result==Preparation::Ready;
+    }
+    if (!m_NpcScenePrepared) m_Message="Waiting for native NPC simulation to stop before starting.";
+}
+
+bool PartyPreviewRuntime::RegisterFixedCatalog(double now) {
+    std::vector<std::pair<uint64_t,PartyNpcState>> baselines;
+    for (const auto id:m_NpcOptions.fixedCatalog) {
+        PartyNpcState state;
+        if (!m_NpcWorld->CaptureNpc(id,state) || !ValidPartyNpcState(state))
+            return InterruptNpcs("A prepared shared NPC could not be captured.");
+        baselines.emplace_back(id,state);
+    }
+    for (const auto& [id,state]:baselines) {
+        if (!m_Npcs->Register(id,state,now))
+            return InterruptNpcs("Shared NPC catalog registration failed.");
+        m_NpcCatalog.insert(id);
+    }
+    return true;
 }
 
 bool PartyPreviewRuntime::UpdateNpcs(double now, bool presenting) {
     if (!m_NpcWorld) return false;
+    if (m_NpcCatalogStarted && Status().phase==LobbyRoster::Phase::Loading && presenting && NativeReady()) return false;
     if (!presenting || !NativeReady() || Status().phase!=LobbyRoster::Phase::Playing) {
+        if (m_NpcCatalogStarted) return InterruptNpcs("Shared NPC session stopped.");
         StopNpcs(); return false;
     }
-    if (!m_NpcScenePrepared) {
-        m_Message="Native NPC preparation was not confirmed.";
-        m_Room->ReportSceneLost(); return false;
-    }
+    if (!m_NpcScenePrepared) return InterruptNpcs("Native NPC preparation was not confirmed.");
     if (!m_Npcs) m_Npcs=std::make_unique<PartyNpcSync>(*m_Room,*m_NpcWorld,m_NpcOptions);
     if (!m_Npcs->Active()) {
-        if (!m_Npcs->Start()) {
-            StopNpcs();
-            m_Message="Shared NPC controller could not start. Stop the session and reload the mission.";
-            m_Room->ReportSceneLost(); return false;
-        }
+        if (!m_Npcs->Start()) return InterruptNpcs("Shared NPC controller could not start. Stop the session and reload the mission.");
         m_Message="Shared NPC development session running.";
     }
+    if (!m_NpcOptions.fixedCatalog.empty())
+        return !Status().host || !m_NpcCatalog.empty() || RegisterFixedCatalog(now);
     if (Status().host && now>=m_NextNpcCatalog) {
         m_NextNpcCatalog=now+1.;
         std::vector<NpcState> candidates;
@@ -76,7 +128,7 @@ bool PartyPreviewRuntime::UpdateNpcs(double now, bool presenting) {
 
 bool PartyPreviewRuntime::NativeReady() const {
     Transform transform;
-    return !m_NpcStopFault && !m_NpcRetirementPending && m_Sink.PartyPreviewError().empty() && m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) && m_Source.GetLocalAvatar(transform);
+    return !m_NpcStopFault && !m_NpcCatalogSpent && !m_NpcRetirementPending && m_Sink.PartyPreviewError().empty() && m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) && m_Source.GetLocalAvatar(transform);
 }
 bool PartyPreviewRuntime::LocalReady() const {
     for (const auto& member : Status().members)
@@ -138,6 +190,7 @@ void PartyPreviewRuntime::Tick(double now) {
         m_NpcWorld->ConfirmNpcSceneRetired(m_NpcRetirement)) {
         m_NpcRetirementPending=false;
         m_NpcStopFault=false;
+        m_NpcCatalogSpent=false;
     }
     const bool native=NativeReady();
     if (m_HadNativeScene && !native) {
@@ -166,10 +219,7 @@ void PartyPreviewRuntime::Tick(double now) {
         bool loaded=false;
         for (const auto& member : status.members) if (member.id==status.self) loaded=member.loaded;
         if (!loaded) {
-            if (m_NpcWorld && !m_NpcScenePrepared) {
-                m_NpcScenePrepared=m_NpcWorld->PrepareNpcScene();
-                if (!m_NpcScenePrepared) m_Message="Waiting for native NPC simulation to stop before starting.";
-            }
+            if (m_NpcWorld && !m_NpcScenePrepared) PrepareNpcs();
             if (!m_NpcWorld || m_NpcScenePrepared) m_Room->ReportLoaded();
         }
         status=m_Room->Status();
@@ -184,12 +234,12 @@ void PartyPreviewRuntime::Tick(double now) {
         if (accepted) ++m_Accepted;
         else ++m_Rejected;
     }
-    if (npcs) {
+    if (npcs && m_Npcs) {
         m_Npcs->Tick(now);
-        if (!m_Npcs->Active()) StopNpcs();
+        if (!m_Npcs->Active()) InterruptNpcs("Shared NPC synchronization stopped.");
     }
     status=m_Room->Status();
-    if (native && !m_NpcStopFault && status.phase==LobbyRoster::Phase::Playing && presenting) {
+    if (native && !m_NpcStopFault && !m_NpcCatalogSpent && status.phase==LobbyRoster::Phase::Playing && presenting) {
         // Reliable refresh also supplies a resumed member with current metadata.
         if (now>=m_NextMetadata) {
             m_NextMetadata=now+1.;

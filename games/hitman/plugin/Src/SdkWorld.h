@@ -5,6 +5,7 @@
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -601,6 +602,11 @@ private:
     std::atomic<uint32_t> m_PartyGameThread=0;
     std::atomic<bool> m_PartyGameThreadChanged=false;
     ZActor* FindFreshPartyNpc(uint64_t id) const;
+#ifdef COOP_NPC_POOL_DIAGNOSTICS
+    bool CanBeginPartyNpcHold(NpcActionPhase::Boundary&, ZActor*, uint64_t id, uint64_t birth) const;
+    bool BindPartyNpcHoldCatalog(NpcActionPhase::Boundary&, std::span<const uint64_t> ids,
+                                 std::span<NpcMutationGate::Ticket> tickets);
+#endif
     double m_NextNpcIdentityAudit=0;
     unsigned m_NpcIdentityAudits=0;
     double m_NextNpcActionAudit=0;
