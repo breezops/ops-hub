@@ -188,6 +188,15 @@ function M.dispatch(command)
             rows[#rows+1]="WITHIN\t"..tostring(b:IsWithinDialog())
             rows[#rows+1]="INTERACTING\t"..tostring(b:IsInteracting())
             rows[#rows+1]="DRONE\t"..tostring(valid(b:GetDrone()))
+            rows[#rows+1]="DIALOG_CAT\t"..(valid(d) and valid(d:GetCat()) and clean(d:GetCat():GetFullName()) or "-")
+            local component=b:GetCurrentInteraction()
+            if valid(component) and component:IsA("/Script/Hk_project.TalkableComponent") then
+                rows[#rows+1]="WAITING_INTERLOCUTOR\t"..tostring(component:IsWaitingInterlocutor())
+                rows[#rows+1]="WAITING_DIALOG\t"..tostring(component:IsWaitingDialog())
+                rows[#rows+1]="DRONE_USING\t"..tostring(component:IsDroneUsing())
+                local a,c=cat:K2_GetActorLocation(),component:GetOwner():K2_GetActorLocation()
+                rows[#rows+1]="TARGET_DISTANCE\t"..tostring(math.sqrt((a.X-c.X)^2+(a.Y-c.Y)^2+(a.Z-c.Z)^2))
+            end
         end
         if StrayCoopPause then
             for _,key in ipairs({"running","queued","errors","explicit","owned","observed_menu","observed_pause","desired","native_requested"}) do
@@ -202,6 +211,15 @@ function M.dispatch(command)
             for id,r in pairs(StrayCoopMovement.remotes) do rows[#rows+1]="REMOTE_GEAR\t"..id.."\t"..tostring(r.gear_name or "-") end
         end
         local f=assert(io.open(root.."coop-status.tsv","w"));f:write(table.concat(rows,"\n").."\n");f:close()
+    elseif command=="harness guardian-stage" then
+        local cat=pc().Pawn;local guardian
+        for _,o in ipairs(FindAllOf("TalkableComponent") or {}) do
+            if valid(o) and valid(o:GetOwner()) and o:GetOwner():GetFullName():find("PersistentLevel.BP_Droid_Guardian",1,true) then guardian=o:GetOwner();break end
+        end
+        assert(valid(cat) and valid(guardian),"Guardian scene not loaded")
+        local p=guardian:K2_GetActorLocation()
+        cat:K2_SetActorLocation({X=p.X+220,Y=p.Y,Z=p.Z+70},false,{},true)
+        log("Staged isolated cat near native Guardian; quest state unchanged")
     elseif command=="harness coop-talk" then
         local cat=pc().Pawn;local b=cat:GetBackpack();assert(valid(b),"Backpack unavailable")
         local chosen

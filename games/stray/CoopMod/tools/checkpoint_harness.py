@@ -94,7 +94,7 @@ def run_case(chapter,timeout,output):
         values=states()
         if (all(v['chapter']==chapter and v.get('waiting')=='false' and 'player' in v for v in values)
             and any(v.get('paused')=='true' for v in values) and time.monotonic()-last_resume>=2
-            and resume_attempts<10 and all(not (b/'Mods/StrayCoop/command.txt').read_text().strip() for b in BINS)):
+            and resume_attempts<1 and time.monotonic()-start>=10 and all(not (b/'Mods/StrayCoop/command.txt').read_text().strip() for b in BINS)):
             send('harness resume')
             last_resume=time.monotonic()
             resume_attempts+=1
