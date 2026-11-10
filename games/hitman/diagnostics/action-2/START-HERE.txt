@@ -1,0 +1,24 @@
+HITMAN CO-OP / PRIVATE ACTION OBSERVATION 2
+OPS candidate 0.1.6 / native preview.4.action.2 / HITMAN 3.290.1
+
+SOLO startup check. Your friend does not need to update.
+This build waits for Freeform Training to load before attempting observation
+and logs the precise installation stage and MinHook error code if it refuses.
+NPC control remains disabled. Public OPS HUB downloads remain 0.1.3.
+
+1. Close HITMAN and the old launcher. Open this folder's launcher.
+2. Click INSTALL / REPAIR, then LAUNCH HITMAN.
+3. Load Freeform Training alone. Do not host, join, ready or start a preview.
+4. Stay in the mission and tell the developer you are loaded.
+5. Wait for the developer to read the startup result before doing knockouts,
+   disguise changes or a restart. Do not repeat the full old test automatically.
+
+The developer can read Retail\mods\HitmanCoop.log without screen capture.
+Look for [npc-act] installation details and READ-ONLY action audits.
+A Win32 last-error snapshot may be stale; the installation stage and MinHook
+status are the primary failure evidence. Observations are not freeze receipts.
+
+Restart the whole game for reload/update; do not use SDK hot reload.
+Close HITMAN and run RESTORE-0.1.3.cmd to return to tested multiplayer.
+The bundled original rollback ZIP is checksum verified. No game files or saves
+are part of this package. CHECK FOR UPDATES does not fetch this private build.

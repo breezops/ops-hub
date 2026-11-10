@@ -14,6 +14,7 @@ std::atomic<uint64_t> g_Entered=0,g_Callbacks=0,g_Busy=0;
 std::atomic<Loop> g_Original=nullptr;
 NpcActionObserver::Config g_Config;
 void* g_Table=nullptr;
+NpcActionObserver::InstallReport g_InstallReport;
 constexpr std::array<uint8_t,15> Prologue{
     0x40,0x56,0x41,0x54,0x41,0x55,0x41,0x56,0x48,0x83,0xec,0x38,0x4c,0x8b,0x02
 };
@@ -82,26 +83,52 @@ NpcActionObserver::Observation NpcActionObserver::View::Observe(const void* acto
 }
 bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Config config) {
     std::lock_guard install(g_Install);
-    if (!sites || !config.callback || !config.validate || !config.gameThread || config.gameThread!=GetCurrentThreadId() || g_Attempted) return false;
+    const auto refuse=[](InstallStage stage,int status=0,uint32_t error=0) { g_InstallReport={stage,status,error}; return false; };
+    if (!sites || !config.callback || !config.validate || !config.gameThread || config.gameThread!=GetCurrentThreadId()) return refuse(InstallStage::InvalidConfig);
+    if (g_Attempted) return refuse(InstallStage::AlreadyAttempted);
     std::array<uint8_t,15> bytes{};
-    if (!Read(sites.actions.loop,bytes.data(),bytes.size()) || bytes!=Prologue) return false;
+    if (!Read(sites.actions.loop,bytes.data(),bytes.size())) return refuse(InstallStage::EntryRead,0,GetLastError());
+    if (bytes!=Prologue) return refuse(InstallStage::EntryMismatch);
     // A late native continuation can still return through Bridge after Stop.
     // Keep executable code and its immutable configuration alive until exit.
     HMODULE module=nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
-        reinterpret_cast<LPCWSTR>(&Bridge::Run),&module)) return false;
+        reinterpret_cast<LPCWSTR>(&Bridge::Run),&module)) return refuse(InstallStage::ModulePin,0,GetLastError());
     g_Attempted=true;
     const auto init=MH_Initialize();
-    if (init!=MH_OK && init!=MH_ERROR_ALREADY_INITIALIZED) return false;
+    if (init!=MH_OK && init!=MH_ERROR_ALREADY_INITIALIZED) return refuse(InstallStage::LibraryInit,init,GetLastError());
     void* original=nullptr;
-    if (MH_CreateHook(sites.actions.loop,reinterpret_cast<void*>(&Bridge::Run),&original)!=MH_OK || !original) return false;
+    const auto created=MH_CreateHook(sites.actions.loop,reinterpret_cast<void*>(&Bridge::Run),&original);
+    if (created!=MH_OK) return refuse(InstallStage::HookCreate,created,GetLastError());
+    if (!original) return refuse(InstallStage::MissingOriginal);
     g_Config=config; g_Table=sites.table;
     g_Original.store(reinterpret_cast<Loop>(original),std::memory_order_release);
     // Publish before enabling. A worker that reaches the hook early can refuse
     // observation by its thread ID but always has a valid native continuation.
     g_Active=true; g_Installed.store(true,std::memory_order_release);
-    if (MH_EnableHook(sites.actions.loop)!=MH_OK) { g_Active=false; g_Installed=false; return false; }
+    const auto enabled=MH_EnableHook(sites.actions.loop);
+    if (enabled!=MH_OK) { g_Active=false; g_Installed=false; return refuse(InstallStage::HookEnable,enabled,GetLastError()); }
+    g_InstallReport={InstallStage::Installed,0,0};
     return true;
+}
+NpcActionObserver::InstallReport NpcActionObserver::Installation() {
+    std::lock_guard lock(g_Install); return g_InstallReport;
+}
+const char* NpcActionObserver::StageName(InstallStage stage) {
+    switch (stage) {
+    case InstallStage::NotAttempted: return "not-attempted";
+    case InstallStage::InvalidConfig: return "invalid-config";
+    case InstallStage::AlreadyAttempted: return "already-attempted";
+    case InstallStage::EntryRead: return "entry-read";
+    case InstallStage::EntryMismatch: return "entry-mismatch";
+    case InstallStage::ModulePin: return "module-pin";
+    case InstallStage::LibraryInit: return "library-init";
+    case InstallStage::HookCreate: return "hook-create";
+    case InstallStage::MissingOriginal: return "missing-original";
+    case InstallStage::HookEnable: return "hook-enable";
+    case InstallStage::Installed: return "installed";
+    }
+    return "unknown";
 }
 void NpcActionObserver::Stop() {
     std::lock_guard lock(g_Callback);

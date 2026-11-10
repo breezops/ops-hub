@@ -1442,7 +1442,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     m_LastFrame = s_Now;
     m_World.SetClock(s_Now);
 #ifdef COOP_NPC_ACTION_DIAGNOSTICS
-    if (!m_NpcActionObserverAttempted) {
+    if (!m_NpcActionObserverAttempted && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene)) {
         m_NpcActionObserverAttempted=true;
         const auto sites=m_GameVersion=="3.290.1" && m_Unsupported.empty()
             ? CrashGuards::VerifiedNpcBehaviorSites() : CrashGuards::NpcBehaviorSites{};
@@ -1458,6 +1458,10 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         CoopLog::Info("npc-act",installed
             ? "Read-only action observer installed; native controls and mutation scopes OFF; game restart required to reload this diagnostic"
             : "Read-only action observer unavailable; no NPC controls enabled");
+        const auto report=NpcActionObserver::Installation();
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-act",
+            "Observer installation after Freeform load: sites-found=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; NPC control OFF",
+            sites?1:0,NpcActionObserver::StageName(report.stage),report.hookStatus,report.lastError);
     }
     if (!m_NpcActionObserverFaultReported && !NpcActionObserver::Diagnostics().healthy) {
         m_NpcActionObserverFaultReported=true;

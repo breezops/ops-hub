@@ -407,6 +407,25 @@ Freeform scene, retains identity audits and includes the verified original
 OPS 0.1.3 rollback. It changes no NPC control, scheduling, mission loop or
 pause policy. The public updater channel remains untouched.
 
+The next live action.1 investigation resolved the complete site bundle in the
+running game and confirmed the exact action-loop entry bytes. Read-only state
+inspection of that same, hash-matched diagnostic DLL established that module
+pinning and hook-library initialization succeeded, but no hook or original
+trampoline was created. The refusal is therefore within `MH_CreateHook`; the
+original build did not preserve its return code. This does not validate action
+callbacks, actor-list locking at that boundary, or any native control operation.
+The user clarified that their disk-space concern described the game crash,
+not the observer refusal; these are separate findings.
+
+Private action.2 (OPS 0.1.6) defers the single attempt until Freeform is loaded
+and records the exact installation stage and MinHook status. The adjacent Win32
+last-error value is only a snapshot and may be stale. Delayed installation is
+a hypothesis to test, not a demonstrated fix. A new refusal fixture checks that
+invalid configuration/prologue reporting leaves installation unarmed and that
+a subsequent valid entry can still be observed. Delivered earlier candidates
+and the public channel remain immutable. Start with the short guide under
+`diagnostics/action-2`; do not repeat a full mission test before checking startup.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.

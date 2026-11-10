@@ -28,6 +28,10 @@ private:
 using Callback=void (*)(void*,const View&);
 struct Config { void* context=nullptr; Validate validate=nullptr; Callback callback=nullptr; uint32_t gameThread=0; };
 struct Stats { uint64_t entered=0,callbacks=0,busy=0; bool installed=false,active=false,healthy=false; };
+enum class InstallStage { NotAttempted, InvalidConfig, AlreadyAttempted, EntryRead, EntryMismatch, ModulePin, LibraryInit, HookCreate, MissingOriginal, HookEnable, Installed };
+struct InstallReport { InstallStage stage=InstallStage::NotAttempted; int hookStatus=0; uint32_t lastError=0; };
+InstallReport Installation();
+const char* StageName(InstallStage);
 // Uses MinHook's thread-aware entry patching. Requires the complete untouched
 // verified site bundle and the already observed SDK game-update thread.
 // One installation attempt per process. Pins this module and retains original

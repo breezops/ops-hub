@@ -77,6 +77,7 @@ void Body(void* table,const void*) {
 // single installation and retains its code/trampoline for that process.
 TEST(Observer_Lifetime) {
     Fixture f; REQUIRE(f.Install());
+    CHECK(Installation().stage==InstallStage::Installed);
     f.Run(); CHECK(f.observation.valid && f.observation.native.coherent());
     CHECK(f.callbacks==1 && f.originals==1);
     f.wrongIdentity=true; f.Run(); CHECK(!f.observation.valid);
@@ -88,6 +89,7 @@ TEST(Observer_Lifetime) {
     f.Run(); CHECK(f.callbacks==callbacks && f.originals==5);
     CHECK(Diagnostics().installed && !Diagnostics().active);
     CHECK(!f.Install());
+    CHECK(Installation().stage==InstallStage::AlreadyAttempted);
 }
 TEST(Observer_WrongThread) {
     Fixture f; REQUIRE(f.Install());
@@ -144,4 +146,18 @@ TEST(Observer_InstallWhileExecuting) {
     // native invocation continues. No SDK or actor-control callback can run.
     CHECK(f.callbacks==0);
     Stop(); const auto count=f.originals.load(); f.Run(); CHECK(f.originals.load()==count+1);
+}
+TEST(Observer_RefusalDiagnostics) {
+    Fixture f; REQUIRE(f.entry);
+    CrashGuards::NpcBehaviorSites sites{{f.entry,f.entry,f.entry,f.entry,f.entry},f.entry,f.table.data()};
+    Config config{&f,&Fixture::Validate,&Fixture::Callback,0};
+    CHECK(!Install(sites,config)); CHECK(Installation().stage==InstallStage::InvalidConfig);
+    CHECK(!Diagnostics().installed);
+    config.gameThread=GetCurrentThreadId();
+    DWORD old=0; REQUIRE(VirtualProtect(f.entry,4096,PAGE_EXECUTE_READWRITE,&old));
+    f.entry[0]=0xcc;
+    CHECK(!Install(sites,config)); CHECK(Installation().stage==InstallStage::EntryMismatch);
+    f.entry[0]=0x40; DWORD ignored=0; REQUIRE(VirtualProtect(f.entry,4096,old,&ignored));
+    REQUIRE(Install(sites,config)); CHECK(Installation().stage==InstallStage::Installed);
+    f.Run(); CHECK(f.observation.valid && f.originals==1);
 }
