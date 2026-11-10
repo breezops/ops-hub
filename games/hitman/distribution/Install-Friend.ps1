@@ -90,11 +90,23 @@ try {
         Write-Host "CHECK PASSED: $Mode preflight. No files changed." -ForegroundColor Green
         exit 0
     }
-    if (Get-Process -Name HITMAN3,HITMAN-Coop-Launcher,HITMAN-Coop-Party-Preview -ErrorAction SilentlyContinue) {
-        throw 'HITMAN is running. Close HITMAN and its co-op launchers, then run INSTALL.cmd again.'
+    if (Get-Process -Name HITMAN3 -ErrorAction SilentlyContinue) {
+        throw 'HITMAN is running. Close the game, then click Install / repair again.'
     }
 
     $Retail = Join-Path $GamePath 'Retail'
+    # The package launcher must stay open to run setup and display its result.
+    # Only launchers running from the destination game folder lock files that
+    # this installer will replace/remove. Other package/release copies are safe.
+    $LockedLaunchers = @('HITMAN-Coop-Launcher.exe','HITMAN-Coop-Party-Preview.exe') | ForEach-Object {
+        [IO.Path]::GetFullPath((Join-Path $Retail $_))
+    }
+    foreach ($LauncherProcess in @(Get-Process -Name HITMAN-Coop-Launcher,HITMAN-Coop-Party-Preview -ErrorAction SilentlyContinue)) {
+        $LauncherPath = $LauncherProcess.Path
+        if (-not $LauncherPath -or $LockedLaunchers -contains [IO.Path]::GetFullPath($LauncherPath)) {
+            throw 'A co-op launcher is running from the game folder. Close it and open the launcher from your extracted download folder instead.'
+        }
+    }
     $Settings = Join-Path $Retail 'mods\HitmanCoop.ini'
     $ManifestPath = Join-Path $Retail 'HitmanCoop-install.json'
     if ($Mode -eq 'Remove') {

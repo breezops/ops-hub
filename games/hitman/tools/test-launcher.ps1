@@ -7,3 +7,4 @@ $Compiler=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if ($LASTEXITCODE) { throw 'Updater test compilation failed' }
 & (Join-Path $Output 'TestLauncherUpdate.exe') (Join-Path $Output ('update-fixture-'+[Guid]::NewGuid().ToString('N')))
 if ($LASTEXITCODE) { throw 'Updater tests failed' }
+& (Join-Path $PSScriptRoot 'test-installer-guards.ps1') -Output $Output

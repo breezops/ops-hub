@@ -50,6 +50,24 @@ public static class TestLauncherUpdate {
         archive(null,false);release.sha256=new string('0',64);Reject(()=>updater.Stage(zip,release),"reject wrong ZIP hash");
         release.sha256=LauncherUpdate.HashFile(zip);++release.bytes;Reject(()=>updater.Stage(zip,release),"reject wrong ZIP size");
         Check(File.ReadAllText(Path.Combine(root,"home/current.json"))==active,"failed updates leave active release unchanged");
+
+        string setup=Path.Combine(root,"setup-fixture");Directory.CreateDirectory(setup);
+        string script=Path.Combine(setup,"Install-Friend.ps1");
+        File.WriteAllText(script,"param([string]$Mode)\r\nWrite-Host 'SETUP STOPPED: Fixture error remains visible.'\r\n[Console]::Error.WriteLine('fixture stderr retained')\r\nexit 9\r\n");
+        string failure=null;
+        try { updater.RunInstaller(setup,"Auto").GetAwaiter().GetResult(); }
+        catch(Exception error) { failure=error.Message; }
+        Check(failure!=null && failure.Contains("Fixture error remains visible."),"preserve actual installer failure in launcher message");
+        Check(File.Exists(updater.LastSetupLog) && failure.Contains(updater.LastSetupLog),"save failure log and expose its location");
+        Check(File.ReadAllText(updater.LastSetupLog).Contains("fixture stderr retained"),"retain installer stderr alongside stdout");
+        File.WriteAllText(script,"param([string]$Mode)\r\n$ErrorActionPreference='Stop'\r\nGet-FileHash -LiteralPath $PSCommandPath | Out-Null\r\nWrite-Host ('SETUP OK '+$Mode)\r\nexit 0\r\n");
+        string previousModules=Environment.GetEnvironmentVariable("PSModulePath");
+        Environment.SetEnvironmentVariable("PSModulePath",Path.Combine(root,"missing-modules"));
+        try {
+            Check(updater.RunInstaller(setup,"Auto").GetAwaiter().GetResult()==0,"repair succeeds with inherited module path sanitized");
+            Check(File.ReadAllText(updater.LastSetupLog).Contains("SETUP OK Auto"),"keep a successful setup log too");
+            Check(updater.RunInstaller(setup,"Remove").GetAwaiter().GetResult()==0,"removal uses same captured setup path");
+        } finally { Environment.SetEnvironmentVariable("PSModulePath",previousModules); }
         Console.WriteLine(passed+" updater checks passed.");return 0;
     }
 }

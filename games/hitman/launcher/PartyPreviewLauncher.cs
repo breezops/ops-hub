@@ -94,12 +94,17 @@ public sealed class PartyPreviewLauncher : Window {
         Loaded+=async(s,e)=>{timer.Start();await Send("preview_status");};
         Closed+=(s,e)=>timer.Stop();
         Find<Button>("Updates").Click+=async(s,e)=>await CheckUpdates();
+        Find<Button>("SetupLog").Click+=(s,e)=> {
+            try { Process.Start(new ProcessStartInfo(Updates.LastSetupLog){UseShellExecute=true}); }
+            catch(Exception error) { feedback.Text=error.Message; }
+        };
         Find<Button>("Repair").Click+=async(s,e)=>await RunSetup("Auto");
         Find<Button>("Remove").Click+=async(s,e)=>await RunSetup("Remove");
         Find<TextBlock>("Release").Text="LAUNCHER "+Updates.ReleaseVersion+"  /  "+Build;
         Disable();
         if(!String.IsNullOrEmpty(startupNotice)) feedback.Text=startupNotice;
     }
+    void RefreshSetupLog() { Find<Button>("SetupLog").Visibility=File.Exists(Updates.LastSetupLog) ? Visibility.Visible : Visibility.Collapsed; }
     async Task RunSetup(string mode) {
         if (updating) return;
         if (Process.GetProcessesByName("HITMAN3").Length>0) { feedback.Text="Close HITMAN before changing the installed mod."; return; }
@@ -109,7 +114,7 @@ public sealed class PartyPreviewLauncher : Window {
             int result=await Updates.RunInstaller(AppDomain.CurrentDomain.BaseDirectory,mode);
             feedback.Text=result==0 ? (mode=="Remove" ? "Co-op removed. Your game saves are preserved." : "Installation verified. You can launch HITMAN.") : "Setup stopped. Read the setup window for details; the launcher has not switched releases.";
         } catch(Exception error) { feedback.Text=error.Message; }
-        finally { updating=false; }
+        finally { updating=false;RefreshSetupLog(); }
     }
     async Task CheckUpdates() {
         if (updating) return;
@@ -136,7 +141,7 @@ public sealed class PartyPreviewLauncher : Window {
         } catch(Exception error) {
             Find<TextBlock>("UpdateState").Text="Update unavailable — your installation is unchanged.";
             feedback.Text=error.Message;
-        } finally { updating=false;button.IsEnabled=true; }
+        } finally { updating=false;button.IsEnabled=true;RefreshSetupLog(); }
     }
     T Find<T>(string name) where T:FrameworkElement { return (T)root.FindName(name); }
     static string Text(Dictionary<string,object> data,string key) {
