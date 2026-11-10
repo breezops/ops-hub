@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # Builds the HitmanCoop mod against a prebuilt ZHMModSDK developer package
 # (DevPkg-ZHMModSDK.zip from the SDK's GitHub releases). See BUILDING.md.
-project(HitmanCoop CXX)
+project(HitmanCoop C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,7 @@ add_compile_options(/utf-8)
 
 add_subdirectory("${ZHMMODSDK_DEVPKG_DIR}" "${CMAKE_BINARY_DIR}/zhmmodsdk")
 add_subdirectory(core)
+add_subdirectory(third_party/minhook)
 add_subdirectory(plugin)
 
 install(TARGETS HitmanCoop RUNTIME DESTINATION mods)
@@ -51,6 +52,9 @@ if (COOP_BUILD_TESTS)
     target_sources(coop_npc_native_tests PRIVATE tools/TestNpcBehaviorReadback.cpp plugin/Src/NpcBehaviorReadback.cpp)
     add_executable(coop_npc_phase_tests core/tests/Main.cpp tools/TestNpcActionPhase.cpp plugin/Src/NpcActionPhase.cpp plugin/Src/NpcActionProbe.cpp plugin/Src/NpcMutationGate.cpp)
     target_sources(coop_npc_phase_tests PRIVATE plugin/Src/NpcBehaviorReadback.cpp)
+    add_executable(coop_npc_observer_tests core/tests/Main.cpp tools/TestNpcActionObserver.cpp plugin/Src/NpcActionObserver.cpp plugin/Src/NpcBehaviorReadback.cpp)
+    target_include_directories(coop_npc_observer_tests PRIVATE plugin/Src core/tests)
+    target_link_libraries(coop_npc_observer_tests PRIVATE coop_minhook)
     target_include_directories(coop_npc_phase_tests PRIVATE plugin/Src core/tests)
     add_executable(coop_guard_tests core/tests/Main.cpp tools/TestPlayerGuards.cpp plugin/Src/CrashGuards.cpp plugin/Src/NpcReasoningFence.cpp plugin/Src/NpcMutationGate.cpp)
     target_include_directories(coop_guard_tests PRIVATE plugin/Src core/tests)

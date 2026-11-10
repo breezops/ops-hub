@@ -97,6 +97,7 @@ bool SdkWorld::IsMissionScene(const std::string& p_Scene) {
 
 void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
     m_NpcIdentityAudits=0; m_NextNpcIdentityAudit=0;
+    m_NpcActionAudits=0; m_NextNpcActionAudit=0;
     m_NativeExits.clear();
     m_TeamExitPending = m_TeamExitAttempted = m_MissionComplete = m_ExitsScanned = false;
     m_ExitScanAt = 0.0;
@@ -110,6 +111,7 @@ void SdkWorld::OnSceneCleared() {
     // This is pre-teardown. Construction generations survive until an actual
     // native retirement barrier; clearing them here could alias reused actors.
     m_NpcIdentityAudits=0; m_NextNpcIdentityAudit=0;
+    m_NpcActionAudits=0; m_NextNpcActionAudit=0;
     m_NpcLifeReceipts.Clear();
     m_NpcNativeEvents.clear(); m_NpcEventOverflow=false;
     ForgetPlayerAvatarScenes();
@@ -2597,6 +2599,37 @@ void SdkWorld::TracePartyNpcIdentity() {
         "READ-ONLY audit %u: enabled=%zu unique-enabled=%zu admissible=%zu untracked=%zu fresh-rejected=%zu duplicate-ids=%zu constructor-mark=%llu healthy=%d game-thread=%u; shared NPC control OFF",
         m_NpcIdentityAudits,enabled,uniqueEnabled,admissible,untracked,freshRejected,duplicate,
         static_cast<unsigned long long>(m_NpcActorBirths.Mark()),m_NpcActorBirths.Healthy()?1:0,PartyGameThread());
+}
+
+void SdkWorld::TracePartyNpcAction(const NpcActionObserver::View& view) {
+    if (!m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) || !PartyGameThread() ||
+        PartyGameThread()!=GetCurrentThreadId() || !Globals::ActorManager ||
+        m_NpcActionAudits>=12 || m_Now<m_NextNpcActionAudit) return;
+    m_NextNpcActionAudit=m_Now+10.; ++m_NpcActionAudits;
+    const bool locked=Globals::ActorManager->m_bLockActorLists;
+    size_t enabled=0,matched=0,notScheduled=0,rejected=0,untracked=0,conflicts=0,held=0,drained=0,withJob=0;
+    if (locked && m_NpcActorBirths.Healthy()) for (const auto& entry:Globals::ActorManager->m_activatedActors) {
+        auto* actor=entry.m_pInterfaceRef;
+        if (!actor || IsPartnerActor(actor) || !actor->m_bEnabled || !actor->m_bActorActivated) continue;
+        ++enabled;
+        if (!view.Contains(actor->m_nActorRuntimeId)) { ++notScheduled; continue; }
+        const auto birth=m_NpcActorBirths.Find(actor);
+        if (!birth) { ++untracked; continue; }
+        if (!entry.m_entityRef || !entry.m_entityRef->GetType()) { ++rejected; continue; }
+        const auto observed=view.Observe(actor,entry.m_entityRef->GetType()->m_nEntityID,birth);
+        if (!observed.valid) { ++rejected; continue; }
+        ++matched;
+        if (!observed.native.coherent()) ++conflicts;
+        if (observed.native.held()) ++held;
+        if (observed.native.drained()) ++drained;
+        if (observed.native.job) ++withJob;
+    }
+    const auto stats=NpcActionObserver::Diagnostics();
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-act",
+        "READ-ONLY action audit %u: scheduled=%zu enabled=%zu matched=%zu not-scheduled=%zu rejected=%zu untracked=%zu conflicting-flags=%zu held=%zu drained-observed=%zu job-pointer-present=%zu actor-lists-locked=%d constructor-mark=%llu healthy=%d game-thread=%u loop-calls=%llu; not a freeze receipt; NPC control OFF",
+        m_NpcActionAudits,view.Count(),enabled,matched,notScheduled,rejected,untracked,conflicts,held,drained,withJob,locked?1:0,
+        static_cast<unsigned long long>(m_NpcActorBirths.Mark()),stats.healthy && m_NpcActorBirths.Healthy()?1:0,
+        PartyGameThread(),static_cast<unsigned long long>(stats.entered));
 }
 
 bool SdkWorld::BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract) {

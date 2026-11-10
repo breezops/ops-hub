@@ -13,6 +13,10 @@ if (NOT TARGET coop_core)
     add_subdirectory("${COOP_CORE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/coop_core")
 endif ()
 
+if (NOT TARGET coop_minhook)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../third_party/minhook" "${CMAKE_CURRENT_BINARY_DIR}/coop_minhook")
+endif ()
+
 file(GLOB_RECURSE SRC_FILES
         CONFIGURE_DEPENDS
         Src/*.cpp
@@ -38,6 +42,10 @@ option(COOP_NPC_IDENTITY_DIAGNOSTICS "Read-only Freeform actor identity audit lo
 if (COOP_NPC_IDENTITY_DIAGNOSTICS)
     target_compile_definitions(HitmanCoop PRIVATE COOP_NPC_IDENTITY_DIAGNOSTICS=1)
 endif ()
+option(COOP_NPC_ACTION_DIAGNOSTICS "Read-only observation inside the native NPC action loop" OFF)
+if (COOP_NPC_ACTION_DIAGNOSTICS)
+    target_compile_definitions(HitmanCoop PRIVATE COOP_NPC_ACTION_DIAGNOSTICS=1)
+endif ()
 
 # Which ZHMModSDK (and so which game version) this build is for. The normal build is 4.2.1 (game
 # 3.290.1); separate builds for players who can't update use 4.1.1 (game 3.280.x) or 4.0.0-rc.1
@@ -45,6 +53,9 @@ endif ()
 # The code sees COOP_SDK_VERSION (40201, 40101 or 40000) and leaves out what an older SDK lacks.
 set(COOP_SDK "4.2.1" CACHE STRING "ZHMModSDK version built against: 4.2.1, 4.1.1 or 4.0.0-rc.1")
 set_property(CACHE COOP_SDK PROPERTY STRINGS "4.2.1" "4.1.1" "4.0.0-rc.1")
+if (COOP_NPC_ACTION_DIAGNOSTICS AND NOT COOP_SDK STREQUAL "4.2.1")
+    message(FATAL_ERROR "Native action diagnostics require the verified 4.2.1 SDK / 3.290.1 layout")
+endif ()
 
 if (COOP_SDK STREQUAL "4.2.1")
     target_compile_definitions(HitmanCoop PRIVATE COOP_SDK_VERSION=40201 COOP_GAME_TARGET="3.290")
@@ -71,6 +82,7 @@ if (MSVC)
 endif ()
 
 target_link_libraries(HitmanCoop PRIVATE
+        coop_minhook
         ZHMModSDK
         implot # IPluginInterface::SetupUI/CleanupUI use it; the dev package's target doesn't link it
         coop_core

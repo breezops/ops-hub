@@ -40,6 +40,7 @@ if args.rollback_package and digest(args.rollback_package)!=config.get('rollback
 stage.mkdir(parents=True)
 for folder in ('files', 'licenses'):
     shutil.copytree(base/folder, stage/folder)
+shutil.copyfile(root/'third_party/minhook/LICENSE.txt',stage/'licenses/MinHook-1.3.4.txt')
 for file in (root/'distribution').iterdir():
     if file.is_file() and file.name!='Restore-4.1.ps1':
         shutil.copyfile(file, stage/file.name)

@@ -3,6 +3,7 @@
 #include "CrashTrace.h"
 #include "CrashGuards.h"
 #include "NpcMutationGate.h"
+#include "NpcActionObserver.h"
 #include "GamePause.h"
 #include "Log.h"
 #include "PoseHook.h"
@@ -214,6 +215,7 @@ void HitmanCoop::SaveBugReport(const std::string& p_Diagnostics) {
 }
 
 HitmanCoop::~HitmanCoop() {
+    NpcActionObserver::Stop(); // Detach our context before any world/session state is destroyed.
     PoseHook::Uninstall();
     CrashGuards::Uninstall();
 
@@ -235,7 +237,7 @@ void HitmanCoop::Init() {
     m_LanAddress = coop::LocalLanAddress();
     m_TailscaleAddress = coop::LocalTailscaleAddress();
     LoadSettings();
-#ifdef COOP_NPC_IDENTITY_DIAGNOSTICS
+#if defined(COOP_NPC_IDENTITY_DIAGNOSTICS) || defined(COOP_NPC_ACTION_DIAGNOSTICS)
     if (!CoopLog::On(coop::LogLevel::Info)) CoopLog::SetLevel(coop::LogLevel::Info);
 #endif
     const int s_Patches = CrashGuards::Install();
@@ -1439,6 +1441,29 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     const double s_FrameGap = m_LastFrame > 0.0 ? s_Now - m_LastFrame : 0.0;
     m_LastFrame = s_Now;
     m_World.SetClock(s_Now);
+#ifdef COOP_NPC_ACTION_DIAGNOSTICS
+    if (!m_NpcActionObserverAttempted) {
+        m_NpcActionObserverAttempted=true;
+        const auto sites=m_GameVersion=="3.290.1" && m_Unsupported.empty()
+            ? CrashGuards::VerifiedNpcBehaviorSites() : CrashGuards::NpcBehaviorSites{};
+        const bool installed=sites && NpcActionObserver::Install(sites,{this,
+            [](void* context,const void* actor,uint64_t npc,uint64_t birth,int32_t& runtime) {
+                return static_cast<HitmanCoop*>(context)->m_World.ValidatePartyNpcObservationAtActionBoundary(actor,npc,birth,runtime);
+            },
+            [](void* context,const NpcActionObserver::View& view) {
+                auto& self=*static_cast<HitmanCoop*>(context);
+                std::unique_lock lock(self.m_SessionMutex,std::try_to_lock);
+                if (lock.owns_lock()) self.m_World.TracePartyNpcAction(view);
+            },m_World.PartyGameThread()});
+        CoopLog::Info("npc-act",installed
+            ? "Read-only action observer installed; native controls and mutation scopes OFF; game restart required to reload this diagnostic"
+            : "Read-only action observer unavailable; no NPC controls enabled");
+    }
+    if (!m_NpcActionObserverFaultReported && !NpcActionObserver::Diagnostics().healthy) {
+        m_NpcActionObserverFaultReported=true;
+        CoopLog::Warn("npc-act","Read-only action observer faulted; inspection disabled, original native scheduling continues");
+    }
+#endif
     CrashGuards::FlushNpcReasoning(); // No-op unless a fenced callback deferred publication.
     m_World.ProcessBundleDeletions();
     m_World.SetViewSize(m_ViewWidth, m_ViewHeight);

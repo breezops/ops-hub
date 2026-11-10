@@ -218,6 +218,7 @@ private:
     std::string m_LanAddress;
     std::string m_TailscaleAddress;
     bool m_FrameUpdateRegistered = false;
+    bool m_NpcActionObserverAttempted=false,m_NpcActionObserverFaultReported=false;
     std::shared_ptr<const coop::RelayState> m_Relay; // the current session's relay, if any
     bool m_RelayCodeShown = false;
     bool m_WelcomeShown = false;

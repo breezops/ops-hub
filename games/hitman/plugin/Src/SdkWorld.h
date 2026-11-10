@@ -22,6 +22,7 @@
 #include "PoseHook.h"
 #include "NpcLifeReceipts.h"
 #include "NpcActorBirths.h"
+#include "NpcActionObserver.h"
 
 #include "Glacier/EntityFactory.h"
 #include "Glacier/Enums.h"
@@ -73,6 +74,7 @@ public:
     // scope. Used by observation mode; never authorizes actor control.
     bool ValidatePartyNpcObservationAtActionBoundary(const void* actor,uint64_t npc,uint64_t birth,int32_t& runtimeId) const;
     void TracePartyNpcIdentity(); // Diagnostic build only; reads/counts, no NPC controls.
+    void TracePartyNpcAction(const NpcActionObserver::View&);
     // nativeContract is this PC's native ContractSessionId, never a room/peer
     // value. The future adapter must obtain it before acknowledging readiness.
     bool BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract);
@@ -594,6 +596,8 @@ private:
     ZActor* FindFreshPartyNpc(uint64_t id) const;
     double m_NextNpcIdentityAudit=0;
     unsigned m_NpcIdentityAudits=0;
+    double m_NextNpcActionAudit=0;
+    unsigned m_NpcActionAudits=0;
     struct NpcNativeEvent { uint64_t scope; uint32_t actor; bool killed; std::string contract; };
     std::deque<NpcNativeEvent> m_NpcNativeEvents;
     bool m_NpcEventOverflow=false;

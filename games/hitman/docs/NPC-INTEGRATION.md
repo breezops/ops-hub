@@ -367,6 +367,46 @@ scheduled-ID checks, original-loop execution, and refusal of actor control.
 The suite now contains 272 tests: 203 core, 10 pose, 6 guards, 44 native NPC and
 9 phase tests. These are modeled checks, not live observer validation.
 
+### Process-lifetime live observer
+
+`NpcActionObserver` supplies the next live read-only hookup separately from the
+control primitive. It uses a private static copy of the same MinHook library
+used by ZHMModSDK (pinned v1.3.4 source and license under `third_party/minhook`).
+MinHook handles entry patching and thread instruction-pointer relocation; this
+does not establish a native worker-drain or actor-mutation barrier. The observer
+does not install an action-job probe or enable any NPC mutation scope.
+
+Installation is attempted once on the already observed SDK game-update thread,
+only for game 3.290.1 with the complete verified site bundle. Before enabling
+the hook, a valid original trampoline and immutable configuration are published.
+The hook validates the native table and bounded, unique scheduled runtime IDs;
+wrong threads, malformed spans and callback exceptions disable inspection while
+the original native loop keeps executing. The view checks stack/thread identity
+and revalidates actor birth/SDK identity around each checked native read.
+
+The containing module is pinned until process exit. `Stop`, called outside the
+client callback before the SDK world is destroyed, waits for the short read-only
+callback and detaches its context. It does not wait for an original native loop
+or yielding job. The entry then passes through to the retained original; no
+trampoline removal, uninitialization or executable-memory freeing is attempted.
+This diagnostic requires restarting HITMAN for reload/update; it does not claim
+general SDK hot-reload safety. No thread-owned lock spans original scheduling.
+
+Seven isolated process fixtures exercise the actual MinHook path: identity and
+stack refusal, native pass-through after stop, wrong-thread and malformed-span
+refusal, callback faults, detachment during callback/native execution and entry
+patching while a synthetic native function is already executing. Together with
+the earlier suites this is 279 tests. Normal and action-diagnostic SDK builds
+compile. Actual in-game invocation and record relationships remain unverified
+until the user completes the solo action.1 test.
+
+The private candidate is OPS 0.1.5 / native
+`0.13.94-four-player.preview.4.action.1`; its recipe and guide are under
+`diagnostics/action-1`. It logs `[npc-act]` audits at most twelve times per
+Freeform scene, retains identity audits and includes the verified original
+OPS 0.1.3 rollback. It changes no NPC control, scheduling, mission loop or
+pause policy. The public updater channel remains untouched.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.
