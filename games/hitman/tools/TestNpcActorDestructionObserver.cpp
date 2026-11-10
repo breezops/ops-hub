@@ -34,6 +34,7 @@ struct Fixture {
     ~Fixture() { NpcActorDestructionObserver::Stop(); } // Retained bridge never unhooked/freed.
 };
 uint64_t Invalidate(void* book,void* actor) noexcept { return static_cast<NpcActorBirths::Book*>(book)->ObserveDestructionEntry(actor); }
+bool Complete(void* book,const void* actor,uint64_t birth) noexcept { return static_cast<NpcActorBirths::Book*>(book)->ObserveDestructionReturn(actor,birth); }
 NpcActorBirths::Book* current=nullptr;
 bool invalidBeforeBody=false;
 void CheckBody(void* actor) { invalidBeforeBody=!current->Find(actor); }
@@ -48,22 +49,37 @@ Fixture* nested=nullptr;
 void* innerActor=nullptr;
 unsigned nativeCalls=0;
 void NestedBody(void*) { if(++nativeCalls==1) nested->Run(innerActor); }
+NpcActorBirths::Book::Cut replacementCut;
+void RebirthInBody(void* actor) {
+    if(++nativeCalls==1) { current->ObserveConstruction(actor);replacementCut=current->CaptureUnfinished(); }
+}
 }
 TEST(DestructionObserver_InvalidatesBeforeBodyAndAllowsFreshAddressReuse) {
     Fixture f(&CheckBody);NpcActorBirths::Book book;current=&book;REQUIRE(f.code);
     REQUIRE(book.ObserveConstruction(&f.actor));
-    REQUIRE(NpcActorDestructionObserver::Install(f.Sites(),&book,&Invalidate));
+    REQUIRE(NpcActorDestructionObserver::Install(f.Sites(),&book,&Invalidate,&Complete));
     f.Run();CHECK(invalidBeforeBody);CHECK(!book.Find(&f.actor));
     const auto replacement=book.ObserveConstruction(&f.actor);REQUIRE(replacement);
     CHECK(book.Find(&f.actor)==replacement);f.Run();CHECK(!book.Find(&f.actor));
     const auto stats=NpcActorDestructionObserver::Diagnostics();
     CHECK(stats.entered==2 && stats.returned==2 && stats.invalidated==2 && stats.unknown==0);
+    CHECK(stats.completed==2 && !stats.completionRejected);
+}
+TEST(DestructionObserver_OldReturnCannotCompleteReplacementCut) {
+    Fixture f(&RebirthInBody);NpcActorBirths::Book book;current=&book;nativeCalls=0;REQUIRE(f.code);
+    REQUIRE(book.ObserveConstruction(&f.actor));const auto oldCut=book.CaptureUnfinished();
+    REQUIRE(NpcActorDestructionObserver::Install(f.Sites(),&book,&Invalidate,&Complete));
+    f.Run();
+    CHECK(book.Inspect(oldCut).returned==1);CHECK(book.Find(&f.actor)!=0);
+    const auto fresh=book.Inspect(replacementCut);CHECK(fresh.valid && fresh.captured==2 && fresh.entered==1 && fresh.returned==1);
+    f.Run();CHECK(book.Inspect(replacementCut).returned==2);
+    const auto stats=NpcActorDestructionObserver::Diagnostics();CHECK(stats.completed==2 && !stats.completionRejected);
 }
 TEST(DestructionObserver_StopDuringBodyDetachesDestroyedClient) {
     Fixture f(&BlockBody);REQUIRE(f.code);
     auto* book=new NpcActorBirths::Book;
     REQUIRE(book->ObserveConstruction(&f.actor));
-    REQUIRE(NpcActorDestructionObserver::Install(f.Sites(),book,&Invalidate));
+    REQUIRE(NpcActorDestructionObserver::Install(f.Sites(),book,&Invalidate,&Complete));
     inside=false;release=false;
     std::thread worker([&]{f.Run();});const bool running=Wait([]{return inside.load();});
     NpcActorDestructionObserver::Stop();delete book;
@@ -73,14 +89,16 @@ TEST(DestructionObserver_StopDuringBodyDetachesDestroyedClient) {
     f.Run(); // Native code passes through with no access to the destroyed book.
     const auto done=NpcActorDestructionObserver::Diagnostics();
     CHECK(done.entered==2 && done.returned==2 && done.invalidated==1 && !done.active);
+    CHECK(!done.completed && !done.completionRejected);
 }
 TEST(DestructionObserver_NestedNativeBodyDoesNotHoldClientMutex) {
     Fixture f(&NestedBody);NpcActorBirths::Book book;void* second=nullptr;REQUIRE(f.code);
     nested=&f;innerActor=&second;nativeCalls=0;
     REQUIRE(book.ObserveConstruction(&f.actor));REQUIRE(book.ObserveConstruction(&second));
-    REQUIRE(NpcActorDestructionObserver::Install(f.Sites(),&book,&Invalidate));
+    REQUIRE(NpcActorDestructionObserver::Install(f.Sites(),&book,&Invalidate,&Complete));
     f.Run();const auto s=NpcActorDestructionObserver::Diagnostics();
     CHECK(nativeCalls==2 && s.entered==2 && s.returned==2 && s.invalidated==2);
+    CHECK(s.completed==2 && !s.completionRejected);
 }
 TEST(DestructionObserver_RejectsWrongEntryAndUnknownActorRemainsUnknown) {
     Fixture f(&BlockBody);NpcActorBirths::Book book;REQUIRE(f.code);

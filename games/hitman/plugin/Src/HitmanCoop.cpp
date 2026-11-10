@@ -1470,7 +1470,8 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const auto lifetime=m_GameVersion=="3.290.1" && m_Unsupported.empty()
             ? NpcActorLifetimeSites::ResolveMainModule() : NpcActorLifetimeSites::Sites{};
         const bool destruction=lifetime && NpcActorDestructionObserver::Install(lifetime,&m_World,
-            [](void* world,void* actor) noexcept { return static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionEntry(actor); });
+            [](void* world,void* actor) noexcept { return static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionEntry(actor); },
+            [](void* world,const void* actor,uint64_t birth) noexcept { return static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionReturn(actor,birth); });
         const auto destructionReport=NpcActorDestructionObserver::Installation();
         CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only destruction observer installed=%d sites=%d stage=%s status=%d; physical retirement UNKNOWN",
             destruction?1:0,lifetime?1:0,destructionReport.stage,destructionReport.status);
@@ -2368,7 +2369,7 @@ void HitmanCoop::OnMissionRestarted(const std::string& p_Scene) {
 DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bool p_FullyUnloadScene) {
 #ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
     // A cut in observed job entries, not a worker fence or physical retirement.
-    const auto evidence=m_NpcSceneEvidence.Begin(p_FullyUnloadScene);
+    const auto evidence=m_NpcSceneEvidence.Begin(p_FullyUnloadScene,&m_World.PartyNpcBirthBook());
 #endif
     std::lock_guard s_Lock(m_SessionMutex);
 
@@ -2408,22 +2409,27 @@ void HitmanCoop::AuditNpcSceneEvidence() {
 #ifdef COOP_NPC_DESTRUCTION_DIAGNOSTICS
     const auto destruction=NpcActorDestructionObserver::Diagnostics();
     if (destruction.entered!=m_NpcDtorLastEntered || destruction.returned!=m_NpcDtorLastReturned) {
-        CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only audit entered=%llu returned=%llu invalidated=%llu unknown=%llu installed=%d active=%d; body return is not allocation free or scene retirement proof",
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only audit entered=%llu returned=%llu invalidated=%llu unknown=%llu installed=%d active=%d completed-births=%llu completion-rejected=%llu; body return is not allocation free or scene retirement proof",
             static_cast<unsigned long long>(destruction.entered),static_cast<unsigned long long>(destruction.returned),
             static_cast<unsigned long long>(destruction.invalidated),static_cast<unsigned long long>(destruction.unknown),
-            destruction.installed?1:0,destruction.active?1:0);
+            destruction.installed?1:0,destruction.active?1:0,
+            static_cast<unsigned long long>(destruction.completed),static_cast<unsigned long long>(destruction.completionRejected));
         m_NpcDtorLastEntered=destruction.entered; m_NpcDtorLastReturned=destruction.returned;
     }
 #endif
-    const auto samples=m_NpcSceneEvidence.Snapshot();
+    const auto samples=m_NpcSceneEvidence.Snapshot(&m_World.PartyNpcBirthBook());
     for (size_t i=0;i<samples.size();++i) {
         const auto& s=samples[i]; const auto& last=m_NpcSceneLast[i];
         if (!s.token || (s.token==last.token &&
             s.bookHealthy==last.bookHealthy && s.jobs.valid==last.jobs.valid &&
-            s.jobs.healthy==last.jobs.healthy && s.jobs.pending==last.jobs.pending)) continue;
-        CoopLog::Fmt(coop::LogLevel::Info,"npc-life","READ-ONLY clear evidence token=%llu full=%d book-healthy=%d observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u; pre-attachment work UNKNOWN; physical retirement UNKNOWN; readiness OFF",
+            s.jobs.healthy==last.jobs.healthy && s.jobs.pending==last.jobs.pending &&
+            s.actors.valid==last.actors.valid && s.actors.healthy==last.actors.healthy &&
+            s.actors.captured==last.actors.captured && s.actors.entered==last.actors.entered &&
+            s.actors.returned==last.actors.returned)) continue;
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-life","READ-ONLY clear evidence token=%llu full=%d book-healthy=%d observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u actor-cut-valid=%d actors-healthy=%d captured=%zu destruction-entered=%zu body-returned=%zu; cuts sampled separately; pre-attachment work UNKNOWN; physical retirement UNKNOWN; readiness OFF",
             static_cast<unsigned long long>(s.token),s.fullUnload?1:0,
-            s.bookHealthy?1:0,s.jobs.valid?1:0,s.jobs.healthy?1:0,s.jobs.pending);
+            s.bookHealthy?1:0,s.jobs.valid?1:0,s.jobs.healthy?1:0,s.jobs.pending,
+            s.actors.valid?1:0,s.actors.healthy?1:0,s.actors.captured,s.actors.entered,s.actors.returned);
         m_NpcSceneLast[i]=s;
     }
 }

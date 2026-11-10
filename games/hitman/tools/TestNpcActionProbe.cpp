@@ -187,6 +187,29 @@ TEST(RetainedJob_SceneEvidenceDistinctCutsAndUnknownCoverage) {
     CHECK(!exhausted[0].bookHealthy); // No eviction/reuse of old evidence.
     CHECK(exhausted[0].token==before && exhausted[1].token==outer);
 }
+TEST(RetainedJob_SceneActorCutsKeepExactBirthCompletions) {
+    NpcActorBirths::Book births,otherBook;NpcSceneEvidence::Book scenes;int first=0,second=0;
+    const auto a=births.ObserveConstruction(&first),b=births.ObserveConstruction(&second);
+    REQUIRE(a && b);REQUIRE(scenes.Begin(true,&births));
+    auto old=scenes.Snapshot(&births)[0].actors;
+    CHECK(old.valid && old.healthy && old.captured==2 && !old.entered && !old.returned);
+    CHECK(births.ObserveDestructionEntry(&first)==a);
+    const auto replacement=births.ObserveConstruction(&first);REQUIRE(replacement>a);
+    REQUIRE(scenes.Begin(false,&births));
+    CHECK(births.ObserveDestructionReturn(&first,a));
+    auto snapshot=scenes.Snapshot(&births);
+    CHECK(snapshot[0].actors.entered==1 && snapshot[0].actors.returned==1);
+    CHECK(snapshot[1].actors.captured==3 && snapshot[1].actors.entered==1 && snapshot[1].actors.returned==1);
+    CHECK(births.ObserveDestructionEntry(&second)==b);
+    CHECK(births.ObserveDestructionReturn(&second,b));
+    snapshot=scenes.Snapshot(&births);
+    CHECK(snapshot[0].actors.returned==2);CHECK(snapshot[1].actors.returned==2);
+    CHECK(births.ObserveDestructionEntry(&first)==replacement);
+    CHECK(births.ObserveDestructionReturn(&first,replacement));
+    CHECK(scenes.Snapshot(&births)[1].actors.returned==3);
+    CHECK(!scenes.Snapshot(&otherBook)[0].actors.valid);
+    CHECK(!scenes.Snapshot()[0].actors.valid);
+}
 TEST(RetainedJob_LateAttachmentLeavesExistingWorkUnknown) {
     Fixture f; REQUIRE(Entry());
     entered=false; release=false; f.action.callback=&Block;

@@ -64,6 +64,8 @@ public:
     // actor reads and no session lock. Construction entry is not completion.
     void ObservePartyNpcConstruction(void* actor) noexcept { m_NpcActorBirths.ObserveConstruction(actor); }
     uint64_t ObservePartyNpcDestructionEntry(void* actor) noexcept { return m_NpcActorBirths.ObserveDestructionEntry(actor); }
+    bool ObservePartyNpcDestructionReturn(const void* actor,uint64_t birth) noexcept { return m_NpcActorBirths.ObserveDestructionReturn(actor,birth); }
+    const NpcActorBirths::Book& PartyNpcBirthBook() const { return m_NpcActorBirths; }
     void ObservePartyGameThread(uint32_t thread) noexcept;
     uint32_t PartyGameThread() const;
     uint64_t CurrentPartyNpcBirth(uint64_t id) const;

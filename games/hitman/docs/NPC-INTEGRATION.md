@@ -715,3 +715,40 @@ No SDK ClearScene wrapper or new native control is enabled. Body return precedes
 optional allocation free; an entry stamp is not a lifetime pin against native
 concurrent destruction. No ConfirmNpcSceneRetired, birth pruning or guest NPC
 readiness binding is enabled from these observations.
+
+
+## Lifetime-3: exact birth body-return receipts and pre-clear membership
+
+Destruction entry now records a bounded receipt keyed by exact constructor
+birth, with the pointer retained only as an opaque comparison value. The bridge
+carries that birth across the native body, then admits a short completion
+callback under the same callback mutex. Stop clears both callbacks before client
+destruction; no client pointer or thread-owned lock spans native execution.
+A body completing after Stop leaves its receipt pending rather than accessing a
+freed client. Stats return types use sizeof-based linker tags after this change.
+
+A typed actor cut captures live identities AND already-entered bodies that have
+not returned. A reused address can therefore contain both an old pending body
+and a new live birth in the same cut. Each return completes only its exact
+birth/pointer receipt; it cannot complete the replacement. Opaque cuts bind a
+unique book-instance ID and prune epoch, so another/reconstructed book or lost
+history cannot satisfy an old cut. Pruning remains externally gated and unused
+in production; its invocation invalidates old cuts even at the same birth
+watermark. History exhaustion fails observation closed rather than recycling
+pending/returned proof. No actor memory is read by these receipt operations.
+
+The existing pre-clear diagnostic keeps an actor cut beside its job entry cut,
+reporting captured/destruction-entered/body-returned per identity. The two cuts
+are sampled separately and are NOT a producer closure or atomic scene fence.
+Actors born after the cut are not included. Pre-attachment work and complete
+native worker coverage remain unknown. Body return precedes optional free; the
+reports do not implement ConfirmNpcSceneRetired or PrepareNpcScene, prune births,
+restore a failed guest or enable shared NPC readiness.
+
+Both native hook configurations pass37CTest processes. Added process cases
+exercise a native body constructing a replacement before the old completion and
+scene cuts containing overlapping generations. Birth-book fixtures additionally
+cover already-pending bodies, wrong/duplicate returns, book address reuse,
+pruned evidence, survivor cuts and bounded history refusal. Stop-during-native
+now includes a registered completion callback and a destroyed client. SDK and
+package checks/receipts belong to the separately versioned private Lifetime-3.

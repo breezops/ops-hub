@@ -76,6 +76,29 @@ evidence around the proven birth invalidation/job cuts before confirming native
 scene retirement or enabling restricted guest NPC preparation. No pruning or
 ConfirmNpcSceneRetired binding from these counters. Preserve all prior packages.
 
+## Prepared checkpoint: Lifetime-3 exact per-birth completion evidence
+
+OPS0.1.15/native preview.4.life.3, diagnostics/lifetime-3. Check journal for final
+SDK/package/delivery receipts. Birth-keyed body-return records prevent an old
+return completing a new actor at the same address. Cuts include live identities
+and already-pending bodies, bind unique book instance/prune epoch, and lose
+validity when their evidence is pruned. Stop clears entry+completion callbacks;
+no client pointer/lock spans native body. Both native configurations37processes.
+
+Next solo: Lifetime-3 Install/Repair, Freeformwait15sreplyinmission. Confirm all3
+observers and83healthy identities. Then two native restarts with20swalking each,
+quit. Inspect each valid cut's captured/entered/body-returned identities, exact
+completion rejection counts and old job cut separately. No F8/knockout/friend.
+This tests exact per-actor receipts beyond life.2 global totals. The cuts are
+not atomic, do not cover future births/unobserved producers and are not native
+free/worker-fence proof. No readiness/pruning/retirement bindings enabled.
+
+After this evidence is validated, retain fail-closed admission and focus native
+pool preparation/control bindings toward a restricted two-PC NPC test. Reuse
+existing NpcActionPhase, mutation gate, ownership arbiter and party transport;
+do not replace the working movement/launcher foundations or promise full scene
+retirement from these read-only observations alone.
+
 ## Immediate engineering step — solo remains sufficient
 
 Hold-2 startup failed before selection: job/action creation status 9, hold

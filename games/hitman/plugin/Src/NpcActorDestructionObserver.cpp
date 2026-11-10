@@ -13,8 +13,10 @@ bool attempted=false;
 std::atomic<bool> installed=false;
 std::atomic<Body> original=nullptr;
 std::atomic<uint64_t> entered=0,returned=0,invalidated=0,unknown=0;
+std::atomic<uint64_t> completed=0,completionRejected=0;
 void* context=nullptr;
 NpcActorDestructionObserver::Invalidate invalidate=nullptr;
+NpcActorDestructionObserver::Complete complete=nullptr;
 NpcActorDestructionObserver::Report report;
 constexpr uint8_t prefix[]{
     0x48,0x89,0x5c,0x24,0x10,0x48,0x89,0x74,0x24,0x18,
@@ -22,21 +24,33 @@ constexpr uint8_t prefix[]{
 };
 void Observe(void* actor) {
     ++entered;
+    uint64_t birth=0;
     {
         std::lock_guard lock(callbackMutex);
         // No game memory read; invalidation must remain a short pointer-only
         // operation. It must not reenter Stop, install or execute native code.
         if (invalidate) {
-            if (invalidate(context,actor)) ++invalidated;
+            birth=invalidate(context,actor);
+            if (birth) ++invalidated;
             else ++unknown;
         }
     }
     // No client pointer/book/session mutex survives into the native body.
     if (const auto body=original.load(std::memory_order_acquire)) body(actor);
+    {
+        std::lock_guard lock(callbackMutex);
+        // Installation is one-shot. Stop clears BOTH callbacks under this
+        // mutex, so a pending original never accesses a destroyed client.
+        // Only pointer + exact birth survive the native call, no client pointer.
+        if (birth && complete) {
+            if (complete(context,actor,birth)) ++completed;
+            else ++completionRejected;
+        }
+    }
     ++returned;
 }
 }
-bool NpcActorDestructionObserver::Install(const NpcActorLifetimeSites::Sites& sites,void* client,Invalidate callback) {
+bool NpcActorDestructionObserver::Install(const NpcActorLifetimeSites::Sites& sites,void* client,Invalidate callback,Complete completion) {
     std::lock_guard lock(installMutex);
     const auto refuse=[](const char* stage,int status=0) { report.stage=stage; report.status=status; return false; };
     if (attempted) return refuse("already-attempted");
@@ -56,18 +70,18 @@ bool NpcActorDestructionObserver::Install(const NpcActorLifetimeSites::Sites& si
     if (create!=MH_OK) return refuse("hook-create",create);
     if (!body) return refuse("missing-original");
     original.store(reinterpret_cast<Body>(body),std::memory_order_release);
-    { std::lock_guard callbacks(callbackMutex); context=client; invalidate=callback; }
+    { std::lock_guard callbacks(callbackMutex); context=client; invalidate=callback; complete=completion; }
     const auto enable=MH_EnableHook(const_cast<void*>(sites.destructor));
     if (enable!=MH_OK) { Stop(); return refuse("hook-enable",enable); }
     installed=true; report.stage="installed"; report.status=0; return true;
 }
 void NpcActorDestructionObserver::Stop() {
     std::lock_guard lock(callbackMutex);
-    invalidate=nullptr; context=nullptr;
+    invalidate=nullptr; complete=nullptr; context=nullptr;
 }
-NpcActorDestructionObserver::Stats NpcActorDestructionObserver::Diagnostics() {
+NpcActorDestructionObserver::Stats NpcActorDestructionObserver::Diagnostics(MinHookDiagnostics::LayoutTag<sizeof(Stats)>) {
     std::lock_guard lock(callbackMutex);
-    return {entered.load(),returned.load(),invalidated.load(),unknown.load(),installed.load(),invalidate!=nullptr};
+    return {entered.load(),returned.load(),invalidated.load(),unknown.load(),installed.load(),invalidate!=nullptr,completed.load(),completionRejected.load()};
 }
 NpcActorDestructionObserver::Report NpcActorDestructionObserver::Installation(MinHookDiagnostics::LayoutTag<sizeof(Report)>) {
     std::lock_guard lock(installMutex); return report;

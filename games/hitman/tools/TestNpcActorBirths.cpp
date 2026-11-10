@@ -4,8 +4,74 @@
 #include <atomic>
 #include <set>
 #include <thread>
+#include <memory>
 
 using NpcActorBirths::Book;
+
+TEST(NpcActorBirths_ExactBodyReturnCannotCompleteReplacementGeneration) {
+    Book book;int actor=0,other=0;
+    const auto old=book.ObserveConstruction(&actor);const auto cut=book.CaptureUnfinished();
+    REQUIRE(book.ObserveDestructionEntry(&actor)==old);
+    const auto pending=book.Inspect(cut);
+    CHECK(pending.valid && pending.healthy && pending.captured==1 && pending.entered==1 && !pending.returned);
+    const auto fresh=book.ObserveConstruction(&actor);const auto replacement=book.CaptureUnfinished();
+    CHECK(!book.ObserveDestructionReturn(&other,old));
+    CHECK(!book.ObserveDestructionReturn(&actor,fresh)); // No entry for fresh generation.
+    CHECK(book.ObserveDestructionReturn(&actor,old));
+    CHECK(!book.ObserveDestructionReturn(&actor,old));
+    CHECK(book.Inspect(cut).returned==1);
+    CHECK(book.Inspect(replacement).captured==2 && book.Inspect(replacement).entered==1 && book.Inspect(replacement).returned==1);
+    CHECK(book.Find(&actor)==fresh);
+    CHECK(book.ObserveDestructionEntry(&actor)==fresh);
+    CHECK(book.ObserveDestructionReturn(&actor,fresh));
+    CHECK(book.Inspect(replacement).returned==2);CHECK(book.Inspect(cut).returned==1);
+}
+TEST(NpcActorBirths_CutRejectsOtherOrReconstructedBooksAndPrunedEvidence) {
+    int actor=0;alignas(Book) std::byte storage[sizeof(Book)];
+    auto* first=std::construct_at(reinterpret_cast<Book*>(storage));
+    REQUIRE(first->ObserveConstruction(&actor));const auto cut=first->CaptureUnfinished();
+    std::destroy_at(first);
+    auto* replacement=std::construct_at(reinterpret_cast<Book*>(storage));
+    const auto birth=replacement->ObserveConstruction(&actor);
+    CHECK(!replacement->Inspect(cut).valid);CHECK(!replacement->Inspect({}).valid);
+    const auto own=replacement->CaptureUnfinished();
+    CHECK(replacement->ObserveDestructionEntry(&actor)==birth);
+    CHECK(replacement->ObserveDestructionReturn(&actor,birth));
+    CHECK(replacement->Inspect(own).returned==1);
+    CHECK(replacement->PruneRetired(birth,{}));
+    CHECK(!replacement->Inspect(own).valid); // Losing history never invents completion.
+    std::destroy_at(replacement);
+}
+TEST(NpcActorBirths_BodyReturnDoesNotReclaimHistoryWithoutBarrier) {
+    Book book(1);int actor=0;
+    const auto birth=book.ObserveConstruction(&actor);REQUIRE(birth);
+    CHECK(book.ObserveDestructionEntry(&actor)==birth);
+    CHECK(book.ObserveDestructionReturn(&actor,birth));
+    REQUIRE(book.ObserveConstruction(&actor));const auto cut=book.CaptureUnfinished();
+    CHECK(!book.ObserveDestructionEntry(&actor));CHECK(!book.Healthy());
+    CHECK(!book.Inspect(cut).healthy);CHECK(!book.Find(&actor));
+}
+TEST(NpcActorBirths_CutIncludesAlreadyEnteredBodies) {
+    Book book;int actor=0;
+    const auto birth=book.ObserveConstruction(&actor);REQUIRE(birth);
+    CHECK(book.ObserveDestructionEntry(&actor)==birth);
+    const auto cut=book.CaptureUnfinished();const auto pending=book.Inspect(cut);
+    CHECK(pending.valid && pending.captured==1 && pending.entered==1 && !pending.returned);
+    CHECK(book.ObserveDestructionReturn(&actor,birth));CHECK(book.Inspect(cut).returned==1);
+    const auto after=book.Inspect(book.CaptureUnfinished());
+    CHECK(after.valid && !after.captured); // Completed bodies need not enter later snapshots.
+}
+TEST(NpcActorBirths_PruneInvalidatesOldCutsAndKeepsNewSurvivorCutsUsable) {
+    Book book;int actor=0;
+    const auto birth=book.ObserveConstruction(&actor);const auto before=book.CaptureUnfinished();
+    std::array<void*,1> keep{&actor};REQUIRE(book.PruneRetired(birth,keep));
+    CHECK(!book.Inspect(before).valid);
+    const auto after=book.CaptureUnfinished();CHECK(book.Inspect(after).valid);
+    CHECK(book.ObserveDestructionEntry(&actor)==birth);
+    CHECK(book.ObserveDestructionReturn(&actor,birth));CHECK(book.Inspect(after).returned==1);
+    REQUIRE(book.PruneRetired(birth,{})); // Same watermark still invalidates lost evidence.
+    CHECK(!book.Inspect(after).valid);
+}
 
 TEST(NpcActorBirths_DestructionEntryInvalidatesWithoutInventingRetirement) {
     Book book; int actor=0,unknown=0;

@@ -1,0 +1,22 @@
+HITMAN CO-OP / PRIVATE READ-ONLY RESTART EVIDENCE / LIFETIME-3
+OPS 0.1.15 / native preview.4.life.3 / HITMAN 3.290.1
+
+SOLO ONLY. No host/join/Ready or F8. No attacks or disguises required.
+Close HITMAN and the old launcher. Open this folder launcher, INSTALL / REPAIR,
+then LAUNCH HITMAN. Load Freeform Training, wait 15 seconds and reply in mission.
+Leave the game running for startup confirmation.
+
+After the developer confirms job/action/destruction observers are healthy:
+1. Use the game's Restart Mission, then walk around for 20 seconds.
+2. Restart Mission a second time, then walk around for 20 seconds.
+3. Quit HITMAN normally and reply finished.
+
+This build observes job entry/return and records distinct pre-clear cuts.
+It matches each captured actor birth to its own destructor entry and body return.
+Snapshots include bodies that already started, and survive address reuse.
+It does not control NPCs, prove physical retirement or enable shared NPCs.
+Scene-clear dispatch and SDK callback ordering are unchanged.
+F8 native hold diagnostic is OFF in this candidate.
+
+Close HITMAN and run RESTORE-0.1.3.cmd for the tested multiplayer release.
+Hold-3 is separately preserved. No SDK hot reload or game files/saves included.
