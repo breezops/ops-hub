@@ -23,6 +23,11 @@ struct World:IPartyNpcWorld {
     bool freeze=true,apply=true,resume=true,capture=true,prepare=true;
     unsigned preparations=0;
     unsigned resumes=0;
+    std::vector<uint64_t> retirements;
+    std::set<uint64_t> retired;
+    unsigned retirementChecks=0;
+    void BeginNpcSceneRetirement(uint64_t token) override { retirements.push_back(token); }
+    bool ConfirmNpcSceneRetired(uint64_t token) override { ++retirementChecks; return retired.contains(token); }
     std::function<void()> check;
     std::function<void(uint64_t)> onFreeze;
     bool PrepareNpcScene() override {
@@ -550,7 +555,79 @@ TEST(PartyNpcRuntime_UnconfirmedStopRequiresSceneReloadBeforeReady) {
     lab.Step(1);
     CHECK(!lab.games[0]->NativeReady()); // A later retry cannot clear the scene latch.
     lab.games[0]->SceneCleared();
+    CHECK(!lab.games[0]->NativeReady()); // Callback precedes native destruction.
+    lab.Step(.5);
+    CHECK(!lab.games[0]->NativeReady());
+    REQUIRE(lab.natives[0].retirements.size()==1);
+    lab.natives[0].retired.insert(lab.natives[0].retirements.back());
+    lab.Step(.1);
     CHECK(lab.games[0]->NativeReady());
+}
+
+TEST(PartyNpcRuntime_EarlySceneClearDoesNotAllowPreparationOrOldRetirementReceipts) {
+    RuntimeNpcLab lab(2); REQUIRE(lab.Begin());
+    const auto preparations=lab.natives[0].preparations;
+    const auto resumes=lab.natives[0].resumes;
+    lab.games[0]->SceneCleared();
+    REQUIRE(lab.natives[0].retirements.size()==1);
+    const auto old=lab.natives[0].retirements.back();
+    lab.games[0]->SceneCleared();
+    REQUIRE(lab.natives[0].retirements.size()==2);
+    const auto current=lab.natives[0].retirements.back();
+    CHECK(current>old);
+    lab.natives[0].retired.insert(old);
+    lab.Step(1);
+    CHECK(!lab.games[0]->NativeReady()); CHECK(!lab.games[0]->Ready());
+    CHECK(lab.natives[0].preparations==preparations);
+    CHECK(lab.natives[0].resumes==resumes);
+    CHECK(!lab.games[0]->SharedNpcsActive());
+    lab.natives[0].retired.insert(current);
+    lab.Step(.1);
+    CHECK(lab.games[0]->NativeReady());
+}
+
+TEST(PartyNpcRuntime_SceneRetirementTokensCannotBeReusedAcrossRuntimeInstances) {
+    RuntimeNpcLab first(2); REQUIRE(first.Begin());
+    first.games[0]->SceneCleared(); first.games[1]->SceneCleared();
+    const auto host=first.natives[0].retirements.back();
+    const auto guest=first.natives[1].retirements.back();
+    CHECK(host!=guest);
+    first.natives[1].retired.insert(host); first.Step(.1);
+    CHECK(!first.games[1]->NativeReady());
+    RuntimeNpcLab next(2); REQUIRE(next.Begin());
+    next.games[0]->SceneCleared();
+    const auto replacement=next.natives[0].retirements.back();
+    CHECK(replacement!=host); CHECK(replacement!=guest);
+    next.natives[0].retired.insert(host); next.Step(.1);
+    CHECK(!next.games[0]->NativeReady());
+    next.natives[0].retired.insert(replacement); next.Step(.1);
+    CHECK(next.games[0]->NativeReady());
+}
+
+TEST(PartyNpcRuntime_MovementOnlyClearNeverRequestsNpcRetirement) {
+    RuntimeNpcLab lab(2,false); REQUIRE(lab.Begin());
+    lab.games[0]->SceneCleared(); lab.Step(.1);
+    CHECK(lab.games[0]->NativeReady());
+    CHECK(lab.natives[0].retirements.empty());
+    CHECK(lab.natives[0].retirementChecks==0);
+}
+
+TEST(PartyNpcRuntime_PendingRetirementDoesNotTouchThePreviousScenesActorsAgain) {
+    RuntimeNpcLab lab(2); REQUIRE(lab.Begin());
+    lab.games[0]->SceneCleared();
+    // Scene-clearing callbacks have returned; the native engine may now destroy
+    // actors or reuse template IDs. Polling may only inspect retirement proof.
+    unsigned freezes=0;
+    lab.natives[0].onFreeze=[&](uint64_t) { ++freezes; };
+    lab.sources[0].inScene=false; lab.Step(.5);
+    lab.sources[0].inScene=true; lab.Step(.5);
+    CHECK(freezes==0); CHECK(!lab.games[0]->NativeReady());
+    const auto checks=lab.natives[0].retirementChecks;
+    lab.natives[0].retired.insert(lab.natives[0].retirements.back());
+    lab.Step(.1); REQUIRE(lab.games[0]->NativeReady());
+    lab.Step(.5);
+    CHECK(lab.natives[0].retirementChecks==checks+1);
+    CHECK(freezes==0);
 }
 
 TEST(PartyNpcRuntime_CatalogOverflowInterruptsInsteadOfSilentlyDroppingNpcs) {

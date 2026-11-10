@@ -384,7 +384,7 @@ void* CrashGuards::VerifiedNpcReasoningLoop() {
 }
 
 namespace {
-void* ResolveActionJob(uintptr_t from,uintptr_t to) {
+void* ResolveActionJob(uintptr_t from,uintptr_t to,uintptr_t* outputLoop=nullptr) {
     if (!from || to<=from) return nullptr;
     // Bounded relationships verified in 3.290.1, rather than a fixed game RVA.
     const auto caller=FindUnique(c_UnitsCaller,from,to);
@@ -405,16 +405,52 @@ void* ResolveActionJob(uintptr_t from,uintptr_t to) {
     const auto expected=FindUnique(
         "40 53 48 83 EC 20 48 8B D9 48 8B 89 E0 00 00 00 48 8B 01 FF 50 08 83 F8 01",
         from,to);
-    return expected==job ? reinterpret_cast<void*>(job) : nullptr;
+    if (expected!=job) return nullptr;
+    if (outputLoop) *outputLoop=loop;
+    return reinterpret_cast<void*>(job);
+}
+CrashGuards::NpcActionSites ResolveActionSites(uintptr_t from,uintptr_t to) {
+    uintptr_t loop=0;
+    const auto job=ResolveActionJob(from,to,&loop);
+    if (!job) return {};
+    const auto cancelCall=FindUnique("8B 10 48 8B CB E8 ?? ?? ?? ?? 48 8B 83 A0 00 00 00 48 85 C0",loop,loop+0x100);
+    const auto cleanupCall=FindUnique("BA 04 00 00 00 48 8B CB E8 ?? ?? ?? ??",loop,loop+0x300);
+    if (!cancelCall || !cleanupCall) return {};
+    const auto cancel=RelTarget(cancelCall+6),cleanup=RelTarget(cleanupCall+9);
+    if (cancel<from || cancel>to || to-cancel<91 || cleanup<from || cleanup>to || to-cleanup<25) return {};
+    if (FindUnique("48 89 5C 24 10 57 48 83 EC 20 48 8B D9 8B FA",from,to)!=cancel ||
+        FindUnique("48 89 5C 24 18 55 48 83 EC 20 48 8B D9 48 89 74 24 30 48 8B 89 E0 00 00 00",from,to)!=cleanup) return {};
+    // Check the pending-job load, suspended/cancel-request states and the final
+    // cleanup tail, not merely a common function prologue.
+    if (FindUnique("48 8B 89 E8 00 00 00 48 85 C9 74 ?? 83 79 28 01",cancel,cancel+91)!=cancel+15 ||
+        FindUnique("C7 41 28 02 00 00 00 48 89 44 24 30 E8 ?? ?? ?? ??",cancel,cancel+91)!=cancel+45 ||
+        FindUnique("C7 41 28 03 00 00 00",cancel,cancel+91)!=cancel+64 ||
+        FindUnique("8B D7 48 8B CB 48 8B 5C 24 38 48 83 C4 20 5F E9 ?? ?? ?? ??",cancel,cancel+91)!=cancel+71 ||
+        RelTarget(cancel+87)!=cleanup) return {};
+    const auto dispatch=RelTarget(cancel+58);
+    if (dispatch<from || dispatch>to || to-dispatch<19) return {};
+    if (FindUnique("89 54 24 10 53 48 83 EC 20 49 8B 00 48 8B D9 48 3B 41 20",from,to)!=dispatch) return {};
+    size_t dispatchCalls=0;
+    for (auto at=loop;at+5<=loop+0x300;++at)
+        if (*reinterpret_cast<const uint8_t*>(at)==0xe8 && RelTarget(at+1)==dispatch) ++dispatchCalls;
+    if (dispatchCalls!=2) return {};
+    return {reinterpret_cast<void*>(loop),job,reinterpret_cast<void*>(cancel),reinterpret_cast<void*>(cleanup),reinterpret_cast<void*>(dispatch)};
 }
 }
 void* CrashGuards::VerifiedNpcActionJob() {
     uintptr_t from=0,to=0;
     return TextRange(from,to) ? ResolveActionJob(from,to) : nullptr;
 }
+CrashGuards::NpcActionSites CrashGuards::VerifiedNpcActionSites() {
+    uintptr_t from=0,to=0;
+    return TextRange(from,to) ? ResolveActionSites(from,to) : NpcActionSites{};
+}
 #ifdef COOP_GUARD_TESTS
 void* CrashGuardsTest::ActionJobInText(uintptr_t from,uintptr_t to) {
     return ResolveActionJob(from,to);
+}
+CrashGuards::NpcActionSites CrashGuardsTest::ActionSitesInText(uintptr_t from,uintptr_t to) {
+    return ResolveActionSites(from,to);
 }
 #endif
 

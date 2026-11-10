@@ -45,8 +45,11 @@ returns false, so an unimplemented adapter cannot accidentally enable this mode.
 
 Stop, leave, native scene loss, roster/incarnation loss and new epochs stop NPC
 authority. A failed physical stop latches a reload requirement on that PC;
-Stop/Ready/Start and later successful retries cannot clear it. Actual native
-scene teardown clears the latch. Confirmed stops are not repeated every frame.
+Stop/Ready/Start and later successful retries cannot clear it. The pre-clear
+callback begins a process-unique native retirement request; it does not clear
+the latch. Only `ConfirmNpcSceneRetired` for that exact request may clear it.
+Adapters without that verified native binding remain blocked. Confirmed stops
+are not repeated every frame.
 
 The recovered core preserves dead/unconscious and stripped-clothing progress,
 rejects nonowner/stale reports, and heals dropped ordinary snapshots with
@@ -180,8 +183,7 @@ Eight new fixtures cover the job trampoline and result, an original call still
 in flight, reentrant diagnostics, concurrent independent units, nested work on a
 custom execution stack, tampered hooks and invalid/ambiguous resolver inputs.
 The existing alternate-stack fixture is shared with the damage-admission tests.
-The full suite now contains 245 tests: 199 core, 10 pose, 6 guards and 30 native
-NPC fixtures. These fixtures do not establish real-game cancellation semantics.
+These fixtures do not establish real-game cancellation semantics.
 
 The observer is **not installed by the movement preview**. An empty observed
 count alone is not a freeze acknowledgement: new scheduling must also be held,
@@ -193,6 +195,43 @@ write as a completed cancellation or call that native path from an arbitrary
 callback. The next binding must run at a verified engine lifecycle point and
 confirm original-call return before replacing native state. This work remains
 independent of the temporary manual preview Ready/Start controls.
+
+### Cancellation binding and scene recovery
+
+`VerifiedNpcActionSites` resolves the action job together with cancellation,
+cleanup and dispatch. It checks the pending-job load, suspended/cancel-request/
+terminal state instructions, the cancellation routine's cleanup tail and two
+action-loop calls to the same dispatcher. Unknown state transitions, mismatched
+targets, out-of-text targets or ambiguous entry patterns reject the entire
+bundle. Read-only checks matched this bundle in the installed 3.290.1 executable.
+This resolves addresses; it does not invoke cancellation or establish a safe
+native lifecycle point.
+
+The SDK's existing `SceneCleared` notification is an early callback. The runtime
+now stops/discards its old replica there and calls
+`BeginNpcSceneRetirement(token)` before the engine tears the scene down. It
+preserves any stop fault and blocks preparation, Ready and presentation while
+the native retirement request is pending. The token is unique within this
+process across runtime instances, including successive rooms/clear requests.
+`ConfirmNpcSceneRetired(token)` defaults to false and is polled on subsequent
+ticks. An adapter must retain retirement evidence across its ordinary pre-clear
+data reset and distinguish the retired scene from a newly loaded one. Neither
+`IsInScene=false` nor a previously completed token can authorize recovery.
+Polling does not retry operations against the old scene's NPCs. Movement-only
+mode never requests NPC retirement and retains its existing behavior.
+
+Four additional core regressions cover early-clear blocking and stale receipts,
+token reuse across runtime instances, movement-only behavior and avoiding native
+operations on retired actors. The existing failed-stop recovery test now requires
+an explicit teardown receipt. Two additional native fixtures cover the complete
+cancellation bundle and changed cancellation semantics/targets. Total validation
+is 251 tests: 203 core, 10 pose, 6 guards and 32 native NPC fixtures.
+
+The engine side of retirement confirmation is still unbound. To implement it,
+hold new scheduling, perform cancellation at a validated engine boundary,
+observe original action return and native teardown completion, and then retire
+the matching actor/scope bindings. A pre-clear callback must not manufacture that
+receipt. Native NPC mode remains disabled until these operations are verified.
 
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.

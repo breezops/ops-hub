@@ -16,13 +16,14 @@ public:
     bool Lobby();
     bool Reconnect(double now);
     void Leave(double now);
-    void SceneCleared();
+    void SceneCleared(); // Existing SDK callback is pre-clear; begins retirement.
     const PartyRoomStatus& Status() const { return m_Room->Status(); }
     bool NativeReady() const;
     bool LocalReady() const;
     std::string Message() const {
         const auto fault = m_Sink.PartyPreviewError();
         if (!fault.empty()) return fault;
+        if (m_NpcRetirementPending) return "Waiting for native NPC scene teardown to finish.";
         return m_NpcStopFault ? "NPC simulation did not confirm it stopped. Reload Freeform Training on this PC." : m_Message;
     }
     bool SharedNpcsActive() const { return m_Npcs && m_Npcs->Active(); }
@@ -39,6 +40,8 @@ private:
     std::set<uint64_t> m_NpcCatalog;
     double m_NextNpcCatalog = 0;
     bool m_NpcStopFault = false;
+    bool m_NpcRetirementPending = false;
+    uint64_t m_NpcRetirement = 0;
     bool m_NpcScenePrepared = false;
     void StopNpcs();
     bool UpdateNpcs(double now, bool presenting);

@@ -1,8 +1,20 @@
 #include "coop/PartyPreviewRuntime.h"
 #include "coop/LauncherPolicy.h"
 #include <cmath>
+#include <atomic>
+#include <limits>
 
 namespace coop {
+namespace {
+uint64_t NextRetirement() {
+    static std::atomic<uint64_t> issued=0;
+    auto previous=issued.load();
+    while (previous!=std::numeric_limits<uint64_t>::max()) {
+        if (issued.compare_exchange_weak(previous,previous+1)) return previous+1;
+    }
+    return 0; // Exhaustion cannot recycle a receipt from another scene/room.
+}
+}
 PartyPreviewRuntime::PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
                                        IPartyNpcWorld* npcWorld, PartyNpcOptions npcOptions)
     : m_Room(std::move(room)), m_Source(source), m_Sink(sink), m_Playback(sink),
@@ -64,7 +76,7 @@ bool PartyPreviewRuntime::UpdateNpcs(double now, bool presenting) {
 
 bool PartyPreviewRuntime::NativeReady() const {
     Transform transform;
-    return !m_NpcStopFault && m_Sink.PartyPreviewError().empty() && m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) && m_Source.GetLocalAvatar(transform);
+    return !m_NpcStopFault && !m_NpcRetirementPending && m_Sink.PartyPreviewError().empty() && m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) && m_Source.GetLocalAvatar(transform);
 }
 bool PartyPreviewRuntime::LocalReady() const {
     for (const auto& member : Status().members)
@@ -107,7 +119,11 @@ void PartyPreviewRuntime::Leave(double now) {
 void PartyPreviewRuntime::SceneCleared() {
     StopNpcs();
     m_Npcs.reset(); m_NpcCatalog.clear(); m_NextNpcCatalog=0;
-    m_NpcStopFault=false; // The native scene (and its old actors) has been destroyed.
+    if (m_NpcWorld) {
+        m_NpcRetirementPending=true;
+        m_NpcRetirement=NextRetirement();
+        if (m_NpcRetirement) m_NpcWorld->BeginNpcSceneRetirement(m_NpcRetirement);
+    }
     m_NpcScenePrepared=false;
     m_Room->ReportSceneLost();
     m_Playback.Reset();
@@ -118,6 +134,11 @@ void PartyPreviewRuntime::SceneCleared() {
 void PartyPreviewRuntime::Tick(double now) {
     if (!std::isfinite(now)) return;
     m_Room->Tick(now);
+    if (m_NpcWorld && m_NpcRetirementPending && m_NpcRetirement &&
+        m_NpcWorld->ConfirmNpcSceneRetired(m_NpcRetirement)) {
+        m_NpcRetirementPending=false;
+        m_NpcStopFault=false;
+    }
     const bool native=NativeReady();
     if (m_HadNativeScene && !native) {
         StopNpcs();

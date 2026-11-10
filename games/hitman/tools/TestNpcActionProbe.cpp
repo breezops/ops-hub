@@ -177,8 +177,9 @@ TEST(NpcActionProbe_RejectsDifferentOrTamperedEntries) {
 
 namespace {
 struct Sites {
-    std::array<uint8_t,2048> text{};
+    std::array<uint8_t,4096> text{};
     static constexpr size_t Caller=64,ActionCaller=104,Loop=512,Descriptor=640,Job=1536;
+    static constexpr size_t Cancel=2048,Cleanup=2304,Dispatch=2560;
     void Put(size_t at,std::initializer_list<uint8_t> bytes) {
         std::copy(bytes.begin(),bytes.end(),text.begin()+at);
     }
@@ -200,6 +201,26 @@ struct Sites {
     void* Resolve() {
         const auto from=reinterpret_cast<uintptr_t>(text.data());
         return CrashGuardsTest::ActionJobInText(from,from+text.size());
+    }
+    void AddCancellation() {
+        Put(Loop+96,{0x8b,0x10,0x48,0x8b,0xcb,0xe8,0,0,0,0,0x48,0x8b,0x83,0xa0,0,0,0,0x48,0x85,0xc0});
+        Rel(Loop+96+6,Cancel);
+        Put(Loop+600,{0xba,4,0,0,0,0x48,0x8b,0xcb,0xe8,0,0,0,0});
+        Rel(Loop+600+9,Cleanup);
+        Put(Cancel,{0x48,0x89,0x5c,0x24,0x10,0x57,0x48,0x83,0xec,0x20,0x48,0x8b,0xd9,0x8b,0xfa});
+        Put(Cancel+15,{0x48,0x8b,0x89,0xe8,0,0,0,0x48,0x85,0xc9,0x74,0x2c,0x83,0x79,0x28,1});
+        Put(Cancel+45,{0xc7,0x41,0x28,2,0,0,0,0x48,0x89,0x44,0x24,0x30,0xe8,0,0,0,0});
+        Rel(Cancel+58,Dispatch);
+        Put(Cancel+64,{0xc7,0x41,0x28,3,0,0,0});
+        Put(Cancel+71,{0x8b,0xd7,0x48,0x8b,0xcb,0x48,0x8b,0x5c,0x24,0x38,0x48,0x83,0xc4,0x20,0x5f,0xe9,0,0,0,0});
+        Rel(Cancel+87,Cleanup);
+        Put(Cleanup,{0x48,0x89,0x5c,0x24,0x18,0x55,0x48,0x83,0xec,0x20,0x48,0x8b,0xd9,0x48,0x89,0x74,0x24,0x30,0x48,0x8b,0x89,0xe0,0,0,0});
+        Put(Dispatch,{0x89,0x54,0x24,0x10,0x53,0x48,0x83,0xec,0x20,0x49,0x8b,0,0x48,0x8b,0xd9,0x48,0x3b,0x41,0x20});
+        for (const size_t at:{Loop+500,Loop+540}) { Put(at,{0xe8,0,0,0,0}); Rel(at+1,Dispatch); }
+    }
+    CrashGuards::NpcActionSites ResolveNative() {
+        const auto from=reinterpret_cast<uintptr_t>(text.data());
+        return CrashGuardsTest::ActionSitesInText(from,from+text.size());
     }
 };
 }
@@ -226,4 +247,31 @@ TEST(NpcActionProbe_ResolverRejectsAmbiguousTruncatedOrUnknownCode) {
     const auto from=reinterpret_cast<uintptr_t>(sites.text.data());
     CHECK(!CrashGuardsTest::ActionJobInText(from,from+Sites::Caller+20));
     CHECK(!CrashGuardsTest::ActionJobInText(from,from));
+}
+
+TEST(NpcActionSites_CancellationBundleMustResolveTheSameCleanupAndDispatcher) {
+    Sites sites; CHECK(!sites.ResolveNative());
+    sites.AddCancellation();
+    const auto result=sites.ResolveNative(); REQUIRE(bool(result));
+    CHECK(result.job==sites.text.data()+Sites::Job);
+    CHECK(result.loop==sites.text.data()+Sites::Loop);
+    CHECK(result.cancel==sites.text.data()+Sites::Cancel);
+    CHECK(result.cleanup==sites.text.data()+Sites::Cleanup);
+    CHECK(result.dispatch==sites.text.data()+Sites::Dispatch);
+    sites.Rel(Sites::Cancel+87,Sites::Cleanup+1); CHECK(!sites.ResolveNative());
+    sites.Rel(Sites::Cancel+87,Sites::Cleanup);
+    sites.Rel(Sites::Loop+500+1,Sites::Dispatch+1); CHECK(!sites.ResolveNative());
+    sites.Rel(Sites::Loop+500+1,Sites::Dispatch); CHECK(bool(sites.ResolveNative()));
+}
+
+TEST(NpcActionSites_UnknownCancellationStatesOrAmbiguousCodeCannotBeUsed) {
+    Sites sites; sites.AddCancellation(); REQUIRE(bool(sites.ResolveNative()));
+    sites.text[Sites::Cancel+48]=4; CHECK(!sites.ResolveNative());
+    sites.text[Sites::Cancel+48]=2;
+    sites.Rel(Sites::Cancel+58,sites.text.size()+100); CHECK(!sites.ResolveNative());
+    sites.Rel(Sites::Cancel+58,Sites::Dispatch);
+    std::memcpy(sites.text.data()+Sites::Dispatch+64,sites.text.data()+Sites::Dispatch,19);
+    CHECK(!sites.ResolveNative());
+    sites.text[Sites::Dispatch+64]=0xcc; CHECK(bool(sites.ResolveNative()));
+    sites.text[Sites::Cleanup]=0xcc; CHECK(!sites.ResolveNative());
 }

@@ -28,6 +28,17 @@ namespace CrashGuards {
     // Resolves the deferred action-job entry through the same table caller,
     // action loop and job descriptor. Observation only; does not install it.
     void* VerifiedNpcActionJob();
+    struct NpcActionSites {
+        void* loop=nullptr;
+        void* job=nullptr;
+        void* cancel=nullptr;
+        void* cleanup=nullptr;
+        void* dispatch=nullptr;
+        explicit operator bool() const { return loop && job && cancel && cleanup && dispatch; }
+    };
+    // Resolves the native cancellation/cleanup/dispatcher chain as one bundle.
+    // Addresses alone do not grant a safe invocation point or a completed drain.
+    NpcActionSites VerifiedNpcActionSites();
     // Reasoning-only, completed under the optional native loop fence. This is
     // not a full actor/physics freeze acknowledgement for IPartyNpcWorld.
     bool TrySetNpcReasoningHeld(void* actor, bool held);
@@ -80,6 +91,7 @@ namespace CrashGuards {
 // Only present in the standalone test executable; never exported by the mod.
 namespace CrashGuardsTest {
     void* ActionJobInText(uintptr_t from, uintptr_t to);
+    CrashGuards::NpcActionSites ActionSitesInText(uintptr_t from, uintptr_t to);
     void Configure(void* p_Units);
     std::vector<void*> SkippedUnits();
     bool Remembered(void* p_Actor);
