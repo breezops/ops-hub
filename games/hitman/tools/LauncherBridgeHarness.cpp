@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     const auto start = GetTickCount64();
     while (GetTickCount64() - start < 45000) {
         bridge.Poll(double(GetTickCount64() - start) / 1000.0, [](const coop::LauncherRequest& request) {
-            return "{\"ok\":true,\"version\":\"0.13.94-four-player.preview.2\",\"bridge_version\":1,\"action\":\"" + request.action + "\"}";
+            return "{\"ok\":true,\"version\":\"0.13.94-four-player.preview.3\",\"bridge_version\":1,\"action\":\"" + request.action + "\"}";
         });
         Sleep(5);
     }

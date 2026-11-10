@@ -68,6 +68,10 @@ public static class TestLauncherUpdate {
             Check(File.ReadAllText(updater.LastSetupLog).Contains("SETUP OK Auto"),"keep a successful setup log too");
             Check(updater.RunInstaller(setup,"Remove").GetAwaiter().GetResult()==0,"removal uses same captured setup path");
         } finally { Environment.SetEnvironmentVariable("PSModulePath",previousModules); }
+        settings.release_version="0.1.2";
+        string newerConfig=Path.Combine(root,"newer-config.json");File.WriteAllText(newerConfig,json.Serialize(settings));
+        var newer=new LauncherUpdate(newerConfig,Path.Combine(root,"home"));
+        Check(!newer.RedirectToCurrent(),"newer downloaded launcher does not reopen an older cached release");
         Console.WriteLine(passed+" updater checks passed.");return 0;
     }
 }

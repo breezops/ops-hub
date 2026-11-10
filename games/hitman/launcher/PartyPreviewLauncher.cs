@@ -19,6 +19,7 @@ public sealed class PartyPreviewLauncher : Window {
     static string Build;
     static string startupNotice;
     readonly Grid root;
+    readonly ScrollViewer scroller;
     readonly TextBlock state, detail, roster, feedback, mission;
     readonly TextBox address;
     readonly DispatcherTimer timer = new DispatcherTimer();
@@ -40,12 +41,16 @@ public sealed class PartyPreviewLauncher : Window {
             }
             Application app = new Application();
             PartyPreviewLauncher window = new PartyPreviewLauncher();
-            if (args.Length == 2 && args[0] == "--preview") {
-                window.root.Measure(new Size(1120,820));
-                window.root.Arrange(new Rect(0,0,1120,820));
-                window.root.UpdateLayout();
-                RenderTargetBitmap bitmap = new RenderTargetBitmap(1120,820,96,96,PixelFormats.Pbgra32);
-                bitmap.Render(window.root);
+            if (args.Length==2 && args[0]=="--layout-test") {
+                window.TestLayouts(args[1]);return 0;
+            }
+            if ((args.Length==2 || args.Length==4 || args.Length==5) && args[0]=="--preview") {
+                int width=args.Length>=4 ? Int32.Parse(args[2]) : 1120;
+                int height=args.Length>=4 ? Int32.Parse(args[3]) : 820;
+                window.ArrangePreview(width,height);
+                if(args.Length==5 && args[4]=="bottom") { window.scroller.ScrollToEnd();window.scroller.UpdateLayout(); }
+                RenderTargetBitmap bitmap = new RenderTargetBitmap(width,height,96,96,PixelFormats.Pbgra32);
+                bitmap.Render(window.scroller);
                 PngBitmapEncoder encoder = new PngBitmapEncoder();
                 encoder.Frames.Add(BitmapFrame.Create(bitmap));
                 using (FileStream file = File.Create(args[1])) encoder.Save(file);
@@ -54,19 +59,26 @@ public sealed class PartyPreviewLauncher : Window {
             app.Run(window);
             return 0;
         } catch (Exception error) {
-            if (args.Length == 4) File.WriteAllText(args[3], "{\"ok\":false,\"message\":\"" + error.GetType().Name + "\"}");
+            if (args.Length>=2 && (args[0]=="--preview" || args[0]=="--layout-test")) File.WriteAllText(args[1]+".error",error.ToString());
+            else if (args.Length == 4) File.WriteAllText(args[3], "{\"ok\":false,\"message\":\"" + error.GetType().Name + "\"}");
             else MessageBox.Show(error.Message,"HITMAN Co-op preview");
             return 1;
         }
     }
     public PartyPreviewLauncher() {
         Title="HITMAN / CO-OP — OPS HUB";
-        Width=1160; Height=880; MinWidth=1050; MinHeight=820;
+        Rect work=SystemParameters.WorkArea;
+        double availableWidth=Math.Max(280,work.Width-24),availableHeight=Math.Max(240,work.Height-24);
+        MinWidth=Math.Min(640,availableWidth);MinHeight=Math.Min(450,availableHeight);
+        Width=Math.Min(1160,availableWidth);Height=Math.Min(880,availableHeight);
         WindowStartupLocation=WindowStartupLocation.CenterScreen;
         Background=new SolidColorBrush(Color.FromRgb(15,17,20));
         using (Stream input=Assembly.GetExecutingAssembly().GetManifestResourceStream("LauncherLayout.xaml"))
         using (StreamReader reader=new StreamReader(input)) root=(Grid)XamlReader.Parse(reader.ReadToEnd());
-        Content=root;
+        scroller=new ScrollViewer { Content=root, VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled, CanContentScroll=false };
+        Content=scroller;
+        scroller.SizeChanged+=(s,e)=>AdaptLayout();
         state=Find<TextBlock>("State"); detail=Find<TextBlock>("Detail"); roster=Find<TextBlock>("Roster");
         feedback=Find<TextBlock>("Feedback"); mission=Find<TextBlock>("Mission"); address=Find<TextBox>("Address");
         Find<Button>("Launch").Click+=(s,e)=> {
@@ -142,6 +154,48 @@ public sealed class PartyPreviewLauncher : Window {
             Find<TextBlock>("UpdateState").Text="Update unavailable — your installation is unchanged.";
             feedback.Text=error.Message;
         } finally { updating=false;button.IsEnabled=true;RefreshSetupLog(); }
+    }
+    void ArrangePreview(int width,int height) {
+        if(width<300 || width>2400 || height<240 || height>1800) throw new ArgumentException("Invalid preview size.");
+        root.MinHeight=0;
+        scroller.Measure(new Size(width,height));scroller.Arrange(new Rect(0,0,width,height));scroller.UpdateLayout();
+        AdaptLayout();scroller.Measure(new Size(width,height));scroller.Arrange(new Rect(0,0,width,height));scroller.UpdateLayout();
+    }
+    void TestLayouts(string report) {
+        Find<Button>("SetupLog").Visibility=Visibility.Visible;
+        feedback.Text="SETUP STOPPED: An example error stays visible here. Setup log: C:/Users/Example/AppData/Local/OpsHub/HitmanCoop/logs/setup-example.txt";
+        detail.Text="You: Host | "+Build+" | Everyone is ready for the movement preview.";
+        roster.Text="4 / 4 players\n\nPlayer 1  Host  / Ready\n\nPlayer 2  Guest One  / Ready\n\nPlayer 3  Guest Two  / Ready\n\nPlayer 4  Guest Three  / Ready";
+        var results=new List<object>();
+        foreach(Size size in new[]{new Size(1120,820),new Size(1120,690),new Size(800,600),new Size(640,480)}) {
+            ArrangePreview((int)size.Width,(int)size.Height);
+            foreach(string name in new[]{"Updates","Launch","Host","Leave","Join","Address","Ready","Start","Stop","Reconnect","SetupLog","Repair","Remove"}) {
+                FrameworkElement control=Find<FrameworkElement>(name);
+                Point position=control.TranslatePoint(new Point(0,0),root);
+                scroller.ScrollToVerticalOffset(Math.Max(0,position.Y-20));scroller.UpdateLayout();
+                Point visible=control.TranslatePoint(new Point(0,0),scroller);
+                if(control.ActualWidth<1 || control.ActualHeight<1 || visible.X < -1 || visible.Y < -1 ||
+                    visible.X+control.ActualWidth>size.Width+1 || visible.Y+control.ActualHeight>size.Height+1)
+                    throw new InvalidDataException("Control "+name+" is unreachable at "+size+": "+visible+" / "+control.ActualWidth+"x"+control.ActualHeight);
+            }
+            results.Add(new{width=size.Width,height=size.Height,extent=scroller.ExtentHeight,viewport=scroller.ViewportHeight,controlsReachable=true});
+        }
+        File.WriteAllText(report,new JavaScriptSerializer().Serialize(results));
+    }
+    void AdaptLayout() {
+        bool compact=scroller.ActualWidth<900;
+        Grid frame=Find<Grid>("Frame"),main=Find<Grid>("MainArea"),hero=Find<Grid>("Hero");
+        Border party=Find<Border>("PartyArea"),dossier=Find<Border>("MissionDossier");
+        frame.Margin=compact ? new Thickness(18,18,18,18) : new Thickness(34,25,34,24);
+        main.ColumnDefinitions[2].Width=compact ? new GridLength(0) : new GridLength(300);
+        main.ColumnDefinitions[1].Width=new GridLength(compact ? 0 : 22);
+        Grid.SetColumn(party,compact ? 0 : 2);Grid.SetRow(party,compact ? 1 : 0);
+        party.Margin=compact ? new Thickness(0,16,0,0) : new Thickness(0);
+        dossier.Visibility=compact ? Visibility.Collapsed : Visibility.Visible;
+        hero.ColumnDefinitions[1].Width=new GridLength(compact ? 0 : 300);
+        // Content keeps its natural height; a shorter/high-DPI work area scrolls
+        // rather than clipping controls or forcing a window off the screen.
+        root.MinHeight=Math.Max(0,scroller.ViewportHeight);
     }
     T Find<T>(string name) where T:FrameworkElement { return (T)root.FindName(name); }
     static string Text(Dictionary<string,object> data,string key) {

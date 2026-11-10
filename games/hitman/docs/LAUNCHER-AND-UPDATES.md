@@ -1,17 +1,20 @@
-# OPS HUB HITMAN launcher 0.1.1
+# OPS HUB HITMAN launcher 0.1.2
 
 This release redesigns the existing WPF launcher and introduces a HITMAN-only
-update client. Its native mod is exactly Preview 2, build
-`0.13.94-four-player.preview.2`, game 3.290.1, party protocol 2. The three-player
-vault/takedown regression still needs live testing; no new native NPC authority
-is enabled here. Four slots are available; shared NPCs, bodies, items, objectives
+update client. Its native mod is Preview 3, build
+`0.13.94-four-player.preview.3`, game 3.290.1, party protocol 2. The prior two-PC
+Preview 2 test passed repeated close vaults and smooth movement; no new native NPC authority
+is enabled here. All players must update to this matching native build. Four slots are available; shared NPCs, bodies, items, objectives
 and extraction are not yet implemented in this backend.
 
 The interface follows DESIGN-BRIEF.txt: near-black/charcoal panels, sharp edges,
 crimson actions, restrained architectural geometry and a single session screen.
 Existing host/join/leave/ready/start/stop/reconnect/launch actions remain. Install,
 repair and tracked removal use the existing verified PowerShell installer.
-Notification sounds and upstream self-updates remain disabled. Version 0.1.1 fixes
+Notification sounds and upstream self-updates remain disabled. The window now
+fits the Windows work area, scrolls vertically when needed, and stacks the roster
+on narrower windows. Layout checks cover every control at 1120x820, 1120x690,
+800x600 and 640x480 logical pixels, including long errors and an open-log button. Version 0.1.1 fixes
 setup rejecting its own launcher. It captures stdout/stderr without a flashing
 console, keeps the actual error visible, saves a setup log, and exposes Open
 setup log. A launcher running from the destination game folder remains blocked
@@ -49,8 +52,11 @@ The public 0.1.0 manifest and ZIP were verified on 2026-11-09. The updater uses
 currently drops paths. The public HITMAN feed is `/hitman/release.json`; downloads
 are under `/downloads/hitman/`. Stray's update channel remains separate.
 
-Native gameplay and an actual two-PC 0.1.0-to-0.1.1 installation still require
-live validation. No publishing credentials belong in source or player packages.
+The two-PC 0.1.0-to-0.1.1 installation succeeded. The new native outfit
+continuity and the guest's actual 200% scaling still require a live 0.1.2 check.
+Already-visible avatars use native pose while a new outfit rig is rematched;
+initial spawn/Stop/Leave still gate visibility. Remote writes are skipped if the
+body bone count changed. The engine can still briefly stream geometry out. No publishing credentials belong in source or player packages.
 
 ## Build and checks
 

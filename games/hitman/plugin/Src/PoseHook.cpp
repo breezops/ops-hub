@@ -54,6 +54,7 @@ struct PlayerTarget {
     std::vector<int32_t> map;
     std::vector<uint8_t> mask;
     bool allPositions = false;
+    uint32_t expectedBoneCount = 0;
 };
 // Atomic pointers are only a fast rejection filter. Every match is checked
 // again under g_Mutex before touching the corresponding player record.
@@ -120,8 +121,11 @@ void Update(void* p_This, void* p_In, uint8_t* p_Out, const void* p_World, uint6
     if (s_Player >= 0 && g_PlayerTargets[s_Player].animator == p_This) {
         auto& s_Target = g_PlayerTargets[s_Player];
         s_Target.native.assign(s_Bones, s_Bones + s_Count);
-        const size_t s_Copy = std::min<size_t>(s_Count,
-            s_Target.map.empty() ? s_Target.pose.size() : s_Target.map.size());
+        // A body can change on an animation worker before the game thread has
+        // rematched it. Record its native pose, but never apply the stale map
+        // to a different-sized rig in that intervening frame.
+        const size_t s_Copy = s_Target.expectedBoneCount && s_Target.expectedBoneCount != s_Count ? 0 :
+            std::min<size_t>(s_Count, s_Target.map.empty() ? s_Target.pose.size() : s_Target.map.size());
         for (size_t i = 0; i < s_Copy; ++i) {
             if (i < s_Target.mask.size() && !s_Target.mask[i])
                 continue;
@@ -301,9 +305,9 @@ bool PoseHook::BindPlayerTarget(uint8_t p_Id, uint64_t p_Incarnation, void* p_An
 bool PoseHook::SetPlayerTargetPose(uint8_t p_Id, uint64_t p_Incarnation,
                                   const std::vector<Bone>& p_Pose, bool p_AllPositions,
                                   const std::vector<int32_t>& p_Map,
-                                  const std::vector<uint8_t>& p_Mask) {
+                                  const std::vector<uint8_t>& p_Mask, uint32_t p_ExpectedBoneCount) {
     if (p_Id < 1 || p_Id > 4 || !p_Incarnation ||
-        p_Pose.size() > 1023 || p_Map.size() > 1023 || p_Mask.size() > 1023)
+        p_Pose.size() > 1023 || p_Map.size() > 1023 || p_Mask.size() > 1023 || p_ExpectedBoneCount > 1023)
         return false;
     std::lock_guard s_Lock(g_Mutex);
     auto& s_Target = g_PlayerTargets[p_Id - 1];
@@ -315,6 +319,7 @@ bool PoseHook::SetPlayerTargetPose(uint8_t p_Id, uint64_t p_Incarnation,
     s_Target.map = p_Map;
     s_Target.mask = p_Mask;
     s_Target.allPositions = p_AllPositions;
+    s_Target.expectedBoneCount = p_ExpectedBoneCount;
     return true;
 }
 

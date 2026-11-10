@@ -35,7 +35,8 @@ void SdkWorld::ApplyAvatarPose(RemoteAvatarState& avatar) {
             PoseHook::ClearTargetPose();
     } else {
         PoseHook::SetPlayerTargetPose(avatar.playerId, avatar.incarnation,
-            avatar.partnerRig == 1 ? avatar.remoteBones : std::vector<PoseHook::Bone>{}, false, avatar.boneMap);
+            avatar.partnerRig == 1 ? avatar.remoteBones : std::vector<PoseHook::Bone>{}, false, avatar.boneMap, {},
+            avatar.partnerRig == 1 ? (avatar.rigParents.empty() ? AvatarBoneCount(avatar) : static_cast<uint32_t>(avatar.rigParents.size())) : 0);
     }
 }
 
@@ -221,7 +222,7 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
             if (!PoseHook::BindPlayerTarget(avatar.playerId, avatar.incarnation, animator))
                 continue;
             avatar.poseAnimator = animator;
-            ResetPartnerRig(avatar, 0.3);
+            ResetPartnerRig(avatar, avatar.appearance.KeepVisible() ? 0.0 : 0.3);
         }
         const void* body = avatar.actor->m_pAnimatedActor;
         const void* skeleton = *reinterpret_cast<void* const*>(static_cast<const uint8_t*>(animator) + 0x50);
@@ -231,7 +232,7 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
              (avatar.rigSkeleton && avatar.rigSkeleton != skeleton) || (avatar.rigBones && bones && avatar.rigBones != bones));
         if (changed) {
             ++avatar.skeletonRematches;
-            ResetPartnerRig(avatar, 0.3);
+            ResetPartnerRig(avatar, avatar.appearance.KeepVisible() ? 0.0 : 0.3);
         }
         avatar.rigBody = body;
         avatar.rigAnimator = animator;

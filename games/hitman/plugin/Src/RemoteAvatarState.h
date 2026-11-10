@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "coop/Protocol.h"
+#include "coop/AvatarAppearance.h"
 #include "PartnerPuppet.h"
 #include "PoseHook.h"
 #include "Glacier/ZEntity.h"
@@ -61,7 +62,9 @@ struct RemoteAvatarState {
     std::vector<int32_t> rigParents; // the stand-in's skeleton
     std::vector<int32_t> boneMap;    // its bone -> the partner's 47 bone (empty: the same)
     double partnerRigCheckAt = 0.0;
+    double nextRigProbeAt = 0.0;
     bool rigHidden = false;
+    coop::AvatarAppearance appearance;
     double rigHiddenSince = -1.0;
     double partnerRigReadyAt = 0.0;
     const void* rigBody = nullptr;     // the animated actor and animator the match was made for
@@ -127,7 +130,9 @@ struct RemoteAvatarState {
         rigParents = defaults.rigParents;
         boneMap = defaults.boneMap;
         partnerRigCheckAt = defaults.partnerRigCheckAt;
+        nextRigProbeAt = defaults.nextRigProbeAt;
         rigHidden = defaults.rigHidden;
+        appearance = {};
         rigHiddenSince = defaults.rigHiddenSince;
         partnerRigReadyAt = defaults.partnerRigReadyAt;
         rigBody = defaults.rigBody;

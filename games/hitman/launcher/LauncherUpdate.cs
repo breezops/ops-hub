@@ -208,6 +208,11 @@ public sealed class LauncherUpdate {
         string target=Path.GetFullPath(record["folder"]),root=Path.Combine(home,"releases")+Path.DirectorySeparatorChar;
         if(!target.StartsWith(root,StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Invalid saved launcher location.");
         if(String.Equals(target.TrimEnd('\\'),AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase)) return false;
+        var selected=json.Deserialize<Configuration>(File.ReadAllText(Path.Combine(target,"updater-config.json")));
+        if(selected==null || !ValidVersion(selected.release_version)) throw new InvalidDataException("Invalid saved launcher version.");
+        // Opening a newer complete download must not forward back to an older
+        // cached launcher (especially when the old window does not fit).
+        if(new Version(selected.release_version)<new Version(ReleaseVersion)) return false;
         string launcher=Path.Combine(target,"HITMAN-Coop-Party-Preview.exe");
         if(HashFile(launcher)!=record["sha256"]) throw new InvalidDataException("The saved launcher failed its integrity check. Use Install / repair.");
         Process.Start(new ProcessStartInfo(launcher){UseShellExecute=true});return true;

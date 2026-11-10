@@ -53,7 +53,7 @@ bool BindPlayerTarget(uint8_t p_Id, uint64_t p_Incarnation, void* p_Animator);
 bool SetPlayerTargetPose(uint8_t p_Id, uint64_t p_Incarnation,
                          const std::vector<Bone>& p_Pose, bool p_AllPositions,
                          const std::vector<int32_t>& p_Map = {},
-                         const std::vector<uint8_t>& p_Mask = {});
+                         const std::vector<uint8_t>& p_Mask = {}, uint32_t p_ExpectedBoneCount = 0);
 bool PlayerTargetNativePose(uint8_t p_Id, uint64_t p_Incarnation, std::vector<Bone>& p_Out);
 bool ClearPlayerTarget(uint8_t p_Id, uint64_t p_Incarnation);
 void ClearPlayerTargets();

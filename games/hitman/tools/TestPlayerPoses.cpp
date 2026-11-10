@@ -34,8 +34,8 @@ struct Fixture {
     }
     ~Fixture() { PoseHook::Uninstall(); }
     bool Install() { return PoseHook::Install(&animators[0]); }
-    std::vector<PoseHook::Bone> Run(size_t p_Index, float p_Value = 1.f) {
-        std::vector<PoseHook::Bone> s_Bones(4, MakeBone(p_Value));
+    std::vector<PoseHook::Bone> Run(size_t p_Index, float p_Value = 1.f, uint32_t p_Count = 4) {
+        std::vector<PoseHook::Bone> s_Bones(p_Count, MakeBone(p_Value));
         std::array<uint8_t, 24> s_Output {};
         auto* s_Data = s_Bones.data();
         uint32_t s_Count = static_cast<uint32_t>(s_Bones.size());
@@ -196,4 +196,28 @@ TEST(PlayerPoses_UninstallClearsEveryRemoteRigBeforeReinstall) {
     CHECK(result[0].pos[0] == 15.f);
     CHECK(result[1].pos[0] == 1.f);
     CHECK(result[2].pos[0] == 1.f);
+}
+
+TEST(PlayerPoses_OutfitBodyCountChangeNeverUsesThePreviousRigMap) {
+    Fixture f;
+    REQUIRE(f.Install());
+    REQUIRE(PoseHook::BindPlayerTarget(2,10,&f.animators[1]));
+    REQUIRE(PoseHook::BindPlayerTarget(4,30,&f.animators[3]));
+    std::vector<PoseHook::Bone> pose(4,MakeBone(42.f));
+    REQUIRE(PoseHook::SetPlayerTargetPose(2,10,pose,false,{}, {},4));
+    REQUIRE(PoseHook::SetPlayerTargetPose(4,30,pose,false,{}, {},4));
+    CHECK(f.Run(1)[0].pos[0]==42.f);
+    CHECK(f.Run(1,7.f,5)[0].pos[0]==7.f); // new body retains native pose
+    std::vector<PoseHook::Bone> native;
+    REQUIRE(PoseHook::PlayerTargetNativePose(2,10,native));
+    CHECK(native.size()==5); // game thread can now rematch the new rig
+    CHECK(f.Run(3)[0].pos[0]==42.f); // other player is unaffected
+    REQUIRE(PoseHook::SetPlayerTargetPose(2,10,pose,false,{0,1,2,3,-1},{},5));
+    auto rematched=f.Run(1,7.f,5);
+    CHECK(rematched[0].pos[0]==42.f);
+    CHECK(rematched[4].pos[0]==7.f);
+    CHECK(!PoseHook::SetPlayerTargetPose(2,10,pose,false,{}, {},1024));
+    CHECK(f.Run(1,7.f,4)[0].pos[0]==7.f); // stale/invalid map still cannot apply
+    REQUIRE(PoseHook::SetPlayerTargetPose(2,10,{},false));
+    CHECK(f.Run(1,7.f,5)[0].pos[0]==7.f);
 }
