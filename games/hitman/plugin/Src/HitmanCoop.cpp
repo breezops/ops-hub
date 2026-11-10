@@ -4,6 +4,7 @@
 #include "CrashGuards.h"
 #include "NpcMutationGate.h"
 #include "NpcActionObserver.h"
+#include "NpcActionProbe.h"
 #include "GamePause.h"
 #include "Log.h"
 #include "PoseHook.h"
@@ -1446,6 +1447,13 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         m_NpcActionObserverAttempted=true;
         const auto sites=m_GameVersion=="3.290.1" && m_Unsupported.empty()
             ? CrashGuards::VerifiedNpcBehaviorSites() : CrashGuards::NpcBehaviorSites{};
+        // Resolve the entire untouched bundle before either entry is patched.
+        const bool jobsInstalled=sites && NpcActionProbe::InstallRetained(sites.actions.job);
+        if (jobsInstalled) m_World.MarkPartyNpcJobAttachment();
+        const auto jobReport=NpcActionProbe::Installation();
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-job",
+            "READ-ONLY job attachment: installed=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; pre-existing jobs UNKNOWN; retained until process exit; NPC control OFF",
+            jobsInstalled?1:0,jobReport.stage,jobReport.hookStatus,jobReport.lastError);
         const bool installed=sites && NpcActionObserver::Install(sites,{this,
             [](void* context,const void* actor,uint64_t npc,uint64_t birth,int32_t& runtime) {
                 return static_cast<HitmanCoop*>(context)->m_World.ValidatePartyNpcObservationAtActionBoundary(actor,npc,birth,runtime);

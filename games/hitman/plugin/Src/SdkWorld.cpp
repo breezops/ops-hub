@@ -1,4 +1,5 @@
 #include "SdkWorld.h"
+#include "NpcActionProbe.h"
 #include "TypeDump.h"
 
 #include "CrashGuards.h"
@@ -2608,6 +2609,7 @@ void SdkWorld::TracePartyNpcAction(const NpcActionObserver::View& view) {
     m_NextNpcActionAudit=m_Now+10.; ++m_NpcActionAudits;
     const bool locked=Globals::ActorManager->m_bLockActorLists;
     size_t enabled=0,matched=0,notScheduled=0,rejected=0,untracked=0,conflicts=0,held=0,drained=0,withJob=0;
+    size_t entryActive=0,pointerWithoutEntry=0,bornAfterAttachment=0;
     if (locked && m_NpcActorBirths.Healthy()) for (const auto& entry:Globals::ActorManager->m_activatedActors) {
         auto* actor=entry.m_pInterfaceRef;
         if (!actor || IsPartnerActor(actor) || !actor->m_bEnabled || !actor->m_bActorActivated) continue;
@@ -2623,6 +2625,10 @@ void SdkWorld::TracePartyNpcAction(const NpcActionObserver::View& view) {
         if (observed.native.held()) ++held;
         if (observed.native.drained()) ++drained;
         if (observed.native.job) ++withJob;
+        const auto job=NpcActionProbe::Inspect(reinterpret_cast<const void*>(observed.native.unit));
+        if (job.observed && job.outstanding) ++entryActive;
+        if (observed.native.job && !job.outstanding) ++pointerWithoutEntry;
+        if (birth>m_NpcJobAttachmentMark) ++bornAfterAttachment;
     }
     const auto stats=NpcActionObserver::Diagnostics();
     CoopLog::Fmt(coop::LogLevel::Info,"npc-act",
@@ -2630,6 +2636,12 @@ void SdkWorld::TracePartyNpcAction(const NpcActionObserver::View& view) {
         m_NpcActionAudits,view.Count(),enabled,matched,notScheduled,rejected,untracked,conflicts,held,drained,withJob,locked?1:0,
         static_cast<unsigned long long>(m_NpcActorBirths.Mark()),stats.healthy && m_NpcActorBirths.Healthy()?1:0,
         PartyGameThread(),static_cast<unsigned long long>(stats.entered));
+    const auto jobs=NpcActionProbe::Diagnostics();
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-job",
+        "READ-ONLY job audit %u: entered=%llu returned=%llu outstanding=%u installed=%d healthy=%d units-with-observed-entry-active=%zu job-pointer-without-observed-entry=%zu born-after-attachment=%zu attachment-constructor-mark=%llu; unit addresses may be reused; pre-attachment work UNKNOWN; not a retirement or freeze receipt; NPC control OFF",
+        m_NpcActionAudits,static_cast<unsigned long long>(jobs.entered),static_cast<unsigned long long>(jobs.returned),
+        jobs.outstanding,jobs.installed?1:0,jobs.healthy?1:0,entryActive,pointerWithoutEntry,bornAfterAttachment,
+        static_cast<unsigned long long>(m_NpcJobAttachmentMark));
 }
 
 bool SdkWorld::BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract) {

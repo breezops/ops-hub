@@ -83,6 +83,7 @@ void OnAlternate(void* opaque) { static_cast<StackState*>(opaque)->nested->Run()
 void SwitchDuringAction(Action*) { alternateStack->Run(&OnAlternate,stackState); }
 }
 
+#ifndef COOP_RETAINED_PROBE_TESTS
 TEST(NpcActionProbe_CheckedWholeInstructionTrampolinePreservesUnitAndNativeResult) {
     Fixture f; REQUIRE(Entry());
     CHECK(!NpcActionProbe::Install(nullptr));
@@ -104,6 +105,89 @@ TEST(NpcActionProbe_CheckedWholeInstructionTrampolinePreservesUnitAndNativeResul
     CHECK(NpcActionProbe::Diagnostics().entered==end.entered);
 }
 
+#endif
+#ifdef COOP_RETAINED_PROBE_TESTS
+// Retained installation is intentionally one-shot. Run each case in a fresh
+// process, separate from the externally-quiesced legacy probe fixtures.
+TEST(RetainedJob_LateAttachmentLeavesExistingWorkUnknown) {
+    Fixture f; REQUIRE(Entry());
+    entered=false; release=false; f.action.callback=&Block;
+    std::thread worker([&]{f.Run();});
+    const bool running=Wait([]{return entered.load();});
+    const bool installed=running && NpcActionProbe::InstallRetained(Entry());
+    const auto late=NpcActionProbe::Diagnostics();
+    const auto unit=NpcActionProbe::Inspect(&f.unit);
+    release=true; worker.join();
+    REQUIRE(installed);
+    CHECK(late.entered==0); CHECK(late.returned==0); CHECK(late.outstanding==0);
+    CHECK(!unit.observed); // The native call was running despite zero counters.
+    CHECK(NpcActionProbe::Diagnostics().returned==0);
+    CHECK(NpcActionProbe::InstalledFor(Entry()));
+    CHECK(!NpcActionProbe::Remove());
+    f.action.callback=&InspectInside; f.Run();
+    CHECK(reentrantObserved); CHECK(removalRefused);
+    CHECK(f.unit.result==f.action.result);
+    const auto done=NpcActionProbe::Diagnostics();
+    CHECK(done.entered==1); CHECK(done.returned==1); CHECK(done.outstanding==0); CHECK(done.healthy);
+    CHECK(!NpcActionProbe::Inspect(&f.unit).observed);
+}
+
+TEST(RetainedJob_ConcurrentAndYieldedCallsRemainTracked) {
+    Fixture outer,inner; AlternateStack alternate;
+    REQUIRE(Entry()); REQUIRE(alternate.stack && alternate.code);
+    REQUIRE(NpcActionProbe::InstallRetained(Entry()));
+    StackState state{&inner,&outer.unit};
+    stackState=&state; alternateStack=&alternate;
+    inner.action.callback=&InspectNested; outer.action.callback=&SwitchDuringAction;
+    outer.Run();
+    CHECK(state.outerPending); CHECK(state.innerPending); CHECK(state.refused);
+    CHECK(NpcActionProbe::Diagnostics().entered==2);
+    CHECK(NpcActionProbe::Diagnostics().returned==2);
+    release=false; concurrent=0;
+    outer.action.callback=&BlockConcurrent; inner.action.callback=&BlockConcurrent;
+    std::thread first([&]{outer.Run();}),second([&]{inner.Run();});
+    const bool both=Wait([]{return concurrent.load()==2;});
+    const auto pending=NpcActionProbe::Diagnostics();
+    const auto a=NpcActionProbe::Inspect(&outer.unit),b=NpcActionProbe::Inspect(&inner.unit);
+    const bool refused=!NpcActionProbe::Remove();
+    release=true; first.join(); second.join();
+    CHECK(both); CHECK(pending.outstanding==2); CHECK(a.outstanding==1); CHECK(b.outstanding==1); CHECK(refused);
+    const auto done=NpcActionProbe::Diagnostics();
+    CHECK(done.entered==4); CHECK(done.returned==4); CHECK(done.outstanding==0); CHECK(done.healthy);
+    CHECK(!NpcActionProbe::Remove()); // Refused even after all observed returns.
+}
+
+TEST(RetainedJob_RefusesInvalidEntryAndModeSwitch) {
+    REQUIRE(Entry());
+    CHECK(!NpcActionProbe::InstallRetained(nullptr));
+    CHECK(std::strcmp(NpcActionProbe::Installation().stage,"entry-read")==0);
+    CHECK(!NpcActionProbe::InstallRetained(Entry()+1));
+    CHECK(std::strcmp(NpcActionProbe::Installation().stage,"entry-mismatch")==0);
+    REQUIRE(NpcActionProbe::InstallRetained(Entry()));
+    CHECK(std::strcmp(NpcActionProbe::Installation().stage,"installed")==0);
+    CHECK(NpcActionProbe::Installation().hookStatus==0);
+    CHECK(!NpcActionProbe::Install(Entry()));
+    CHECK(!NpcActionProbe::InstallRetained(Entry()));
+    CHECK(NpcActionProbe::InstalledFor(Entry()));
+    CHECK(!NpcActionProbe::InstalledFor(Entry()+1));
+    CHECK(!NpcActionProbe::Remove());
+}
+
+TEST(RetainedJob_RejectsTamperedPatchWithoutRemovingLiveBridge) {
+    REQUIRE(Entry()); REQUIRE(NpcActionProbe::InstallRetained(Entry()));
+    DWORD old=0; REQUIRE(VirtualProtect(Entry(),16,PAGE_EXECUTE_READWRITE,&old));
+    const auto saved=Entry()[15]; Entry()[15]^=1;
+    CHECK(!NpcActionProbe::InstalledFor(Entry()));
+    CHECK(!NpcActionProbe::Remove());
+    Entry()[15]=saved;
+    DWORD ignored=0; VirtualProtect(Entry(),16,old,&ignored);
+    FlushInstructionCache(GetCurrentProcess(),Entry(),16);
+    CHECK(NpcActionProbe::InstalledFor(Entry()));
+    Fixture f; f.Run();
+    CHECK(f.unit.result==f.action.result); CHECK(NpcActionProbe::Diagnostics().healthy);
+}
+#endif
+#ifndef COOP_RETAINED_PROBE_TESTS
 TEST(NpcActionProbe_NativeCallRemainsOutstandingUntilOriginalReturns) {
     Fixture f; REQUIRE(NpcActionProbe::Install(Entry()));
     entered=false; release=false; f.action.callback=&Block;
@@ -308,3 +392,4 @@ TEST(NpcBehaviorSites_ChangedActorLayoutOrUnitFlagCannotResolve) {
     std::memcpy(sites.text.data()+Sites::ActorControl+128,sites.text.data()+Sites::ActorControl,112);
     CHECK(!sites.ResolveBehavior());
 }
+#endif

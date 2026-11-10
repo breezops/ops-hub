@@ -8,6 +8,7 @@ namespace NpcBehaviorReadback {
 struct Snapshot {
     bool actorHeld=false, unitHeld=false;
     uintptr_t action=0, task=0, job=0;
+    uintptr_t unit=0; // Validated table slot address, not an actor lifetime token.
     bool coherent() const { return actorHeld==unitHeld; }
     bool held() const { return actorHeld && unitHeld; }
     bool drained() const { return !action && !task && !job; }

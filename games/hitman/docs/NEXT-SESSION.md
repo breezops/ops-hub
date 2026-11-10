@@ -12,8 +12,10 @@ The source and preserved ZIP/checksum for action.2 are on M:. The user test fold
 
 ## Immediate engineering step — solo remains sufficient
 
-1. Reuse the existing NpcActionProbe, verified cancellation/cleanup/dispatch relationships, NpcActionPhase control primitive, birth tracking and mutation gate. Bind native job-entry/return observation with thread-aware installation and process-lifetime retention. No thread-owned lock may span the original yielding native job.
-2. Account for jobs already running before probe installation. A late probe's zero counter is not proof of zero work. Consider a fresh mission generation after probe installation, with explicit constructor/entry coverage for admitted actors; do not assume old jobs retired because the SDK's pre-clear callback fired.
+Private OPS 0.1.7 / native preview.4.action.3 adds retained job-entry/return observation to the successful action.2 path. All 16 SDK-free native test processes passed, including the four isolated retained-probe cases, and the SDK DLL built and passed its ABI check. This candidate has not been live tested. The user will tell us when ready; do not request an immediate game launch.
+
+1. Finish package checks/delivery if not recorded in the research journal, then use diagnostics/action-3/START-HERE.txt. Solo Freeform: wait 30 seconds, native restart, wait 30 seconds, knockout/disguise, wait 20 seconds, native restart, wait 30 seconds and quit. No host/join/Ready. The new uncertainty is original native job completion across restarts, not a repeat of action.2's identity-only check.
+2. Read paired npc-act/npc-job audits. Expect pre-attachment work to be unknown. Inspect entries/returns/outstanding across constructor generations, and pending pointers without observed entries. Unit addresses may be reused; neither address matches nor a constructor watermark prove physical retirement. Never reset outstanding counts merely because SDK pre-clear fired. Investigate abandoned native continuations if counts accumulate after restart.
 3. Require fresh identity/birth/scope/lease, scheduled native slot membership and the observed locked callback context before control. Preserve conservative checks for pending jobs, native hold flags and script-owned holds.
 4. Prepare a separately versioned, limited one-NPC local hold/resume test with exact rollback. Confirm cancellation/completion and resume behavior, not just a successful Boolean return or empty task pointers. Single-player testing is enough for this step; do not require a friend yet.
 

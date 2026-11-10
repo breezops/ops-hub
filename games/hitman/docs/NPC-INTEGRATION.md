@@ -460,3 +460,38 @@ retirement, and multiplayer NPC authority still need their own validation.
 Shared extraction/objectives remain a later layer. Keep changes in this branch
 separate from the preserved playable movement build and retain upstream credit
 and GPL source when future packages ship.
+
+### Retained job observation (private action.3)
+
+`NpcActionProbe::InstallRetained` reuses the existing fixed-capacity entry/return
+bookkeeping with thread-aware MinHook entry patching. It verifies the complete
+16-byte job prefix, pins its executable module and publishes the original
+continuation before enabling the entry. Its bridge has no SDK world context,
+and no lock or TLS ownership spans the native job. Hook/library/trampoline
+removal is deliberately refused in this mode even when observed counts are zero.
+The externally-quiesced custom installation remains available to existing
+fixtures/control primitives, with explicit refusal to switch installation modes.
+
+Both job and action sites resolve before either is patched. Only private action
+diagnostic builds install the job probe after Freeform loads; public builds keep
+both diagnostic options off. Job installation stage/status is logged. Paired
+action-boundary audits log entries/returns/outstanding, units with observed calls
+active, native job pointers without observed entries, and actor births after the
+attachment watermark. These are observations, not authority readiness receipts.
+
+The late-attachment fixture deliberately starts a native call before attaching:
+the call keeps running while entered/returned/outstanding are all zero. Its
+eventual return cannot become an observed completion. This prevents treating
+zero counters as drain proof. Further isolated fixtures exercise nested custom
+stacks, simultaneous jobs, reentrant inspection, retained removal refusal,
+invalid/mismatched entries and tampered patches. All 16 native test processes
+pass; the private SDK build and SDK ABI check also pass. No real-game action.3
+run has been claimed. The next solo test checks job behavior across two native
+restarts, including a knockout/disguise between them.
+
+Unit addresses belong to reusable table slots. An active entry at an address
+does not bind that entry to the current actor birth, and the attachment
+constructor mark alone does not establish worker coverage or physical lifetime.
+Outstanding records are never discarded on scene pre-clear. Local hold/resume
+still needs this evidence reconciled with fresh identity, native scheduling,
+script-owned holds, cancellation and actual actor retirement before control.

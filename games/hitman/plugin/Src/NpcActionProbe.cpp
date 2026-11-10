@@ -1,5 +1,6 @@
 #include "NpcActionProbe.h"
 #include <Windows.h>
+#include <MinHook.h>
 #include <array>
 #include <atomic>
 #include <cstring>
@@ -24,6 +25,9 @@ struct Record { const void* unit=nullptr; uint32_t outstanding=0; };
 std::array<Record,Capacity> g_Active{};
 void* g_Entry=nullptr;
 uint8_t* g_Trampoline=nullptr;
+bool g_Retained=false,g_RetainedAttempted=false;
+std::array<uint8_t,16> g_RetainedPatch{};
+NpcActionProbe::InstallReport g_Report;
 
 void Worker(void* unit) {
     // No thread-owned lock or TLS spans the original native call. If native
@@ -91,6 +95,7 @@ bool Write(void* at,const void* bytes,size_t size) {
 
 bool NpcActionProbe::Install(void* entry) {
     std::lock_guard install(g_Install);
+    if (g_RetainedAttempted) return false;
     if (g_Installed) {
         std::array<uint8_t,16> actual;
         return entry==g_Entry && Read(entry,actual) && actual==Patch();
@@ -114,11 +119,46 @@ bool NpcActionProbe::Install(void* entry) {
     if (!Write(entry,patch.data(),patch.size())) return false;
     g_Installed=true; return true;
 }
+bool NpcActionProbe::InstallRetained(void* entry) {
+    std::lock_guard install(g_Install);
+    const auto refuse=[](const char* stage,int status=0,uint32_t error=0) {
+        g_Report={stage,status,error}; return false;
+    };
+    if (g_RetainedAttempted || g_Entry || g_Installed || g_Callers.load()) return refuse("already-attempted-or-custom");
+    std::array<uint8_t,16> bytes{};
+    if (!Read(entry,bytes)) return refuse("entry-read",0,GetLastError());
+    if (bytes!=Prologue) return refuse("entry-mismatch");
+    HMODULE module=nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCWSTR>(&Worker),&module)) return refuse("module-pin",0,GetLastError());
+    g_RetainedAttempted=true;
+    const auto init=MH_Initialize();
+    if (init!=MH_OK && init!=MH_ERROR_ALREADY_INITIALIZED) return refuse("library-init",init,GetLastError());
+    void* original=nullptr;
+    const auto created=MH_CreateHook(entry,reinterpret_cast<void*>(&Worker),&original);
+    if (created!=MH_OK) return refuse("hook-create",created,GetLastError());
+    if (!original) return refuse("missing-original");
+    g_Retained=true; g_Entry=entry;
+    g_Original.store(reinterpret_cast<Job>(original),std::memory_order_release);
+    // Publish the continuation before any thread can enter Worker. No job or
+    // actor memory is consulted here; already-running jobs remain unobserved.
+    g_Installed.store(true,std::memory_order_release);
+    const auto enabled=MH_EnableHook(entry);
+    if (enabled!=MH_OK) { g_Installed=false; return refuse("hook-enable",enabled,GetLastError()); }
+    if (!Read(entry,g_RetainedPatch)) {
+        { std::lock_guard records(g_Records); g_Healthy=false; }
+        return refuse("patch-read",0,GetLastError());
+    }
+    g_Report={"installed",0,0}; return true;
+}
+NpcActionProbe::InstallReport NpcActionProbe::Installation() {
+    std::lock_guard lock(g_Install); return g_Report;
+}
 bool NpcActionProbe::Installed() { return g_Installed; }
 bool NpcActionProbe::InstalledFor(const void* entry) {
     std::lock_guard install(g_Install);
     std::array<uint8_t,16> actual;
-    return g_Installed && entry==g_Entry && Read(g_Entry,actual) && actual==Patch();
+    return g_Installed && entry==g_Entry && Read(g_Entry,actual) && actual==(g_Retained?g_RetainedPatch:Patch());
 }
 NpcActionProbe::Stats NpcActionProbe::Diagnostics() {
     std::lock_guard lock(g_Records);
@@ -132,6 +172,7 @@ NpcActionProbe::UnitStats NpcActionProbe::Inspect(const void* unit) {
 }
 bool NpcActionProbe::Remove() {
     std::lock_guard install(g_Install);
+    if (g_Retained) return false;
     if (!g_Installed) return true;
     if (g_Callers.load()) return false;
     std::array<uint8_t,16> bytes;

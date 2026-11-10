@@ -28,5 +28,6 @@ bool NpcBehaviorReadback::Read(const void* table,const void* actor,int32_t runti
         At<uintptr_t>(unit,8)!=object) return false;
     out.actorHeld=(flags&0x40)!=0; out.unitHeld=(unit[0x2c]&1)!=0;
     out.action=At<uintptr_t>(unit,0xa0); out.task=At<uintptr_t>(unit,0xe0); out.job=At<uintptr_t>(unit,0xe8);
+    out.unit=base+8+static_cast<uintptr_t>(runtimeId)*0xf8;
     return true;
 }

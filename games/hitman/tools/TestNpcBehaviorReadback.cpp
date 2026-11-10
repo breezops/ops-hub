@@ -27,6 +27,7 @@ TEST(NpcBehaviorReadback_ObservesNativeFlagsAndJobsWithoutWriting) {
     REQUIRE(NpcBehaviorReadback::Read(f.table.data(),f.actor.data(),499,out));
     CHECK(out.coherent()); CHECK(out.held()); CHECK(!out.drained());
     CHECK(out.action==11 && out.task==22 && out.job==33);
+    CHECK(out.unit==reinterpret_cast<uintptr_t>(f.table.data()+unit));
     CHECK(f.actor==beforeActor && f.table==beforeTable);
     f.actor[0x117d]=0; f.table[unit+0x2c]=0;
     Put<uintptr_t>(f.table,unit+0xa0,0); Put<uintptr_t>(f.table,unit+0xe0,0); Put<uintptr_t>(f.table,unit+0xe8,0);
