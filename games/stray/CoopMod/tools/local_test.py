@@ -99,6 +99,11 @@ def main():
         start=time.monotonic()
         while time.monotonic()-start<args.duration and all(x.poll() is None for x in children) and not stop_file.exists():
             time.sleep(.5)
+        exited=[{'pid':p.pid,'exit_code':p.returncode,'kind':'game' if p in games else 'bridge'}
+                for p in children if p.poll() is not None]
+        reason='child_exit' if exited else ('stop_requested' if stop_file.exists() else 'duration')
+        (reports/'local-last-exit.json').write_text(json.dumps({'profile':args.profile,'reason':reason,'children':exited},indent=2)+'\n')
+        print('Test ended: '+reason+' '+json.dumps(exited),flush=True)
     except KeyboardInterrupt:
         pass
     finally:

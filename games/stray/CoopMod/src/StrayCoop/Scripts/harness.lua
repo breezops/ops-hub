@@ -1,9 +1,14 @@
 -- Local development interface only. Never consumes network commands.
 local M={}
 local root="Mods/StrayCoop/"
+local Context=dofile(root.."Scripts/context.lua")
+local schedule_loop=Context.loop or LoopAsync
+local game_thread=Context.run or ExecuteInGameThread
 local function valid(o) return o~=nil and o:IsValid() end
 local function log(s) print("[StrayCoop/Harness] "..s.."\n") end
 local function pc()
+    local _,current=Context.player()
+    if valid(current) and current:IsLocalController() then return current end
     for _,o in ipairs(FindAllOf("PlayerController") or {}) do
         if valid(o) and o:IsLocalController() then return o end
     end
@@ -21,7 +26,7 @@ end
 local function clean(s) return tostring(s):gsub("[\t\r\n]"," ") end
 local function resume()
     local p=pc()
-    local settings=FindFirstOf("HKGameUserSettings")
+    local settings=Context.settings()
     if valid(settings) then settings.AutoPauseEnabled=false end
     -- Unsuspending the engine alone can leave the pause menu in the viewport.
     -- Shared pause correctly treats that menu as an active player vote. Only
@@ -36,7 +41,7 @@ local function resume()
         end)
     end
     for _,widget in ipairs(menus) do widget:RemoveFromParent() end
-    local manager=FindFirstOf("GameStateManager")
+    local manager=p.m_gameStateManager
     if valid(manager) and manager:IsSuspended() then manager:UnsuspendGame() end
     StaticFindObject("/Script/Engine.Default__GameplayStatics"):SetGamePaused(p,false)
 end
@@ -100,11 +105,11 @@ function M.start(restart)
     if StrayCoopHarness and StrayCoopHarness.running then return end
     local state={running=true,queued=false,errors=0}
     StrayCoopHarness=state
-    LoopAsync(250,function()
+    schedule_loop(250,function()
         if not state.running then return true end
         if state.queued then return false end
         state.queued=true
-        ExecuteInGameThread(function()
+        game_thread(function()
             if state.running then
                 local ok,err=pcall(snapshot)
                 if not ok then
@@ -124,11 +129,105 @@ function M.dispatch(command)
     elseif command=="harness stop" then if StrayCoopHarness then StrayCoopHarness.running=false end;log("Continuous harness telemetry stopped")
     elseif command=="harness restart" then M.start(true)
     elseif command=="harness inspect" then snapshot();log("Snapshot captured")
+    elseif command=="harness frame-probe" then
+        local p=pc();local address=p:GetAddress()
+        p.bShouldPerformFullTickWhenPaused=true
+        if not StrayCoopFrameProbe then
+            local probe={address=address,count=0,seen=0};StrayCoopFrameProbe=probe
+            RegisterHook("/Script/Engine.Actor:ReceiveTick",function(context)
+                local current=StrayCoopFrameProbe
+                if context:get():GetAddress()==current.address then
+                    current.count=current.count+1
+                    if os.time()~=current.seen then
+                        current.seen=os.time()
+                        local f=io.open(root.."frame-probe.tsv","w")
+                        if f then f:write("FRAMES\t"..current.count.."\t"..current.seen.."\n");f:close() end
+                    end
+                end
+            end)
+        end
+        log("Game-thread-only frame probe enabled")
+    elseif command=="harness hud-probe" then
+        if not StrayCoopHUDProbe then
+            local probe={count=0,seen=0};StrayCoopHUDProbe=probe
+            RegisterHook("/Script/Engine.HUD:ReceiveDrawHUD",function()
+                probe.count=probe.count+1
+                if os.time()~=probe.seen then
+                    probe.seen=os.time()
+                    local f=io.open(root.."hud-probe.tsv","w")
+                    if f then f:write("FRAMES\t"..probe.count.."\t"..probe.seen.."\n");f:close() end
+                end
+            end)
+        end
+        log("HUD game-thread probe enabled")
+    elseif command=="harness bp-frame-probe" then
+        pc().bShouldPerformFullTickWhenPaused=true
+        if not StrayCoopBPFrameProbe then
+            local probe={count=0,seen=0};StrayCoopBPFrameProbe=probe
+            RegisterHook("/Game/Technical/BP_HKPlayerController.BP_HKPlayerController_C:ReceiveTick",function()
+                probe.count=probe.count+1
+                if os.time()~=probe.seen then
+                    probe.seen=os.time()
+                    local f=io.open(root.."bp-frame-probe.tsv","w")
+                    if f then f:write("FRAMES\t"..probe.count.."\t"..probe.seen.."\n");f:close() end
+                end
+            end)
+        end
+        log("Player controller game-thread probe enabled")
+    elseif command=="harness coop-status" then
+        local cat=pc().Pawn;local b=valid(cat) and cat:GetBackpack() or nil
+        local d=valid(b) and b:GetCurrentDialog() or nil
+        local s=StrayCoopCooperative
+        local rows={"COOP_STATUS\t"..os.time(),"ERRORS\t"..tostring(s and s.errors or -1),
+            "AUTO_PAUSE\t"..tostring(FindFirstOf("HKGameUserSettings").AutoPauseEnabled),
+            "DIALOG\t"..(valid(d) and clean(d:GetFullName()) or "-"),
+            "RUNNING\t"..tostring(valid(d) and d:IsDialogRunning() or false),
+            "TEXT_READY\t"..tostring(valid(d) and d:IslineTextDisplayed() or false)}
+        if valid(b) then
+            rows[#rows+1]="CURRENT_INTERACTION\t"..(valid(b:GetCurrentInteraction()) and clean(b:GetCurrentInteraction():GetFullName()) or "-")
+            rows[#rows+1]="WITHIN\t"..tostring(b:IsWithinDialog())
+            rows[#rows+1]="INTERACTING\t"..tostring(b:IsInteracting())
+            rows[#rows+1]="DRONE\t"..tostring(valid(b:GetDrone()))
+        end
+        if StrayCoopPause then
+            for _,key in ipairs({"running","queued","errors","explicit","owned","observed_menu","observed_pause","desired","native_requested"}) do
+                rows[#rows+1]="PAUSE_"..key.."\t"..tostring(StrayCoopPause[key])
+            end
+        end
+        for _,o in ipairs(FindAllOf("TalkableComponent") or {}) do
+            if valid(o) and valid(o:GetOwner()) then rows[#rows+1]="TALKABLE\t"..clean(o:GetFullName()).."\t"..clean(o:GetOwner():GetFullName()).."\t"..tostring(o:IsEnabled()).."\t"..tostring(o:IsUseEnabled()).."\t"..tostring(o:IsBeingUsed()) end
+        end
+        if s then for id,line in pairs(s.lines) do rows[#rows+1]="LINE\t"..id.."\t"..line end end
+        if StrayCoopMovement then
+            for id,r in pairs(StrayCoopMovement.remotes) do rows[#rows+1]="REMOTE_GEAR\t"..id.."\t"..tostring(r.gear_name or "-") end
+        end
+        local f=assert(io.open(root.."coop-status.tsv","w"));f:write(table.concat(rows,"\n").."\n");f:close()
+    elseif command=="harness coop-talk" then
+        local cat=pc().Pawn;local b=cat:GetBackpack();assert(valid(b),"Backpack unavailable")
+        local chosen
+        for _,o in ipairs(FindAllOf("TalkableComponent") or {}) do
+            if valid(o) and valid(o:GetOwner()) and o:GetOwner():GetFullName():find("PersistentLevel.BP_Droid_Guardian",1,true) then chosen=o;break end
+        end
+        assert(valid(chosen),"Guardian talkable not loaded")
+        if b:IsInteracting() then b:StopUse() end
+        cat:StartInteraction(chosen);log("Native Guardian conversation requested")
+    elseif command=="harness coop-start" then
+        local cat=pc().Pawn;local b=cat:GetBackpack();local d=b:GetCurrentDialog()
+        assert(valid(d) and valid(d:GetCat()) and d:GetCat():GetFullName()==cat:GetFullName(),"Dialogue is not bound to local test cat")
+        if not d:IsDialogRunning() then d:StartDialog() end
+        log("Native dialogue start fixture requested")
+    elseif command=="harness coop-next" then
+        local b=pc().Pawn:GetBackpack();local d=b:GetCurrentDialog();assert(valid(d),"No current dialog")
+        d:RequestNextDialogLine();log("Native dialog advance requested")
+    elseif command=="harness coop-end" then
+        local b=pc().Pawn:GetBackpack();local d=b:GetCurrentDialog();assert(valid(d),"No current dialog")
+        d:EndDialog();log("Native dialog end requested")
     elseif command=="harness catalog" then catalog()
     elseif command=="harness resume" then resume();log("Background test simulation resumed")
     elseif command=="harness pause-on" then
         local manager=FindFirstOf("GameStateManager")
         assert(valid(manager),"Game state manager unavailable")
+        if StrayCoopPause then StrayCoopPause.explicit=true end
         manager:SuspendGame(2)
         log("Native player-requested pause invoked")
     elseif command=="harness pause-off" then

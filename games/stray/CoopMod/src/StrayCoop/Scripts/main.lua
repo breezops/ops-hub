@@ -1,7 +1,7 @@
 -- Stray network research prototype. No save or asset modifications.
 local Context=dofile("Mods/StrayCoop/Scripts/context.lua")
-LoopAsync(1000,function()
-    ExecuteInGameThread(function()
+Context.loop(1000,function()
+    Context.run(function()
         local settings=Context.settings()
         if settings then settings.AutoPauseEnabled=false end
     end)
@@ -42,7 +42,7 @@ end
 
 local function guarded(callback)
     return function()
-        ExecuteInGameThread(function()
+        Context.run(function()
             local ok, err = pcall(callback)
             if not ok then log("ERROR: " .. tostring(err)) end
         end)
@@ -56,7 +56,7 @@ RegisterKeyBind(Key.F10, function() GenerateSDK() end)
 -- A local command file lets the development tools request actions without UI typing.
 -- Commands are deliberately a small whitelist, never evaluated as Lua or shell code.
 local pending = false
-LoopAsync(500, function()
+Context.loop(500, function()
     if pending then return false end
     local file = io.open("Mods/StrayCoop/command.txt", "r")
     if not file then return false end
@@ -66,7 +66,7 @@ LoopAsync(500, function()
     file = io.open("Mods/StrayCoop/command.txt", "w")
     if file then file:close() end
     pending = true
-    ExecuteInGameThread(function()
+    Context.run(function()
         local ok, err = pcall(function()
             if command == "inspect" then inspect()
             elseif command == "dump" then DumpAllObjects()

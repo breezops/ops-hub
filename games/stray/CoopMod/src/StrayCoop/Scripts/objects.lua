@@ -2,6 +2,8 @@
 local M={}
 local root="Mods/StrayCoop/"
 local Context=dofile(root.."Scripts/context.lua")
+local schedule_loop=Context.loop or LoopAsync
+local game_thread=Context.run or ExecuteInGameThread
 local Interpolation=dofile(root.."Scripts/interpolation.lua")
 local function valid(o) return o~=nil and o:IsValid() end
 local function log(s) print("[StrayCoop/Objects] "..s.."\n") end
@@ -229,11 +231,11 @@ function M.start()
     local s={running=true,sequence=0,local_objects={},remotes={},effects={},applied_fans={},fan_unblocked={}}
     StrayCoopObjects=s
     local function loop(ms,key,fn)
-        LoopAsync(ms,function()
+        schedule_loop(ms,function()
             if not s.running then return true end
             if s[key] then return false end
             s[key]=true
-            ExecuteInGameThread(function()
+            game_thread(function()
                 if s.running then
                     local ok,err=pcall(fn,s)
                     if not ok then s.errors=(s.errors or 0)+1;if s.errors<=3 then log("ERROR: "..tostring(err)) end end

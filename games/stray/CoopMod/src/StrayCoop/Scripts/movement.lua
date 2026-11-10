@@ -3,7 +3,10 @@
 local M = {}
 local Animation = dofile("Mods/StrayCoop/Scripts/animation.lua")
 local Interpolation = dofile("Mods/StrayCoop/Scripts/interpolation.lua")
+local Cooperative = dofile("Mods/StrayCoop/Scripts/cooperative.lua")
 local Context = dofile("Mods/StrayCoop/Scripts/context.lua")
+local schedule_loop=Context.loop or LoopAsync
+local game_thread=Context.run or ExecuteInGameThread
 local directory = "Mods/StrayCoop/"
 local function log(s) print("[StrayCoop/Movement] " .. tostring(s) .. "\n") end
 local function valid(o) return o ~= nil and o:IsValid() end
@@ -80,6 +83,7 @@ end
 local function destroy(state, id)
     local record = state.remotes[id]
     if record then
+        Cooperative.destroy(record)
         local actor = resolve(record.name)
         if actor then actor:K2_DestroyActor() end
         state.remotes[id] = nil
@@ -256,6 +260,7 @@ local function render(state)
                         {X=pose[1],Y=pose[2],Z=pose[3]},
                         {Pitch=pose[4],Yaw=pose[5],Roll=pose[6]},false,{},true)
                     Animation.apply(visual,animation,record)
+                    Cooperative.render(record,cat,pc,now)
                 end
             end
         end
@@ -276,11 +281,11 @@ function M.start()
             end
         end)
     end
-    LoopAsync(50, function()
+    schedule_loop(50, function()
         if not state.running then return true end
         if state.queued then return false end
         state.queued = true
-        ExecuteInGameThread(function()
+        game_thread(function()
             if state.running then
                 local started=os.clock()
                 local ok, err = pcall(function()
@@ -323,11 +328,11 @@ function M.start()
     end)
     -- Poll faster than a 60-Hz frame; the queued guard permits at most one
     -- pending game-thread update and avoids a 16-ms timer/frame beat pattern.
-    LoopAsync(8,function()
+    schedule_loop(8,function()
         if not state.running then return true end
         if state.render_queued then return false end
         state.render_queued=true
-        ExecuteInGameThread(function()
+        game_thread(function()
             if state.running then
                 local ok,err=pcall(render,state)
                 if not ok then

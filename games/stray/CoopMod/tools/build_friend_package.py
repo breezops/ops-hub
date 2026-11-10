@@ -15,12 +15,13 @@ local Context=dofile(root.."Scripts/context.lua")
 local started=false
 local queued=false
 local function valid(o) return o~=nil and o:IsValid() end
-LoopAsync(500,function()
+Context.loop(500,function()
     if queued then return false end
     queued=true
-    ExecuteInGameThread(function()
+    Context.run(function()
         local ok,err=pcall(function()
             if not started then
+                dofile(root.."Scripts/cooperative.lua").start()
                 dofile(root.."Scripts/cinematics.lua").start()
                 dofile(root.."Scripts/pause.lua").start()
                 dofile(root.."Scripts/objects.lua").start()
@@ -69,14 +70,14 @@ def main():
     tag=f'python{sys.version_info.major}{sys.version_info.minor}'
     (runtime/(tag+'._pth')).write_text('stdlib.zip\n.\nDLLs\n../tools\n',encoding='ascii')
     tools=output/'tools';tools.mkdir()
-    for name in ('bridge.py','cinematics.py','remote_session.py','test_bridge.py','preferences.py','shared_objects.py','test_shared_objects.py'):
+    for name in ('bridge.py','cooperative.py','cinematics.py','remote_session.py','test_bridge.py','preferences.py','shared_objects.py','test_shared_objects.py'):
         shutil.copy2(PROJECT/'tools'/name,tools/name)
     payload=output/'payload';payload.mkdir()
     loader=PROJECT/'vendor/UE4SS_v3.0.1'
     for name in ('dwmapi.dll','UE4SS.dll'): shutil.copy2(loader/name,payload/name)
     shutil.copy2(ROOT/'Hk_project/Binaries/Win64/UE4SS-settings.ini',payload/'UE4SS-settings.ini')
     scripts=payload/'Mods/StrayCoop/Scripts';scripts.mkdir(parents=True)
-    for name in ('movement.lua','animation.lua','interpolation.lua','objects.lua','pause.lua','story.lua','context.lua','cinematics.lua'):
+    for name in ('movement.lua','cooperative.lua','animation.lua','interpolation.lua','objects.lua','pause.lua','story.lua','context.lua','cinematics.lua'):
         shutil.copy2(PROJECT/'src/StrayCoop/Scripts'/name,scripts/name)
     (scripts/'main.lua').write_text(MAIN,encoding='utf-8')
     shutil.copy2(PROJECT/'vendor/UE4SS-LICENSE.txt',output/'UE4SS-LICENSE.txt')

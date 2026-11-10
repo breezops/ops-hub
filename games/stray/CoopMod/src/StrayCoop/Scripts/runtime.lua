@@ -1,8 +1,11 @@
 local M = {}
+local Context=dofile("Mods/StrayCoop/Scripts/context.lua")
 local function log(s) print("[StrayCoop] " .. tostring(s) .. "\n") end
 local function valid(o) return o ~= nil and o:IsValid() end
 
 local function local_controller()
+    local _,current=Context.player()
+    if valid(current) and current:IsLocalController() then return current end
     for _, pc in ipairs(FindAllOf("PlayerController") or {}) do
         if valid(pc) and pc:IsLocalController() then return pc end
     end
@@ -354,12 +357,14 @@ function M.dispatch(command)
             end
         end
     elseif command == "movement-start" then
+        dofile("Mods/StrayCoop/Scripts/cooperative.lua").start()
         dofile("Mods/StrayCoop/Scripts/cinematics.lua").start()
         dofile("Mods/StrayCoop/Scripts/pause.lua").start()
         dofile("Mods/StrayCoop/Scripts/objects.lua").start()
         dofile("Mods/StrayCoop/Scripts/movement.lua").start()
         dofile("Mods/StrayCoop/Scripts/story.lua").start()
     elseif command == "movement-stop" then
+        dofile("Mods/StrayCoop/Scripts/cooperative.lua").stop()
         dofile("Mods/StrayCoop/Scripts/cinematics.lua").stop()
         dofile("Mods/StrayCoop/Scripts/pause.lua").stop()
         dofile("Mods/StrayCoop/Scripts/objects.lua").stop()

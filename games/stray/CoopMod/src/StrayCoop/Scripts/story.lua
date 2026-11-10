@@ -1,6 +1,8 @@
 -- Opening-scene synchronization only. No network-supplied function or path.
 local M={}
 local Context=dofile("Mods/StrayCoop/Scripts/context.lua")
+local schedule_loop=Context.loop or LoopAsync
+local game_thread=Context.run or ExecuteInGameThread
 local root="Mods/StrayCoop/"
 local fields={"WhiteAndRedCatButton","RedCatButton","BlackCatButton"}
 local sleep_path="/Game/Map/_MainGame/00_Intro/Intro_GD.Intro_GD:PersistentLevel.PlayerSleepSpotMoveToAnim.COMP_CatButtonMoveToAnim"
@@ -85,11 +87,11 @@ function M.start(previous)
     local state={running=true,queued=false,sleep=previous and previous.sleep or false,errors=0,
         applied=previous and previous.applied or {},finished=previous and previous.finished or false}
     StrayCoopStory=state
-    LoopAsync(500,function()
+    schedule_loop(500,function()
         if not state.running then return true end
         if state.queued then return false end
         state.queued=true
-        ExecuteInGameThread(function()
+        game_thread(function()
             local ok,err=pcall(tick,state)
             if not ok then
                 state.errors=state.errors+1

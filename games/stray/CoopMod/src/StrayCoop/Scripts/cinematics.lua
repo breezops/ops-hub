@@ -2,6 +2,8 @@
 local M={}
 local root="Mods/StrayCoop/"
 local Context=dofile(root.."Scripts/context.lua")
+local schedule_loop=Context.loop or LoopAsync
+local game_thread=Context.run or ExecuteInGameThread
 local function valid(o) return o~=nil and o:IsValid() end
 local function log(s) print("[StrayCoop/Cinematic] "..s.."\n") end
 local function restore(s,pc)
@@ -136,10 +138,10 @@ function M.start()
     if StrayCoopCinematics and StrayCoopCinematics.running then return end
     local s={running=true,counts={},intent={"-",0,0,0},errors=0}
     StrayCoopCinematics=s
-    LoopAsync(16,function()
+    schedule_loop(16,function()
         if not s.running then return true end
         if s.queued then return false end;s.queued=true
-        ExecuteInGameThread(function()
+        game_thread(function()
             if s.running then
                 local ok,err=pcall(tick,s)
                 if not ok then

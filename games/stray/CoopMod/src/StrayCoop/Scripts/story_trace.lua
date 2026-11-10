@@ -1,5 +1,7 @@
 local M={}
 local Context=dofile("Mods/StrayCoop/Scripts/context.lua")
+local schedule_loop=Context.loop or LoopAsync
+local game_thread=Context.run or ExecuteInGameThread
 local function valid(o) return o~=nil and o:IsValid() end
 local function log(s) print("[StrayCoop/StoryTrace] " .. s .. "\n") end
 local function snapshot()
@@ -39,10 +41,10 @@ function M.start()
             end)
         end
     end
-    LoopAsync(200,function()
+    schedule_loop(200,function()
         if state.queued then return false end
         state.queued=true
-        ExecuteInGameThread(function()
+        game_thread(function()
             local ok,value=pcall(snapshot)
             if ok and state.last~=value then log(value);state.last=value end
             state.queued=false

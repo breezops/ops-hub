@@ -23,6 +23,7 @@ import socket
 import time
 from shared_objects import Authority, MAX_OBJECTS, read_objects, read_effects, validate_effect, validate_object, validate_record, render_tsv
 import cinematics
+import cooperative
 
 VERSION = 6
 MAX_PACKET = 4096
@@ -206,6 +207,7 @@ class Bridge:
         self.object_scene=None
         self.skips=cinematics.Skips()
         self.shared_skips=[]
+        self.peer_coop=cooperative.empty()
 
     def object_send(self, target, kind, **fields):
         self.object_sequence+=1
@@ -253,6 +255,7 @@ class Bridge:
                     self.peer = (address, nonce)
                     self.peer_seq = self.peer_state_seq = -1
                     self.peer_object_sequence=-1
+                    self.peer_coop=cooperative.empty()
                     self.objects.seen[2]={}
                     LOG.info("Peer connected as player 2")
                 self.last_rx = now
@@ -264,7 +267,9 @@ class Bridge:
                 if seq <= self.peer_seq:
                     raise ValueError("old packet")
                 state = validate_state(p.get("state"))
+                coop=cooperative.validate(p.get("coop",cooperative.empty()))
                 self.peer_seq, self.peer_state, self.last_rx = seq, state, now
+                self.peer_coop=coop
             else:
                 raise ValueError("unexpected packet")
         else:
@@ -283,6 +288,7 @@ class Bridge:
                     self.last_rx = now
                     self.peer_seq = -1
                     self.peer_object_sequence=-1
+                    self.peer_coop=cooperative.empty()
                     LOG.info("Connected to host as player 2")
             elif kind == "roster":
                 if not self.session or p.get("session") != self.session or p.get("nonce") != self.nonce:
@@ -296,7 +302,9 @@ class Bridge:
                 state = validate_state(roster["1"])
                 validate_state(roster["2"])
                 skips=cinematics.validate_events(p.get('skips'))
+                coop=cooperative.validate(p.get("coop",cooperative.empty()))
                 self.peer_seq, self.peer_state, self.last_rx = seq, state, now
+                self.peer_coop=coop
                 self.shared_story = state["story"][:]
                 self.pause_votes = [state["pause"], roster["2"]["pause"]]
                 self.shared_skips=skips
@@ -327,6 +335,8 @@ class Bridge:
                     f'PAUSE\t{self.sequence}\t{int(connected)}\t{votes[0]}\t{votes[1]}\n')
         skips=self.shared_skips if connected else []
         atomic_text(self.directory/'cinematic-remote.tsv',f'SKIPS\t{self.sequence}\t{int(connected)}\n'+''.join(f'SKIP\t{a}\t{c}\t{phase}\n' for a,c,phase in skips))
+        same_scene=connected and own['map']!='-' and own['map']==self.peer_state['map'] and own['chapter']==self.peer_state['chapter']
+        atomic_text(self.directory/'coop-remote.tsv',cooperative.render(self.peer_coop,self.own_id,self.sequence,same_scene,self.session or '-'))
         object_text=render_tsv(self.objects.records,self.own_id,self.sequence,connected)
         for effect in self.objects.effects.values(): object_text+=f"FAN\t{effect['fan']}\t{effect['bucket']}\n"
         atomic_text(self.directory/'objects-remote.tsv',object_text)
@@ -344,6 +354,7 @@ class Bridge:
         # Pause intent must keep flowing even while gameplay snapshots stop.
         own = dict(own, pause=read_pause(self.directory/'pause-local.tsv', self.local_state['pause']),
                    cinematic=cinematics.read(self.directory/'cinematic-local.tsv'))
+        own_coop=cooperative.read(self.directory/"coop-local.tsv")
         self.local_state = own
         scene=(own['map'],own['chapter'])
         if own['map']!='-' and self.object_scene!=scene:
@@ -373,7 +384,7 @@ class Bridge:
             self.shared_skips=self.skips.snapshot(now)
             if self.peer:
                 self.send(self.peer[0], kind="roster", nonce=self.peer[1], session=self.session,
-                          seq=self.sequence, players={"1": own, "2": self.peer_state},skips=self.shared_skips)
+                          seq=self.sequence, players={"1": own, "2": self.peer_state},skips=self.shared_skips,coop=own_coop)
         else:
             if self.session and now - self.last_rx >= TIMEOUT:
                 LOG.info("Host timed out; reconnecting")
@@ -383,7 +394,7 @@ class Bridge:
                 self.peer_state = idle_state()
                 self.objects=Authority()
             if self.session:
-                self.send(self.target, kind="state", nonce=self.nonce, session=self.session, seq=self.sequence, state=own)
+                self.send(self.target, kind="state", nonce=self.nonce, session=self.session, seq=self.sequence, state=own,coop=own_coop)
             elif self.sequence % 20 == 1:
                 self.send(self.target, kind="hello", nonce=self.nonce)
         if own['map']!='-':

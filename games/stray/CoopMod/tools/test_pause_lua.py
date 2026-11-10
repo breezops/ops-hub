@@ -12,12 +12,17 @@ class PauseMenuTests(unittest.TestCase):
             print=function() end
             local world={GetFullName=function() return "World /Game/Test.Test" end}
             manager={IsValid=function() return true end,IsSuspended=function() return suspended end}
-            widget={IsValid=function() return true end,IsA=function() return true end,IsInViewport=function() return menu end}
+            widget={IsValid=function() return true end,IsA=function() return true end,IsInViewport=function() return menu end,
+                RemoveFromParent=function() menu=false end}
             hud={IsValid=function() return true end,IsA=function() return true end,
                 m_widgets={ForEach=function(self,fn) if menu then fn(0,{get=function() return widget end}) end end}}
-            pc={m_gameStateManager=manager,GetWorld=function() return world end,GetHUD=function() return hud end}
+            pc={IsWaitingForStreamingAndLoading=function() return false end,m_gameStateManager=manager,GetWorld=function() return world end,GetHUD=function() return hud end}
             utility={GetRealTimeSeconds=function() return clock end,IsGamePaused=function() return paused end,SetGamePaused=function(self,p,value) paused=value;return true end}
-            dofile=function() return {player=function() return {},pc end,gameplay=function() return utility end} end
+            settings={AutoPauseEnabled=true,IsValid=function() return true end,GetFullName=function() return "Settings Local" end}
+            notices={}
+            StaticFindObject=function() return {IsValid=function() return true end,
+                PrintString=function(self,p,text) notices[#notices+1]=text end} end
+            dofile=function() return {player=function() return {},pc end,gameplay=function() return utility end,settings=function() return settings end,singleton=function() return manager end} end
             RegisterHook=function(name,pre,post) hooks[name]={pre,post} end
             LoopAsync=function(ms,fn) poll=fn end
             ExecuteInGameThread=function(fn) fn() end
@@ -30,10 +35,14 @@ class PauseMenuTests(unittest.TestCase):
         path=Path(__file__).resolve().parents[1]/'src/StrayCoop/Scripts/pause.lua'
         lua.globals().P=lua.execute(path.read_text())
         lua.execute('''
-            P.start();poll();assert(not paused)
+            P.start();poll();assert(not paused);assert(not settings.AutoPauseEnabled)
+            files["Mods/StrayCoop/remote.tsv"]="STRAYCOOP\\t6\\t1\\t1\\t1\\n"
             -- Cinematic/internal suspension is not a player pause request.
             suspended=true;poll();assert(not paused)
+            -- Focus loss may create a native menu, but cannot cast a pause vote.
+            suspended=false;menu=true;poll();assert(not paused and not menu)
             -- Actual Escape UI can exist while the native manager says false.
+            hooks["/Script/Hk_project.GameStateManager:_OnMenuStartPressed"][1]()
             suspended=false;menu=true;poll()
             assert(paused and files["Mods/StrayCoop/pause-local.tsv"]=="PAUSE\\t1\\n")
             files["Mods/StrayCoop/pause-remote.tsv"]="PAUSE\\t1\\t1\\t0\\t1\\n"
@@ -48,7 +57,8 @@ class PauseMenuTests(unittest.TestCase):
             clock=106;poll();assert(not paused)
             -- A disconnect may release the peer, but never an open local menu.
             menu=true;poll();assert(paused)
-            P.stop();assert(paused)
+            P.stop();assert(paused);assert(settings.AutoPauseEnabled)
+            assert(#notices>0 and notices[1]:find("Partner is paused",1,true))
         ''')
 
 if __name__=='__main__': unittest.main(verbosity=2)
