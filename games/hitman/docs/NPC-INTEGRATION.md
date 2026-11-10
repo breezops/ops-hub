@@ -426,6 +426,21 @@ a subsequent valid entry can still be observed. Delivered earlier candidates
 and the public channel remain immutable. Start with the short guide under
 `diagnostics/action-2`; do not repeat a full mission test before checking startup.
 
+The first solo action.2 run passed: installation returned MinHook status 0 and
+fourteen action audits (ten before restart, four after) each matched all 83
+scheduled/enabled NPCs with actor lists locked, zero rejected/untracked IDs or
+conflicting flags, and healthy observation. The constructor watermark advanced
+99 -> 198 and the callback stayed on the same SDK update thread. The user
+performed a knockout and disguise change before restarting. Job-pointer counts
+changed from 83 to 82 during that sequence and returned to 83 after restart;
+that is observation, not a completed-job or freeze acknowledgement. The final
+audit reported 8,340 native-loop invocations. No observer fault/error appeared.
+
+This validates the read-only callback/identity path for that run across restart.
+Delayed installation succeeded there; action.1's precise creation error remains
+unknown. Native job-entry/return coverage, cancellation, hold/resume, physical
+retirement, and multiplayer NPC authority still need their own validation.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.

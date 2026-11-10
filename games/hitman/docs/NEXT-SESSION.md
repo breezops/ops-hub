@@ -1,42 +1,32 @@
-# Next HITMAN session
+# Next HITMAN work
 
-## Saved state
+## Current checkpoint
 
-- Canonical workspace: M:\ChatGPT Projects. The old C: root is a compatibility junction. All 152,933 original files passed SHA-256 verification; the approved C: duplicate was removed.
-- Public tested multiplayer build: OPS 0.1.3 / native preview.4. Keep it and Foundation 4.1 preserved.
-- Installed private diagnostic: OPS 0.1.5 / native preview.4.action.1. The Action-1 folder includes an exact 0.1.3 rollback. No new release or site publication is needed for resuming diagnosis.
-- Movement, crouch/turning, vaulting, disguise visibility, and stand-in interaction protection have multiplayer playtest coverage. NPCs, items, objectives and extraction are still separate on the public preview.
-- The solo identity test passed 83 NPCs before and after restart. The subsequent action observer reported unavailable and produced no action audits. Do not call the native action boundary or hold/resume validated.
-- The read-only site inspector builds and resolves all required sites against the installed executable as data. Its --pid mode is compiled but still needs live verification. It never patches game memory or captures the screen.
-- The last live attempt ended before memory inspection. The crash stack was in NVIDIA NGX/DLSS-related code, and a concurrent build failed with a paging-file/commit error. Storage has now been freed; the exact observer installation failure remains unknown.
+Canonical workspace: M:\ChatGPT Projects. Public multiplayer remains OPS 0.1.3 / preview.4. Preserve it, Foundation 4.1 and all immutable private candidates.
 
-## First: short solo diagnosis
+Private OPS 0.1.6 / native preview.4.action.2 is the latest tested solo observer. Its first run passed 14 native action audits: 10 before and 4 after restart, all 83 NPCs matched with locked actor lists, no rejected/untracked IDs, no conflicting flags and healthy observation. The user knocked out a guard and changed outfit before restarting. Constructor watermark 99 -> 198, the same SDK thread, and a final native-loop count of 8,340. This is read-only validation; no NPC hold/resume or shared world control has been tested.
 
-1. Confirm C: still has room. Finish all compilation before launching HITMAN; do not compile during a live test.
-2. Reopen the existing Action-1 launcher, launch HITMAN, and load Freeform Training alone. Do not host, join, ready or start a preview. No reinstall is needed unless the installed build changed.
-3. Read the startup log immediately. If the observer is unavailable, investigate before asking for another complete knockout/restart sequence. The brief startup check is enough to identify that failure.
-4. If needed, use the already-built tools/native-tests target coop_npc_site_inspector with --pid and the current HITMAN3 process ID. Compare runtime resolver results with the passing offline results. Only read the game; no screen capture or process-memory writes.
-5. If the resolver passes but installation still refuses, add exact observer-stage/MinHook error reporting. Version any new candidate separately; never overwrite delivered action.1 or preserved packages. Do not weaken signature/identity checks just to enable the observer.
+Action.1 failed in hook creation despite valid live sites, entry bytes, successful module pinning and initialized MinHook. Its exact return code was not saved. Action.2 waits for loaded Freeform and records precise failure stages; it installed successfully in the tested run. Do not attribute the original observer refusal to disk space. The user's disk-space concern described the earlier game crash. Storage has been moved/freed separately.
 
-## Then: solo boundary and control checks
+The source and preserved ZIP/checksum for action.2 are on M:. The user test folder is R:\Hitman COOP test\HITMAN-Coop-Action-2 and includes exact public 0.1.3 rollback. No site release was published. Do not repeat the same identity/read-only test without a regression or new uncertainty.
 
-- Once the observer installs, check actual scheduled IDs, locked actor lists, fresh births/identities, pointer relationships and healthy observer state in Freeform. Zero rejected identities/conflicting records is the initial goal; do not assume all enabled NPCs are always scheduled.
-- Repeat the native mission restart and confirm fresh identities, valid callbacks and clean teardown behavior. Apparent drained pointers alone are not worker completion or retirement proof.
-- After those observations pass, complete the native control/lifetime bindings needed for a deliberately limited one-NPC hold/resume test. Confirm both native flags and completion of pending actions before acknowledging success. This is independent of the optional shared pause feature.
-- Single-player testing is useful for all of these native steps. No friend is required merely to validate actor identity, native callback context, or a controlled local transition.
+## Immediate engineering step — solo remains sufficient
 
-## First shared-NPC test: two PCs
+1. Reuse the existing NpcActionProbe, verified cancellation/cleanup/dispatch relationships, NpcActionPhase control primitive, birth tracking and mutation gate. Bind native job-entry/return observation with thread-aware installation and process-lifetime retention. No thread-owned lock may span the original yielding native job.
+2. Account for jobs already running before probe installation. A late probe's zero counter is not proof of zero work. Consider a fresh mission generation after probe installation, with explicit constructor/entry coverage for admitted actors; do not assume old jobs retired because the SDK's pre-clear callback fired.
+3. Require fresh identity/birth/scope/lease, scheduled native slot membership and the observed locked callback context before control. Preserve conservative checks for pending jobs, native hold flags and script-owned holds.
+4. Prepare a separately versioned, limited one-NPC local hold/resume test with exact rollback. Confirm cancellation/completion and resume behavior, not just a successful Boolean return or empty task pointers. Single-player testing is enough for this step; do not require a friend yet.
 
-Reuse the existing party/core and native helpers. Start with a clearly limited Freeform host-authority test: host patrol movement, knockout and death should replicate on the observing guest. Confirm guest-native behavior and interaction protection before allowing guest NPC actions. Keep unsupported guest actions out of that first test; do not describe it as full shared gameplay.
+## First shared-NPC test — two PCs
 
-After that baseline works, add guest actions and simultaneous interactions, then native restart/rejoin recovery. Two PCs remain the normal development setup. Use three/four players for roster, seat reuse, late join, disconnect and fan-out checks once the same core is stable.
+After local control/lifecycle bindings are verified, connect host-authority capture and guest preparation/apply through the existing party/core. Begin with a restricted Freeform test of host patrol movement, knockout and death replication. Verify guest-native behavior and interaction protection before admitting guest actions. Existing stand-ins are deliberately unseen by NPCs; host authority alone does not solve multi-player perception.
 
-## Product direction to preserve
+Then add guest actions, simultaneous interactions and restart/rejoin recovery. Keep two PCs as the routine development setup. Use three/four for roster, fan-out, seat reuse and disconnect/late-join checks after the same core is stable. No shared extraction/objective system is required merely to label and run the initial restricted NPC test, but do not call that full co-op gameplay.
 
-The host should eventually control a persistent party and native mission changes/restarts, with automatic admission and no permanent manual Ready/Start workflow. Prefer native game menus and use launcher mission controls as a fallback. Shared NPC work remains the immediate priority; shared objectives/extraction and the complete mission loop are later bindings.
+## Product direction
 
-The optional pause rule remains: pause simulation only while all admitted mission players explicitly pause; resume when any player unpauses, keep others' own menus open, and do not count focus loss/tutorial/map screens. Investigate native menu pause requests as a bounded task, separate from NPC authority holds.
+Host-controlled persistent party, native mission selection/restart and automatic admission remain the target; manual Ready/Start is temporary. Prefer native menus and use launcher mission controls as a fallback. Shared objectives/extraction and the complete mission loop remain later bindings.
 
-## Shutdown checkpoint
+The optional pause rule is unanimous explicit pause by admitted mission players, resuming on any unpause while leaving other menus open. Focus loss, tutorials and map screens are not votes. Keep this separate from native NPC holds, and flag any large UI/engine detour before expanding it.
 
-HITMAN, the Action-1 launcher, native build/test tools and migration jobs were checked stopped before shutdown. No work is scheduled to run overnight. Pending live diagnosis resumes only when the user is back.
+Finish compilation before launching the game. Use no screen capture. The already-built coop_npc_site_inspector --pid mode has now passed against the running game and is available for future read-only diagnosis.
