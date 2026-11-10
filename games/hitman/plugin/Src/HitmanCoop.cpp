@@ -1432,6 +1432,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     const double s_FrameGap = m_LastFrame > 0.0 ? s_Now - m_LastFrame : 0.0;
     m_LastFrame = s_Now;
     m_World.SetClock(s_Now);
+    CrashGuards::FlushNpcReasoning(); // No-op unless a fenced callback deferred publication.
     m_World.ProcessBundleDeletions();
     m_World.SetViewSize(m_ViewWidth, m_ViewHeight);
     m_World.SetPauseTogether(m_PauseTogetherSetting);

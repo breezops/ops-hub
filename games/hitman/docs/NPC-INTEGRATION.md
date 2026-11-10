@@ -65,6 +65,40 @@ perception and independent remote contexts.
 
 ## Next native milestones
 
+Native bridge progress on this branch:
+
+- `CapturePartyNpc` reads the existing stable-ID actor catalog through the SDK,
+  verifies the entity's current ID and excludes player stand-ins. It reuses life,
+  clothing and transform classification. Unknown tension/interaction remains
+  busy; a legacy cached pacify marker is not an independent completion receipt.
+- The knockout helper now accepts an explicit source entity. Legacy event
+  attribution stays in its legacy wrapper. Its native Boolean return is
+  preserved and is not treated as verified baseline completion.
+- Read-only binary inspection of 3.290.1 identifies the existing unique table
+  caller, synchronous reasoning loop and direct per-unit reasoning call.
+  `VerifiedNpcReasoningLoop` resolves those relationships rather than using a
+  hardcoded runtime address.
+- `NpcReasoningFence` wraps that loop with a nonblocking exclusive hold and
+  shared native-call guard. Its checked prologue/trampoline is tested against
+  generated x64 code, including in-flight refusal, ABI argument preservation,
+  restoration, reentrant holds and blocking the next call while held.
+- Existing puppet-list changes defer publication while reasoning is active;
+  `TrySetNpcReasoningHeld` succeeds only after the guarded list actually contains
+  or removes the NPC's unit. Registered player actors cannot be controlled by
+  that NPC API. The movement frame flushes deferred publications if any exist.
+
+The fence is **not installed by the native preview**. Installation/removal
+require native-quiescent points; trampoline memory is retained deliberately for
+already-fetched jumps. A reasoning-only hold does not stop actor state updates,
+animation, physics or guest damage. It must not acknowledge `PrepareNpcScene`
+or `FreezeNpc` until those additional paths are bound. The SDK labels several
+distinct actor update phases; their names alone are not synchronization proof.
+
+Native fixtures can now build with `cmake -S tools/native-tests -B
+_build-native-fixtures` and run through CTest without an SDK or game. CI executes
+the production pose hook, guard stubs and reasoning-fence/registry code against
+synthetic buffers and executable fixtures; it never patches HITMAN.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.

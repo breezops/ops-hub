@@ -28,6 +28,14 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build redesigned launcher
         run: ./launcher/build.ps1
+      - name: Build and test native adapters without game files or SDK
+        run: |
+          cmake -S tools/native-tests -B _build-native-fixtures -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build _build-native-fixtures --config Release --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ctest --test-dir _build-native-fixtures -C Release --output-on-failure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Test update validation and staging
         run: ./tools/test-launcher.ps1
       - uses: actions/upload-artifact@v4

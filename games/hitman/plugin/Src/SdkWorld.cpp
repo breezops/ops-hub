@@ -1646,12 +1646,15 @@ std::string SdkWorld::KnockOutTest(uint32_t p_DeathType, uint32_t p_DeathContext
 }
 
 bool SdkWorld::PacifyForPartner(ZActor* p_Actor) {
+    if (!p_Actor || !m_LegacyAvatar.entity) return false;
+    NotePartnerVictim(p_Actor); // Legacy attribution stays in the legacy wrapper.
+    return PacifyFromActor(p_Actor, m_LegacyAvatar.entity);
+}
+
+bool SdkWorld::PacifyFromActor(ZActor* p_Actor, const ZEntityRef& source) {
+    if (!p_Actor || !source) return false;
     // A real knock-out: a hit with eDT_PACIFY, as from a thrown object, so the game has it
     // unconscious (not dead, no "non-target killed"). Its events are dropped like a kill's.
-    NotePartnerVictim(p_Actor);
-    g_Pacified.insert(p_Actor);
-    CrashGuards::SetPuppet(p_Actor, false); // its AI back first, for the game's own knock-out handling
-
     ReflectedValue s_Hit("SHitInfo");
 
     if (!s_Hit.Valid())
@@ -1660,11 +1663,15 @@ bool SdkWorld::PacifyForPartner(ZActor* p_Actor) {
     ZEntityRef s_Victim;
     p_Actor->GetID(s_Victim);
 
-    if (!s_Hit.Set("m_rHitEntity", s_Victim) || !s_Hit.Set("m_rWeaponOwner", m_LegacyAvatar.entity) ||
+    if (!s_Hit.Set("m_rHitEntity", s_Victim) || !s_Hit.Set("m_rWeaponOwner", source) ||
         !s_Hit.Set("m_nDeathType", static_cast<uint32_t>(EDeathType::eDT_PACIFY)) ||
         !s_Hit.Set("m_nDeathContext", static_cast<uint32_t>(EDeathContext::eDC_NOT_HERO)))
         return false;
 
+    g_Pacified.insert(p_Actor); // The synchronous Pacify event can arrive inside YouGotHit.
+    CrashGuards::SetPuppet(p_Actor, false);
+    // Preserve the native return value. Its meaning is not a verified completion
+    // receipt; party baseline application must confirm the native event/state.
     return Hooks::ZActor_YouGotHit->Call(static_cast<IBaseCharacter*>(p_Actor), *static_cast<const SHitInfo*>(s_Hit.Data()));
 }
 
@@ -2462,6 +2469,33 @@ void SdkWorld::ListNpcs(std::vector<coop::NpcState>& p_Out) const {
         m_ListLogged[1] = s_Shared;
         m_ListLogged[2] = s_Disabled;
     }
+}
+
+bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
+    if (!m_InScene || !id) return false;
+    auto* actor=FindNpc(id);
+    if (!actor || IsPartnerActor(actor) || !actor->m_bEnabled) return false;
+    ZEntityRef ref;
+    actor->GetID(ref);
+    if (!ref || !ref->GetType() || ref->GetType()->m_nEntityID!=id) return false;
+    const auto* spatial=ref.QueryInterface<ZSpatialEntity>();
+    if (!spatial) return false;
+    coop::PartyNpcState state;
+    state.xf=ToTransform(spatial->GetObjectToWorldMatrix());
+    state.life=Pacified(actor) ? coop::PartyNpcLife::Unconscious :
+        (Dead(actor) ? coop::PartyNpcLife::Dead : coop::PartyNpcLife::Alive);
+    state.stripped=state.life!=coop::PartyNpcLife::Alive &&
+        !coop::BodyHasClothes(actor->m_bHasClothOutfit,actor->m_bNude);
+    const auto tension=CrashGuards::TensionOf(actor->m_pKnowledge);
+    state.engaged=tension<=static_cast<int32_t>(EGameTension::EGT_Undefined) ||
+        tension>static_cast<int32_t>(EGameTension::EGT_Ambient);
+    // Drag/dump/victim pointers prove some interactions, but their absence does
+    // not prove a native actor idle. Stay conservative until the behavior
+    // transition reader is verified. HostOnly does not need idle delegation.
+    state.interacting=true;
+    if (!coop::ValidPartyNpcState(state)) return false;
+    out=state;
+    return true;
 }
 
 bool SdkWorld::GetPartnerPosition(coop::Vec3& p_Out) const {

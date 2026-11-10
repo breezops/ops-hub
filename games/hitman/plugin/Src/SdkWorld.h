@@ -53,6 +53,9 @@ public:
     coop::SceneDesc CurrentScene() const override { return m_Scene; }
     bool GetLocalAvatar(coop::Transform& p_Out) const override;
     bool GetLocalOutfit(coop::OutfitDesc& p_Out) const override;
+    // Read-only native NPC binding. Refresh ListNpcs first; no network input
+    // can choose an actor pointer. Unknown engagement/interaction is busy.
+    bool CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const;
     void ShowRemoteAvatar(const coop::Transform& p_Xf) override;
     void HideRemoteAvatar() override;
     void SetRemoteOutfit(const coop::OutfitDesc& p_Outfit) override;
@@ -668,6 +671,7 @@ private:
     std::unordered_set<std::string> m_PartnerKills; // actor names and repository ids, for this mission
     void KillForPartner(ZActor* p_Actor, EDamageEvent p_Event, EDeathBehavior p_Behavior);
     bool PacifyForPartner(ZActor* p_Actor);
+    bool PacifyFromActor(ZActor* actor, const ZEntityRef& source);
     // Knocks out (alive) or kills the partner's victim here, as it is on their screen.
     void PutDown(ZActor* p_Actor, uint64_t p_Id, uint8_t p_Flags);
     // Its AI held still while the partner has it: standing beside our 47's takedown, it saw that

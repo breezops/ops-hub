@@ -1,4 +1,5 @@
 #include "CrashGuards.h"
+#include "NpcReasoningFence.h"
 
 #include <Windows.h>
 
@@ -105,6 +106,10 @@ namespace {
     void* g_SkipBuffers[2][c_MaxSkipped + 1] {};
     std::atomic<void**> g_SkipList = g_SkipBuffers[0];
     int g_SkipSpare = 1;
+    bool g_SkipDirty = false; // Under g_SkipMutex.
+#ifdef COOP_GUARD_TESTS
+    bool g_TestReasoning=false;
+#endif
     std::mutex g_SkipMutex;
     void* g_StandInUnits[c_StandInSlots] {};
     // Each puppet with its AI record, found when it was made one: the list is rebuilt later (a
@@ -320,6 +325,11 @@ namespace {
 
     // Under g_SkipMutex.
     void RebuildSkipList() {
+        NpcReasoningFence::Hold hold;
+        if (NpcReasoningFence::Installed() && !NpcReasoningFence::HeldByCurrentThread()) {
+            hold=NpcReasoningFence::TryHold();
+            if (!hold) { g_SkipDirty=true; return; }
+        }
         void** s_List = g_SkipBuffers[g_SkipSpare];
         size_t n = 0;
 
@@ -334,7 +344,59 @@ namespace {
         s_List[n] = nullptr;
         g_SkipList = s_List;
         g_SkipSpare ^= 1;
+        g_SkipDirty=false;
     }
+}
+
+void* CrashGuards::VerifiedNpcReasoningLoop() {
+    uintptr_t from=0,to=0;
+    if (!TextRange(from,to)) return nullptr;
+    const auto caller=FindUnique(c_UnitsCaller,from,to);
+    if (!caller) return nullptr;
+    const auto loop=RelTarget(caller+18);
+    if (loop<from || loop>to || to-loop<0x100) return nullptr;
+    if (!FindUnique(c_UnitsIndex,loop,loop+0x100)) return nullptr;
+    uintptr_t reasoning=0;
+    for (const auto& patch:g_Patches)
+        if (patch.kind==Kind::SkipUnit && patch.applied) reasoning=patch.at;
+    if (!reasoning) return nullptr;
+    size_t calls=0;
+    for (auto at=loop;at+5<loop+0x100;++at)
+        if (*reinterpret_cast<const uint8_t*>(at)==0xe8 && RelTarget(at+1)==reasoning) ++calls;
+    return calls==1 ? reinterpret_cast<void*>(loop) : nullptr;
+}
+
+bool CrashGuards::TrySetNpcReasoningHeld(void* actor,bool held) {
+    if (!actor || !NpcReasoningFence::Installed()) return false;
+    bool guarded=false;
+    for (const auto& patch:g_Patches)
+        if (patch.kind==Kind::SkipUnit && patch.applied) guarded=true;
+#ifdef COOP_GUARD_TESTS
+    guarded=guarded || g_TestReasoning;
+#endif
+    if (!guarded) return false;
+    auto hold=NpcReasoningFence::TryHold();
+    if (!hold) return false;
+    auto* unit=UnitOf(actor);
+    if (!unit) return false;
+    std::lock_guard lock(g_SkipMutex);
+    if (actor==g_Actor.load()) return false;
+    for (const auto* player:g_PlayerActors) if (player==actor) return false;
+    if (held) g_PuppetActors.insert_or_assign(actor,unit);
+    else g_PuppetActors.erase(actor);
+    RebuildSkipList();
+    bool published=false;
+    const auto list=g_SkipList.load();
+    for (size_t i=0;i<c_MaxSkipped && list[i];++i)
+        if (list[i]==unit) { published=true; break; }
+    return !g_SkipDirty && published==held;
+}
+
+bool CrashGuards::FlushNpcReasoning() {
+    std::lock_guard lock(g_SkipMutex);
+    if (!g_SkipDirty) return true;
+    RebuildSkipList();
+    return !g_SkipDirty;
 }
 
 void CrashGuards::SetPuppet(void* p_Actor, bool p_Puppet) {
@@ -782,6 +844,7 @@ void CrashGuardsTest::Configure(void* p_Units) {
         actor = nullptr;
     g_GuardedNext = 0;
     g_Units = reinterpret_cast<uintptr_t>(p_Units);
+    g_TestReasoning=p_Units!=nullptr;
     g_UnitSize = 32;
     g_RuntimeIdOffset = 8;
     g_SpeakerOffset = 16;

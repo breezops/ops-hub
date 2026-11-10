@@ -22,6 +22,13 @@ namespace CrashGuards {
     int Install();
     int Count();
     bool InteractionGuardActive();
+    // Resolves the synchronous reasoning loop from the existing unique caller,
+    // stride and per-unit call target. Does not install a hook or freeze actors.
+    void* VerifiedNpcReasoningLoop();
+    // Reasoning-only, completed under the optional native loop fence. This is
+    // not a full actor/physics freeze acknowledgement for IPartyNpcWorld.
+    bool TrySetNpcReasoningHeld(void* actor, bool held);
+    bool FlushNpcReasoning();
     // Every place (up to 16) a code pattern (IDA style) matches in HITMAN3.exe.
     std::vector<uintptr_t> FindAll(const char* p_Pattern);
     std::string Report(); // which were found
