@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <limits>
 
 namespace {
 using Job=void (*)(void*);
@@ -21,7 +22,9 @@ std::atomic<Job> g_Original=nullptr;
 std::atomic<uint32_t> g_Callers=0;
 uint64_t g_Entered=0,g_Returned=0;
 bool g_Healthy=true;
-struct Record { const void* unit=nullptr; uint32_t outstanding=0; };
+// One slot per invocation, not per unit: a new call can reuse an address while
+// an old continuation is still returning. Never reset these slots at scene clear.
+struct Record { const void* unit=nullptr; uint64_t serial=0; };
 std::array<Record,Capacity> g_Active{};
 void* g_Entry=nullptr;
 uint8_t* g_Trampoline=nullptr;
@@ -33,34 +36,27 @@ void Worker(void* unit) {
     // No thread-owned lock or TLS spans the original native call. If native
     // cancellation abandons this stack, the outstanding count stays nonzero.
     ++g_Callers;
-    bool tracked=false;
+    size_t slot=Capacity;
+    uint64_t serial=0;
     {
         std::lock_guard lock(g_Records);
-        ++g_Entered;
-        Record* found=nullptr;
-        Record* spare=nullptr;
-        for (auto& record:g_Active) {
-            if (record.unit==unit && unit) { found=&record; break; }
-            if (!record.unit && !spare) spare=&record;
-        }
-        if (!found) found=spare;
-        if (!unit || !found) g_Healthy=false;
-        else { found->unit=unit; ++found->outstanding; tracked=true; }
+        if (g_Entered==std::numeric_limits<uint64_t>::max()) g_Healthy=false;
+        else serial=++g_Entered;
+        if (unit && serial) for (size_t i=0;i<g_Active.size();++i)
+            if (!g_Active[i].serial) { slot=i; g_Active[i]={unit,serial}; break; }
+        if (slot==Capacity) g_Healthy=false;
     }
     const auto original=g_Original.load(std::memory_order_acquire);
     if (original) original(unit);
     {
         std::lock_guard lock(g_Records);
         if (!original) g_Healthy=false;
+        else if (g_Returned==std::numeric_limits<uint64_t>::max()) g_Healthy=false;
         else ++g_Returned;
-        if (tracked) {
-            bool matched=false;
-            for (auto& record:g_Active) if (record.unit==unit && record.outstanding) {
-                matched=true;
-                if (!--record.outstanding) record.unit=nullptr;
-                break;
-            }
-            if (!matched) g_Healthy=false;
+        if (slot!=Capacity) {
+            auto& record=g_Active[slot];
+            if (record.unit!=unit || record.serial!=serial) g_Healthy=false;
+            else record={};
         }
     }
     --g_Callers;
@@ -166,9 +162,24 @@ NpcActionProbe::Stats NpcActionProbe::Diagnostics() {
 }
 NpcActionProbe::UnitStats NpcActionProbe::Inspect(const void* unit) {
     std::lock_guard lock(g_Records);
+    uint32_t pending=0;
     for (const auto& record:g_Active) if (unit && record.unit==unit)
-        return {record.outstanding,true,g_Healthy && g_Installed.load()};
-    return {0,false,g_Healthy && g_Installed.load()};
+        ++pending;
+    return {pending,pending!=0,g_Healthy && g_Installed.load()};
+}
+NpcActionProbe::Fence NpcActionProbe::CaptureFence() {
+    std::lock_guard lock(g_Records);
+    Fence fence;
+    if (g_Installed && g_Healthy) { fence.m_Through=g_Entered; fence.m_Captured=true; }
+    return fence;
+}
+NpcActionProbe::FenceState NpcActionProbe::InspectFence(const Fence& fence) {
+    std::lock_guard lock(g_Records);
+    if (!fence.m_Captured || !g_Installed || fence.m_Through>g_Entered) return {};
+    uint32_t pending=0;
+    for (const auto& record:g_Active)
+        if (record.serial && record.serial<=fence.m_Through) ++pending;
+    return {pending,true,g_Healthy};
 }
 bool NpcActionProbe::Remove() {
     std::lock_guard install(g_Install);

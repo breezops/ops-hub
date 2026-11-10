@@ -1447,6 +1447,9 @@ void HitmanCoop::ProcessCommands(double p_Now) {
 
 void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     std::lock_guard s_Lock(m_SessionMutex);
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    AuditNpcSceneEvidence();
+#endif
 #ifdef COOP_NPC_HOLD_DIAGNOSTICS
     HoldFrameScope frameScope;
 #endif
@@ -2352,6 +2355,10 @@ void HitmanCoop::OnMissionRestarted(const std::string& p_Scene) {
 }
 
 DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bool p_FullyUnloadScene) {
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    // A cut in observed job entries, not a worker fence or physical retirement.
+    const auto evidence=m_NpcSceneEvidence.Begin(p_FullyUnloadScene);
+#endif
     std::lock_guard s_Lock(m_SessionMutex);
 
     // A mission cleared but not unloaded is being rebuilt as it was: Restart Mission (3.280.0
@@ -2378,8 +2385,28 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bo
     if (m_PartyPreview)
         m_PartyPreview->SceneCleared();
     m_World.OnSceneCleared();
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-life","Pre-clear observed job cut token=%llu; native return and physical retirement UNKNOWN",
+        static_cast<unsigned long long>(evidence));
+#endif
     return HookResult<void>(HookAction::Continue());
 }
+
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+void HitmanCoop::AuditNpcSceneEvidence() {
+    const auto samples=m_NpcSceneEvidence.Snapshot();
+    for (size_t i=0;i<samples.size();++i) {
+        const auto& s=samples[i]; const auto& last=m_NpcSceneLast[i];
+        if (!s.token || (s.token==last.token &&
+            s.bookHealthy==last.bookHealthy && s.jobs.valid==last.jobs.valid &&
+            s.jobs.healthy==last.jobs.healthy && s.jobs.pending==last.jobs.pending)) continue;
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-life","READ-ONLY clear evidence token=%llu full=%d book-healthy=%d observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u; pre-attachment work UNKNOWN; physical retirement UNKNOWN; readiness OFF",
+            static_cast<unsigned long long>(s.token),s.fullUnload?1:0,
+            s.bookHealthy?1:0,s.jobs.valid?1:0,s.jobs.healthy?1:0,s.jobs.pending);
+        m_NpcSceneLast[i]=s;
+    }
+}
+#endif
 
 DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnActorConstructing, ZActor* th, ZComponentCreateInfo* info) {
     (void)info;

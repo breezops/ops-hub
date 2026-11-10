@@ -1,4 +1,7 @@
 #include "NpcActionProbe.h"
+#ifdef COOP_RETAINED_PROBE_TESTS
+#include "NpcSceneEvidence.h"
+#endif
 #include "CrashGuards.h"
 #include "NativeAlternateStack.h"
 #include "TestFramework.h"
@@ -109,6 +112,81 @@ TEST(NpcActionProbe_CheckedWholeInstructionTrampolinePreservesUnitAndNativeResul
 #ifdef COOP_RETAINED_PROBE_TESTS
 // Retained installation is intentionally one-shot. Run each case in a fresh
 // process, separate from the externally-quiesced legacy probe fixtures.
+namespace {
+std::array<std::atomic<bool>,2> fenceRelease{};
+std::atomic<unsigned> fenceEntered=0;
+void BlockFenceInvocation(Action*) {
+    const auto index=fenceEntered.fetch_add(1);
+    if (index<2) while (!fenceRelease[index]) std::this_thread::yield();
+}
+void CheckFenceWithReusedUnit(bool oldFirst) {
+    Fixture f; REQUIRE(Entry());
+    CHECK(!NpcActionProbe::InspectFence({}).valid);
+    CHECK(!NpcActionProbe::InspectFence(NpcActionProbe::CaptureFence()).valid);
+    REQUIRE(NpcActionProbe::InstallRetained(Entry()));
+    const auto empty=NpcActionProbe::CaptureFence();
+    CHECK(NpcActionProbe::InspectFence(empty).valid);
+    CHECK(NpcActionProbe::InspectFence(empty).healthy);
+    CHECK(NpcActionProbe::InspectFence(empty).pending==0);
+    f.action.callback=&BlockFenceInvocation;
+    fenceEntered=0; fenceRelease[0]=false; fenceRelease[1]=false;
+    std::thread old([&]{f.Run();});
+    const bool first=Wait([]{return fenceEntered.load()==1;});
+    const auto cut=NpcActionProbe::CaptureFence();
+    std::thread newer([&]{f.Run();});
+    const bool both=Wait([]{return fenceEntered.load()==2;});
+    const auto during=NpcActionProbe::InspectFence(cut);
+    const auto unit=NpcActionProbe::Inspect(&f.unit);
+    const auto all=NpcActionProbe::CaptureFence();
+    const auto allDuring=NpcActionProbe::InspectFence(all);
+    if (oldFirst) { fenceRelease[0]=true; old.join(); }
+    else { fenceRelease[1]=true; newer.join(); }
+    const auto afterOne=NpcActionProbe::InspectFence(cut);
+    const auto allAfterOne=NpcActionProbe::InspectFence(all);
+    const auto globalAfterOne=NpcActionProbe::Diagnostics();
+    // A new invocation reuses the free record slot while the other remains.
+    // Its return must not complete the remaining older serial.
+    f.Run();
+    const auto afterReuse=NpcActionProbe::InspectFence(cut);
+    const auto allAfterReuse=NpcActionProbe::InspectFence(all);
+    fenceRelease[0]=true; fenceRelease[1]=true;
+    if(old.joinable()) old.join();
+    if(newer.joinable()) newer.join();
+    CHECK(first); CHECK(both);
+    CHECK(during.valid && during.healthy && during.pending==1);
+    CHECK(unit.outstanding==2);
+    CHECK(allDuring.valid && allDuring.healthy && allDuring.pending==2);
+    CHECK(afterOne.valid && afterOne.healthy && afterOne.pending==(oldFirst?0u:1u));
+    CHECK(allAfterOne.pending==1); CHECK(globalAfterOne.outstanding==1);
+    CHECK(afterReuse.healthy && afterReuse.pending==afterOne.pending);
+    CHECK(allAfterReuse.healthy && allAfterReuse.pending==1);
+    CHECK(NpcActionProbe::InspectFence(cut).pending==0);
+    CHECK(NpcActionProbe::InspectFence(all).pending==0);
+    CHECK(NpcActionProbe::InspectFence(empty).pending==0);
+    CHECK(NpcActionProbe::Diagnostics().healthy);
+}
+}
+TEST(RetainedJob_FenceOldReturnWithNewJobStillActive) { CheckFenceWithReusedUnit(true); }
+TEST(RetainedJob_FenceNewReturnDoesNotCompleteOldJob) { CheckFenceWithReusedUnit(false); }
+TEST(RetainedJob_SceneEvidenceDistinctCutsAndUnknownCoverage) {
+    NpcSceneEvidence::Book first,second;
+    const auto before=first.Begin(true);
+    REQUIRE(before);
+    CHECK(!first.Snapshot()[0].jobs.valid);
+    REQUIRE(NpcActionProbe::InstallRetained(Entry()));
+    const auto outer=first.Begin(false),inner=first.Begin(true),other=second.Begin(true);
+    CHECK(outer && inner && other && outer!=inner && inner!=other && other!=before);
+    const auto nested=first.Snapshot();
+    CHECK(!nested[1].fullUnload); CHECK(nested[2].fullUnload);
+    CHECK(nested[1].jobs.valid && nested[1].jobs.healthy && nested[1].jobs.pending==0);
+    CHECK(!nested[0].jobs.valid); // Later attachment cannot fill the old coverage gap.
+    CHECK(second.Snapshot()[0].token==other);
+    for(size_t i=3;i<NpcSceneEvidence::Book::Capacity;++i) REQUIRE(first.Begin(false));
+    CHECK(!first.Begin(false));
+    const auto exhausted=first.Snapshot();
+    CHECK(!exhausted[0].bookHealthy); // No eviction/reuse of old evidence.
+    CHECK(exhausted[0].token==before && exhausted[1].token==outer);
+}
 TEST(RetainedJob_LateAttachmentLeavesExistingWorkUnknown) {
     Fixture f; REQUIRE(Entry());
     entered=false; release=false; f.action.callback=&Block;
@@ -117,10 +195,12 @@ TEST(RetainedJob_LateAttachmentLeavesExistingWorkUnknown) {
     const bool installed=running && NpcActionProbe::InstallRetained(Entry());
     const auto late=NpcActionProbe::Diagnostics();
     const auto unit=NpcActionProbe::Inspect(&f.unit);
+    const auto fence=NpcActionProbe::InspectFence(NpcActionProbe::CaptureFence());
     release=true; worker.join();
     REQUIRE(installed);
     CHECK(late.entered==0); CHECK(late.returned==0); CHECK(late.outstanding==0);
     CHECK(!unit.observed); // The native call was running despite zero counters.
+    CHECK(fence.valid && fence.healthy && fence.pending==0); // Observed entries only.
     CHECK(NpcActionProbe::Diagnostics().returned==0);
     CHECK(NpcActionProbe::InstalledFor(Entry()));
     CHECK(!NpcActionProbe::Remove());

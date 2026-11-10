@@ -35,5 +35,21 @@ Stats Diagnostics();
 // Only compares unit addresses; never reads native actor/unit memory. A zero
 // count is NOT preparation proof: scheduling and other action paths remain open.
 UnitStats Inspect(const void* unit);
+// Cuts the observed entry stream under the records mutex. Later jobs, even
+// at a reused unit address, cannot conceal an older invocation's return.
+// This covers only entries seen by this probe, NOT pre-attachment work,
+// unscheduled producers, actor destruction or an engine retirement barrier.
+struct FenceState { uint32_t pending=0; bool valid=false,healthy=false; };
+class Fence {
+public:
+    Fence()=default;
+private:
+    uint64_t m_Through=0;
+    bool m_Captured=false;
+    friend Fence CaptureFence();
+    friend FenceState InspectFence(const Fence&);
+};
+Fence CaptureFence();
+FenceState InspectFence(const Fence&);
 bool Remove();
 }

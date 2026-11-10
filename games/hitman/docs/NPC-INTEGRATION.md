@@ -650,3 +650,31 @@ and the one-NPC cycle still need their own evidence.
 
 Windows reservation alignment references: [VirtualAlloc](https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc)
 and [VirtualAlloc2](https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc2).
+
+
+## Observed invocation cuts across native restarts (Lifetime-1)
+
+The retained job probe now keeps one bounded record per observed invocation,
+with a monotonic serial captured on that native stack. Returns clear that exact
+slot/serial, not a unit-address aggregate. A cut captured under the record mutex
+counts only still-active serials at or before the cut; later invocations,
+including those reusing the unit address or freed record slot, cannot complete
+an older call. Overflow/capacity loss makes observation unhealthy. A zero cut
+covers only observed entries, never pre-attachment jobs or unobserved producers.
+
+The opt-in COOP_NPC_LIFETIME_DIAGNOSTICS (default OFF, action diagnostics required)
+captures pointer-free cuts at the existing pre-clear notification. Its bounded
+32-entry book survives ordinary world clears, uses process-unique tokens across
+instances, retains old records and reports capacity exhaustion without eviction.
+Subsequent SDK frames report changed old-work counts separately from the global
+active job count. It does not dereference old actor/unit pointers, alter native
+scheduling, prune birth records or implement ConfirmNpcSceneRetired.
+
+The SDK4.2.1 Hook<void>::Call implementation holds its shared detour-list SRW lock
+while invoking a plugin detour; it releases it before the normal native call.
+Calling CallOriginal inside our ClearScene detour would extend that SDK lock
+through native teardown and bypass subsequent detours. This candidate keeps
+Continue and the original SDK dispatch unchanged; native-return and physical
+retirement remain UNKNOWN. No new teardown hook or native control is enabled.
+The later binding still needs a verified lifetime barrier, not merely zero
+observed jobs or a completed scene load. Hold-3 remains separately preserved.

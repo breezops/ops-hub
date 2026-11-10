@@ -23,6 +23,9 @@ class ZTemplateEntityFactory;
 #include "LauncherBridge.h"
 #include "coop/LauncherPolicy.h"
 #include "Updater.h"
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+#include "NpcSceneEvidence.h"
+#endif
 #include "coop/GameEvents.h"
 #include "coop/RelaySocket.h"
 #include "coop/Session.h"
@@ -49,6 +52,11 @@ public:
     void OnDrawUI(bool p_HasFocus) override;
 
 private:
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    NpcSceneEvidence::Book m_NpcSceneEvidence;
+    std::array<NpcSceneEvidence::Sample,NpcSceneEvidence::Book::Capacity> m_NpcSceneLast{};
+    void AuditNpcSceneEvidence(); // Session mutex held; pointer-only job evidence.
+#endif
     static std::string ModsFolder();
     // A "category: text" line at info level (see Log.h).
     void AppendLog(const std::string& p_Line);
