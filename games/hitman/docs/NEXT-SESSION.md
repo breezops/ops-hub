@@ -76,7 +76,7 @@ evidence around the proven birth invalidation/job cuts before confirming native
 scene retirement or enabling restricted guest NPC preparation. No pruning or
 ConfirmNpcSceneRetired binding from these counters. Preserve all prior packages.
 
-## Prepared checkpoint: Lifetime-3 exact per-birth completion evidence
+## Completed live checkpoint: Lifetime-3 exact per-birth completion evidence
 
 OPS0.1.15/native preview.4.life.3, diagnostics/lifetime-3. Check journal for final
 SDK/package/delivery receipts. Birth-keyed body-return records prevent an old
@@ -85,15 +85,20 @@ and already-pending bodies, bind unique book instance/prune epoch, and lose
 validity when their evidence is pruned. Stop clears entry+completion callbacks;
 no client pointer/lock spans native body. Both native configurations37processes.
 
-Next solo: Lifetime-3 Install/Repair, Freeformwait15sreplyinmission. Confirm all3
-observers and83healthy identities. Then two native restarts with20swalking each,
-quit. Inspect each valid cut's captured/entered/body-returned identities, exact
-completion rejection counts and old job cut separately. No F8/knockout/friend.
-This tests exact per-actor receipts beyond life.2 global totals. The cuts are
-not atomic, do not cover future births/unobserved producers and are not native
-free/worker-fence proof. No readiness/pruning/retirement bindings enabled.
+Live Lifetime-3 passed both native restarts: valid cuts3/4 each captured99
+identities with99destructor entries and99exact body returns, old observed jobs0.
+Completed-birth counters99then198, zero completion rejection/unknown actors.
+Twelve paired action/job audits (6+3+3) matched83healthy NPCs without rejected/
+untracked/conflicting IDs. Constructor marks99->198->297. Restart zero samples
+96entries/96returns and186/186; newmissions settled83jobs. Final273/190/83,
+loop6425. Full log/result at research/checks/playtest-23-solo-lifetime-3.
+Game closed. Do not repeat this unchanged restart observation diagnostic.
 
-After this evidence is validated, retain fail-closed admission and focus native
+This validates exact receipts for the captured sets. Separately sampled cuts
+do not close future producers or prove optional free/all-worker/whole-scene
+retirement. No preparation/readiness/pruning/retirement binding is enabled.
+
+Next retain fail-closed admission and focus native
 pool preparation/control bindings toward a restricted two-PC NPC test. Reuse
 existing NpcActionPhase, mutation gate, ownership arbiter and party transport;
 do not replace the working movement/launcher foundations or promise full scene
