@@ -1,0 +1,37 @@
+name: HITMAN source checks
+on:
+  push:
+    paths: ['games/hitman/**', '.github/workflows/hitman.yml']
+  pull_request:
+    paths: ['games/hitman/**', '.github/workflows/hitman.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: games/hitman
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build standalone core
+        run: |
+          cmake -S core -B _build-core -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build _build-core --config Release --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Test core
+        run: |
+          & _build-core/Release/coop_tests.exe
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build redesigned launcher
+        run: ./launcher/build.ps1
+      - name: Test update validation and staging
+        run: ./tools/test-launcher.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hitman-launcher-development-build
+          path: games/hitman/launcher/bin/
+          if-no-files-found: error

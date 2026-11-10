@@ -1,0 +1,1624 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -41,6 +41,9 @@
+ install(TARGETS coop_nettest RUNTIME DESTINATION .)
+ 
+ if (COOP_BUILD_TESTS)
++    add_executable(coop_replay_harness tools/ReplayLabHarness.cpp)
++    target_include_directories(coop_replay_harness PRIVATE core/tests)
++    target_link_libraries(coop_replay_harness PRIVATE coop_core)
+     add_executable(coop_guard_tests core/tests/Main.cpp tools/TestPlayerGuards.cpp plugin/Src/CrashGuards.cpp)
+     target_include_directories(coop_guard_tests PRIVATE plugin/Src core/tests)
+     target_compile_definitions(coop_guard_tests PRIVATE COOP_GUARD_TESTS)
+--- a/core/CMakeLists.txt
++++ b/core/CMakeLists.txt
+@@ -9,6 +9,9 @@
+ endif ()
+ 
+ add_library(coop_core STATIC
++        src/PartyNpcAuthority.cpp
++        src/PartyNpcSync.cpp
++        src/PartyReplayClient.cpp
+         src/PartyAvatarPlayback.cpp
+         src/PartyPreviewRuntime.cpp
+         src/PartyRoom.cpp
+@@ -46,6 +49,9 @@
+ endif ()
+ 
+ if (COOP_BUILD_NETTEST)
++    add_executable(coop_replay_lab nettest/ReplayLab.cpp)
++    set_target_properties(coop_replay_lab PROPERTIES OUTPUT_NAME "HITMAN-Coop-Replay-Lab")
++    target_link_libraries(coop_replay_lab PRIVATE coop_core)
+     add_executable(coop_nettest nettest/NetTest.cpp)
+     set_target_properties(coop_nettest PROPERTIES OUTPUT_NAME "HitmanCoop-NetTest")
+     target_link_libraries(coop_nettest PRIVATE coop_core winmm)
+@@ -67,6 +73,8 @@
+             tests/TestPartyTransport.cpp
+             tests/TestPartyRoom.cpp
+             tests/TestPartyPresentation.cpp
++            tests/TestPartyNpcAuthority.cpp
++            tests/TestPartyReplayClient.cpp
+     )
+ 
+     target_link_libraries(coop_tests PRIVATE coop_core)
+--- /dev/null
++++ b/core/include/coop/PartyNpcAuthority.h
+@@ -0,0 +1,128 @@
++#pragma once
++#include "PartyRoom.h"
++#include <map>
++#include <deque>
++#include <optional>
++
++namespace coop {
++enum class PartyNpcLife : uint8_t { Alive, Unconscious, Dead };
++struct PartyNpcState {
++    Transform xf;
++    PartyNpcLife life = PartyNpcLife::Alive;
++    bool stripped = false;
++    bool engaged = false;
++    bool interacting = false;
++    bool operator==(const PartyNpcState&) const;
++};
++struct PartyNpcScope {
++    uint64_t session = 0;
++    uint32_t epoch = 0;
++    std::array<uint64_t, 4> incarnations {};
++    static bool FromRoom(const PartyRoomStatus&, PartyNpcScope&);
++    bool Contains(PartyIdentity) const;
++    bool operator==(const PartyNpcScope&) const = default;
++};
++// Command authority is supplied by the transport envelope, not by these fields.
++enum class PartyNpcKind : uint8_t { Commit=1, Quiesce, Released, Prepare, Prepared, Report, Canonical, Freeze, Declined };
++struct PartyNpcMessage {
++    PartyNpcKind kind = PartyNpcKind::Freeze;
++    uint64_t session = 0, npc = 0, generation = 0, revision = 0, sequence = 0;
++    uint32_t epoch = 0;
++    PartyIdentity owner;
++    PartyNpcState state;
++};
++struct PartyNpcDelivery {
++    uint8_t target = 0; // zero: host broadcasts; otherwise one scoped peer
++    PartyNpcMessage message;
++};
++struct PartyNpcLocation { PartyIdentity peer; Vec3 position; double observed = 0; };
++struct PartyNpcOptions {
++    size_t capacity = 1024, queueLimit = 4096;
++    double retry = 0.25, transferTimeout = 3., minimumHold = 2., locationMaxAge = 1., baselineInterval=1.;
++    float hysteresis = 5.f, delegationRadius = 50.f;
++};
++
++std::vector<uint8_t> EncodePartyNpc(const PartyNpcMessage&);
++bool DecodePartyNpc(const std::vector<uint8_t>&, PartyNpcMessage&);
++bool ValidPartyNpcState(const PartyNpcState&);
++
++class PartyNpcAuthority {
++public:
++    enum class Phase { Active, Releasing, Preparing, Suspended };
++    struct Record {
++        PartyIdentity owner;
++        uint64_t generation=1, revision=1, reportSequence=0, issuedGeneration=1;
++        PartyNpcState state;
++        Phase phase=Phase::Active;
++        PartyIdentity next;
++        uint64_t nextGeneration=0;
++        double changed=0, deadline=0, retryAt=0, snapshotAt=0;
++        bool confirmed=false;
++    };
++    explicit PartyNpcAuthority(PartyNpcScope, PartyNpcOptions = {});
++    bool Register(uint64_t npc, const PartyNpcState&, double now);
++    // Host policy only: guests cannot directly select the next owner.
++    bool Propose(uint64_t npc, PartyIdentity next, double now);
++    bool ConsiderNearest(uint64_t npc, const std::vector<PartyNpcLocation>&, double now);
++    bool Receive(PartyIdentity source, const PartyNpcMessage&, double now);
++    void Tick(double now);
++    void Stop();
++    bool Pop(PartyNpcDelivery&);
++    const Record* Find(uint64_t npc) const;
++    bool Failed() const { return m_Failed; }
++    const PartyNpcScope& Scope() const { return m_Scope; }
++private:
++    PartyNpcScope m_Scope;
++    PartyNpcOptions m_Options;
++    std::map<uint64_t, Record> m_Npcs;
++    std::deque<PartyNpcDelivery> m_Out;
++    bool m_Failed=false, m_Stopped=false;
++    bool Emit(uint8_t target, uint64_t npc, PartyNpcKind, const Record&);
++    bool Adopt(Record&, const PartyNpcState&);
++    void Suspend(uint64_t npc, Record&);
++};
++
++// Native implementations must return true from Freeze only after the NPC's
++// simulation is actually stopped, and true from Apply only after applying the
++// canonical baseline. The old void SetNpcPuppet API is not sufficient proof.
++class IPartyNpcWorld {
++public:
++    virtual ~IPartyNpcWorld() = default;
++    virtual bool FreezeNpc(uint64_t) = 0;
++    virtual bool ApplyNpcBaseline(uint64_t, const PartyNpcState&) = 0;
++    virtual bool ResumeNpc(uint64_t) = 0;
++    virtual bool CaptureNpc(uint64_t, PartyNpcState&) = 0;
++};
++class PartyNpcReplica {
++public:
++    PartyNpcReplica(PartyNpcScope scope, PartyIdentity self, IPartyNpcWorld& world, size_t limit=1024);
++    ~PartyNpcReplica();
++    // Caller passes the actual validated transport envelope origin and channel.
++    bool Receive(PartyIdentity source, PartyChannel channel, const PartyNpcMessage&);
++    bool Report(uint64_t npc, bool refresh=false);
++    void RetryPending(); // Actor/template may become available after its catalog entry.
++    bool Pop(PartyNpcMessage&);
++    bool Running(uint64_t npc) const;
++    bool Stopped() const { return m_Stopped; }
++    bool Stop();
++    bool StopConfirmed() const { return m_StopConfirmed; }
++private:
++    struct Local {
++        PartyIdentity owner;
++        uint64_t generation=0, revision=0, sequence=0, prepared=0, fence=0, attempt=0;
++        PartyNpcState state;
++        bool running=false, frozen=true, suspended=false;
++        PartyNpcMessage cachedRelease;
++        std::optional<PartyNpcMessage> pending;
++        std::optional<PartyNpcState> reported;
++    };
++    PartyNpcScope m_Scope;
++    PartyIdentity m_Self;
++    IPartyNpcWorld& m_World;
++    size_t m_Limit;
++    bool m_Stopped=false, m_StopConfirmed=false;
++    std::map<uint64_t,Local> m_Npcs;
++    std::deque<PartyNpcMessage> m_Out;
++    bool Emit(PartyNpcMessage);
++};
++}
+--- /dev/null
++++ b/core/include/coop/PartyNpcSync.h
+@@ -0,0 +1,40 @@
++#pragma once
++#include "PartyNpcAuthority.h"
++#include <set>
++
++namespace coop {
++// Network/native boundary for the experimental NPC core. Not instantiated by
++// the released preview runtime. An IPartyNpcWorld adapter must enforce native
++// freeze/apply/resume before this can be enabled in HITMAN.
++class PartyNpcSync {
++public:
++    PartyNpcSync(PartyRoom& room, IPartyNpcWorld& world, PartyNpcOptions options = {});
++    ~PartyNpcSync();
++    bool Start();
++    bool Register(uint64_t npc, const PartyNpcState&, double now);
++    bool ObservePlayer(PartyIdentity, Vec3, double now);
++    bool Propose(uint64_t npc, PartyIdentity next, double now);
++    bool Receive(const PartyGameEvent&, double now);
++    void Tick(double now);
++    void Stop();
++    bool Active() const { return m_Active; }
++    bool Failed() const { return m_Failed; }
++    const PartyNpcAuthority* Authority() const { return m_Host.get(); }
++private:
++    PartyRoom& m_Room;
++    IPartyNpcWorld& m_World;
++    PartyNpcOptions m_Options;
++    PartyNpcScope m_Scope;
++    PartyIdentity m_Self;
++    std::unique_ptr<PartyNpcAuthority> m_Host;
++    std::unique_ptr<PartyNpcReplica> m_Replica;
++    std::set<uint64_t> m_Known;
++    std::map<uint8_t,PartyNpcLocation> m_Locations;
++    double m_NextReport=0, m_NextPolicy=0, m_NextRefresh=0;
++    bool m_Active=false, m_Failed=false;
++    bool Current() const;
++    bool ApplyHost(const PartyNpcMessage&);
++    void Flush(double now);
++    void Fail();
++};
++}
+--- /dev/null
++++ b/core/include/coop/PartyReplayClient.h
+@@ -0,0 +1,22 @@
++#pragma once
++#include "PartyAvatarPlayback.h"
++
++namespace coop {
++// Explicit synthetic test participant. It has no game or NPC simulation and
++// mirrors only bounded avatar/pose/outfit/skeleton packets from one real source.
++class PartyReplayClient {
++public:
++    PartyReplayClient(std::unique_ptr<PartyRoom> room, Vec3 offset, uint8_t source=1);
++    void Tick(double now);
++    void Leave(double now);
++    const PartyRoomStatus& Status() const { return m_Room->Status(); }
++    uint64_t Forwarded() const { return m_Forwarded; }
++private:
++    std::unique_ptr<PartyRoom> m_Room;
++    Vec3 m_Offset;
++    uint8_t m_Source;
++    double m_NextReady=0, m_NextLoaded=0;
++    uint64_t m_Forwarded=0;
++    bool Forward(const PartyGameEvent&);
++};
++}
+--- a/core/include/coop/Session.h
++++ b/core/include/coop/Session.h
+@@ -100,7 +100,7 @@
+ 
+ struct SessionConfig {
+     std::string playerName = "Agent";
+-    std::string modVersion = "0.13.94-four-player.preview.1";
++    std::string modVersion = "0.13.94-four-player.npc-dev.1";
+     std::string gameVersion = "unknown";
+ 
+     double connectTimeout = 10.0;
+--- /dev/null
++++ b/core/nettest/ReplayLab.cpp
+@@ -0,0 +1,59 @@
++#include "coop/PartyReplayClient.h"
++#include <Windows.h>
++#include <chrono>
++#include <cstdio>
++#include <vector>
++
++namespace {
++volatile LONG stopping=0;
++BOOL WINAPI Stop(DWORD signal) {
++    if(signal==CTRL_C_EVENT || signal==CTRL_BREAK_EVENT || signal==CTRL_CLOSE_EVENT) { InterlockedExchange(&stopping,1); return TRUE; }
++    return FALSE;
++}
++double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
++}
++int main(int argc,char** argv) {
++    std::puts("HITMAN Co-op replay lab - synthetic avatar slots, not real game instances.");
++    std::puts("For the frozen 0.13.94-four-player.preview.1 / party protocol 2 only.");
++    if(argc<2 || argc>3) {
++        std::puts("Usage: HITMAN-Coop-Replay-Lab.exe HOST_ADDRESS [1_or_2_bots]");
++        std::puts("Use 127.0.0.1 when running on the host PC. Press Ctrl+C to leave.");
++        return 1;
++    }
++    const int count=argc==3 ? (std::string(argv[2])=="1"?1:std::string(argv[2])=="2"?2:0):2;
++    if(!count) { std::puts("Choose 1 or 2 synthetic slots."); return 1; }
++    std::string error; coop::Endpoint host;
++    if(!coop::ResolveEndpoint(argv[1],47047,host,error)) { std::puts("Could not resolve the host address."); return 1; }
++    SetConsoleCtrlHandler(Stop,TRUE);
++    std::vector<std::unique_ptr<coop::PartyReplayClient>> bots;
++    for(int i=0;i<count;++i) {
++        auto socket=coop::UdpSocket::Open(0,error);
++        if(!socket) { std::puts("Could not open a UDP socket."); return 1; }
++        coop::PartyRoomConfig config;
++        config.protocol=2; config.build="0.13.94-four-player.preview.1"; config.game="3.290.1";
++        config.name="[LAB BOT "+std::to_string(i+1)+"]";
++        auto room=coop::PartyRoom::Join(std::move(socket),host,config,Now());
++        if(!room) { std::puts("Could not create replay participant."); return 1; }
++        bots.push_back(std::make_unique<coop::PartyReplayClient>(std::move(room),coop::Vec3{i==0?1.2f:-1.2f,0,0}));
++    }
++    std::puts("Host your Preview 1 room, then keep this console open.");
++    std::puts("LAB BOT slots copy the host after Start preview. No NPCs/actions are simulated.");
++    double next=0;
++    while(!InterlockedCompareExchange(&stopping,0,0)) {
++        const double now=Now();
++        for(auto& bot:bots) bot->Tick(now);
++        if(now>=next) {
++            next=now+2.;
++            for(size_t i=0;i<bots.size();++i) {
++                const auto& status=bots[i]->Status();
++                std::printf("LAB BOT %zu: slot %u / state %u / mirrored %llu packets / %s\n",i+1,unsigned(status.self),unsigned(status.state),
++                    static_cast<unsigned long long>(bots[i]->Forwarded()),status.message.c_str());
++            }
++        }
++        Sleep(10);
++    }
++    for(auto& bot:bots) bot->Leave(Now());
++    const double end=Now()+1.;
++    while(Now()<end) { for(auto& bot:bots) bot->Tick(Now()); Sleep(10); }
++    return 0;
++}
+--- /dev/null
++++ b/core/src/PartyNpcAuthority.cpp
+@@ -0,0 +1,369 @@
++#include "coop/PartyNpcAuthority.h"
++#include <cmath>
++#include <limits>
++
++namespace coop {
++namespace {
++bool Same(PartyIdentity a, PartyIdentity b) { return a.id==b.id && a.incarnation==b.incarnation; }
++bool Time(double now) { return std::isfinite(now) && now>=0.; }
++bool Position(Vec3 p) { return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) &&
++    std::fabs(p.x)<=100000.f && std::fabs(p.y)<=100000.f && std::fabs(p.z)<=100000.f; }
++bool ScopeValid(const PartyNpcScope& scope) {
++    size_t count=0; for(auto value:scope.incarnations) count+=value!=0;
++    return scope.session && scope.epoch && scope.incarnations[0] && count>=2;
++}
++bool Progress(const PartyNpcState& before, const PartyNpcState& after) {
++    // Waking a body needs its own validated interaction, not an old snapshot.
++    return ValidPartyNpcState(after) && uint8_t(after.life)>=uint8_t(before.life) && (!before.stripped || after.stripped);
++}
++PartyNpcMessage MakeNpcMessage(const PartyNpcScope& scope, uint64_t npc, PartyNpcKind kind, uint64_t generation,
++    uint64_t revision, PartyIdentity owner, const PartyNpcState& state, uint64_t sequence=0) {
++    PartyNpcMessage message;
++    message.kind=kind; message.session=scope.session; message.epoch=scope.epoch; message.npc=npc;
++    message.generation=generation; message.revision=revision; message.owner=owner; message.state=state; message.sequence=sequence;
++    return message;
++}
++}
++
++bool PartyNpcState::operator==(const PartyNpcState& other) const {
++    return xf.pos.x==other.xf.pos.x && xf.pos.y==other.xf.pos.y && xf.pos.z==other.xf.pos.z &&
++        xf.rot.x==other.xf.rot.x && xf.rot.y==other.xf.rot.y && xf.rot.z==other.xf.rot.z && xf.rot.w==other.xf.rot.w &&
++        life==other.life && stripped==other.stripped && engaged==other.engaged && interacting==other.interacting;
++}
++bool ValidPartyNpcState(const PartyNpcState& state) {
++    const float length=Dot(state.xf.rot,state.xf.rot);
++    return Position(state.xf.pos) && std::isfinite(length) && length>=0.25f && length<=4.f &&
++        uint8_t(state.life)<=uint8_t(PartyNpcLife::Dead);
++}
++bool PartyNpcScope::FromRoom(const PartyRoomStatus& room, PartyNpcScope& result) {
++    if (room.phase!=LobbyRoster::Phase::Playing || !room.session || !room.epoch || room.members.size()<2 || room.members.size()>4 ||
++        (room.state!=PartyRoomStatus::State::Hosting && room.state!=PartyRoomStatus::State::Connected)) return false;
++    PartyNpcScope scope; scope.session=room.session; scope.epoch=room.epoch;
++    bool self=false;
++    for (const auto& member:room.members) {
++        if (!member.id || member.id>4 || !member.incarnation || !member.loaded || scope.incarnations[member.id-1]) return false;
++        scope.incarnations[member.id-1]=member.incarnation;
++        self=self || member.id==room.self;
++    }
++    if (!self || !ScopeValid(scope)) return false;
++    result=scope; return true;
++}
++bool PartyNpcScope::Contains(PartyIdentity peer) const {
++    return peer.id>=1 && peer.id<=4 && peer.incarnation && incarnations[peer.id-1]==peer.incarnation;
++}
++
++std::vector<uint8_t> EncodePartyNpc(const PartyNpcMessage& message) {
++    if (!message.session || !message.epoch || !message.npc || !message.generation || !message.revision ||
++        message.owner.id<1 || message.owner.id>4 || !message.owner.incarnation || !ValidPartyNpcState(message.state) ||
++        uint8_t(message.kind)<1 || uint8_t(message.kind)>9 ||
++        ((message.kind==PartyNpcKind::Released || message.kind==PartyNpcKind::Report || message.kind==PartyNpcKind::Declined) && !message.sequence)) return {};
++    ByteWriter w;
++    w.U32(0x314e3448); // H4N1: experimental NPC codec, distinct from the avatar protocol.
++    w.U8(uint8_t(message.kind)); w.U64(message.session); w.U32(message.epoch); w.U64(message.npc);
++    w.U64(message.generation); w.U64(message.revision); w.U64(message.sequence);
++    w.U8(message.owner.id); w.U64(message.owner.incarnation);
++    w.F32(message.state.xf.pos.x); w.F32(message.state.xf.pos.y); w.F32(message.state.xf.pos.z);
++    w.F32(message.state.xf.rot.x); w.F32(message.state.xf.rot.y); w.F32(message.state.xf.rot.z); w.F32(message.state.xf.rot.w);
++    w.U8(uint8_t(message.state.life)); w.Bool(message.state.stripped); w.Bool(message.state.engaged); w.Bool(message.state.interacting);
++    return w.Data();
++}
++bool DecodePartyNpc(const std::vector<uint8_t>& bytes, PartyNpcMessage& result) {
++    if (bytes.empty() || bytes.size()>128) return false;
++    PartyNpcMessage m; ByteReader r(bytes); uint32_t magic=0; uint8_t kind=0,life=0;
++    if (!r.U32(magic) || magic!=0x314e3448 || !r.U8(kind) || kind<1 || kind>9 ||
++        !r.U64(m.session) || !r.U32(m.epoch) || !r.U64(m.npc) || !r.U64(m.generation) || !r.U64(m.revision) || !r.U64(m.sequence) ||
++        !r.U8(m.owner.id) || !r.U64(m.owner.incarnation) ||
++        !r.F32(m.state.xf.pos.x) || !r.F32(m.state.xf.pos.y) || !r.F32(m.state.xf.pos.z) ||
++        !r.F32(m.state.xf.rot.x) || !r.F32(m.state.xf.rot.y) || !r.F32(m.state.xf.rot.z) || !r.F32(m.state.xf.rot.w) ||
++        !r.U8(life) || !r.Bool(m.state.stripped) || !r.Bool(m.state.engaged) || !r.Bool(m.state.interacting) || !r.AtEnd()) return false;
++    m.kind=PartyNpcKind(kind); m.state.life=PartyNpcLife(life);
++    if (EncodePartyNpc(m).empty()) return false;
++    result=m; return true;
++}
++
++PartyNpcAuthority::PartyNpcAuthority(PartyNpcScope scope, PartyNpcOptions options):m_Scope(scope),m_Options(options) {
++    if (!ScopeValid(scope) || !options.capacity || options.capacity>4096 || !options.queueLimit || options.queueLimit>16384 ||
++        !Time(options.retry) || options.retry<0.05 || !Time(options.transferTimeout) || options.transferTimeout<=options.retry ||
++        !Time(options.minimumHold) || !Time(options.locationMaxAge) || options.locationMaxAge<=0 ||
++        !Time(options.baselineInterval) || options.baselineInterval<options.retry ||
++        !std::isfinite(options.hysteresis) || options.hysteresis<0 || !std::isfinite(options.delegationRadius) || options.delegationRadius<=0)
++        m_Failed=m_Stopped=true;
++}
++const PartyNpcAuthority::Record* PartyNpcAuthority::Find(uint64_t npc) const {
++    const auto it=m_Npcs.find(npc); return it==m_Npcs.end()?nullptr:&it->second;
++}
++bool PartyNpcAuthority::Emit(uint8_t target,uint64_t npc,PartyNpcKind kind,const Record& record) {
++    if (m_Failed) return false;
++    if (m_Out.size()>=m_Options.queueLimit) { m_Out.clear(); m_Failed=m_Stopped=true; return false; }
++    const bool pending=kind==PartyNpcKind::Quiesce || kind==PartyNpcKind::Prepare;
++    m_Out.push_back({target,MakeNpcMessage(m_Scope,npc,kind,pending?record.nextGeneration:record.generation,record.revision,
++        kind==PartyNpcKind::Prepare?record.next:record.owner,record.state)});
++    return true;
++}
++bool PartyNpcAuthority::Register(uint64_t npc,const PartyNpcState& state,double now) {
++    if (m_Stopped || !npc || !Time(now) || !ValidPartyNpcState(state) || m_Npcs.contains(npc) || m_Npcs.size()>=m_Options.capacity) return false;
++    Record record; record.owner={1,m_Scope.incarnations[0]}; record.state=state; record.changed=now; record.retryAt=now+m_Options.retry; record.snapshotAt=now+m_Options.baselineInterval;
++    m_Npcs.emplace(npc,record); return Emit(0,npc,PartyNpcKind::Commit,record);
++}
++bool PartyNpcAuthority::Propose(uint64_t npc,PartyIdentity next,double now) {
++    auto it=m_Npcs.find(npc);
++    if (m_Stopped || !Time(now) || !m_Scope.Contains(next) || it==m_Npcs.end()) return false;
++    auto& record=it->second;
++    if (record.phase!=Phase::Active || Same(record.owner,next) || record.state.life!=PartyNpcLife::Alive || record.state.engaged || record.state.interacting)
++        return false;
++    if (record.issuedGeneration==std::numeric_limits<uint64_t>::max()) { Stop(); m_Failed=true; return false; }
++    record.phase=Phase::Releasing; record.next=next; record.nextGeneration=++record.issuedGeneration;
++    record.deadline=now+m_Options.transferTimeout; record.retryAt=now+m_Options.retry;
++    return Emit(record.owner.id,npc,PartyNpcKind::Quiesce,record);
++}
++bool PartyNpcAuthority::ConsiderNearest(uint64_t npc,const std::vector<PartyNpcLocation>& locations,double now) {
++    const auto* record=Find(npc);
++    if (!record || !Time(now) || locations.size()>4 || now-record->changed<m_Options.minimumHold) return false;
++    const PartyNpcLocation* best=nullptr; float bestDistance=m_Options.delegationRadius, currentDistance=std::numeric_limits<float>::infinity();
++    bool seen[5] {};
++    for (const auto& location:locations) {
++        if (!m_Scope.Contains(location.peer) || seen[location.peer.id] || !Position(location.position) || !Time(location.observed)) return false;
++        seen[location.peer.id]=true;
++        if(location.observed>now || now-location.observed>m_Options.locationMaxAge) continue;
++        const float distance=Distance(record->state.xf.pos,location.position);
++        if (Same(location.peer,record->owner)) currentDistance=distance;
++        if (distance<bestDistance || (distance==bestDistance && best && location.peer.id<best->peer.id)) { best=&location; bestDistance=distance; }
++    }
++    // Missing current-owner position is not evidence to move its simulation.
++    if (!best || !std::isfinite(currentDistance) || bestDistance+m_Options.hysteresis>=currentDistance) return false;
++    return Propose(npc,best->peer,now);
++}
++bool PartyNpcAuthority::Adopt(Record& record,const PartyNpcState& state) {
++    if (!Progress(record.state,state)) return false;
++    if (!(record.state==state)) {
++        if (record.revision==std::numeric_limits<uint64_t>::max()) { m_Failed=m_Stopped=true; m_Out.clear(); return false; }
++        record.state=state; ++record.revision;
++    }
++    return true;
++}
++bool PartyNpcAuthority::Receive(PartyIdentity source,const PartyNpcMessage& message,double now) {
++    if (m_Stopped || !Time(now) || !m_Scope.Contains(source) || !Same(source,message.owner) ||
++        message.session!=m_Scope.session || message.epoch!=m_Scope.epoch || EncodePartyNpc(message).empty()) return false;
++    auto it=m_Npcs.find(message.npc); if(it==m_Npcs.end()) return false;
++    auto& record=it->second;
++    if(message.kind==PartyNpcKind::Declined) {
++        if(record.phase!=Phase::Releasing || !Same(source,record.owner) || message.generation!=record.nextGeneration ||
++            message.sequence<=record.reportSequence || (!message.state.engaged && !message.state.interacting && message.state.life==PartyNpcLife::Alive) ||
++            !Adopt(record,message.state)) return false;
++        record.reportSequence=message.sequence; record.confirmed=true;
++        record.phase=Phase::Active; record.next={}; record.nextGeneration=0; record.changed=now;
++        return Emit(0,message.npc,PartyNpcKind::Canonical,record);
++    }
++    if (message.kind==PartyNpcKind::Report) {
++        if ((record.phase!=Phase::Active && record.phase!=Phase::Releasing) || !Same(source,record.owner) ||
++            message.generation!=record.generation || message.sequence<=record.reportSequence) return false;
++        const auto previous=record.revision;
++        if (!Adopt(record,message.state)) return false;
++        record.reportSequence=message.sequence; record.confirmed=true;
++        return previous==record.revision || Emit(0,message.npc,PartyNpcKind::Canonical,record);
++    }
++    if (message.kind==PartyNpcKind::Released) {
++        if (record.phase==Phase::Preparing && Same(source,record.owner) && message.generation==record.nextGeneration && message.sequence==record.reportSequence)
++            return Emit(record.next.id,message.npc,PartyNpcKind::Prepare,record);
++        if (record.phase!=Phase::Releasing || !Same(source,record.owner) || message.generation!=record.nextGeneration ||
++            message.sequence<=record.reportSequence || !Adopt(record,message.state)) return false;
++        record.reportSequence=message.sequence;
++        // Preserve a fight/takedown that began while the release was in flight.
++        if (record.state.engaged || record.state.interacting || record.state.life!=PartyNpcLife::Alive) record.next=record.owner;
++        record.phase=Phase::Preparing; record.retryAt=now+m_Options.retry;
++        return Emit(record.next.id,message.npc,PartyNpcKind::Prepare,record);
++    }
++    if (message.kind==PartyNpcKind::Prepared) {
++        if (record.phase!=Phase::Preparing || !Same(source,record.next) || message.generation!=record.nextGeneration || message.revision!=record.revision) return false;
++        if (record.revision==std::numeric_limits<uint64_t>::max()) { Stop(); m_Failed=true; return false; }
++        record.owner=record.next; record.generation=record.nextGeneration; record.next={}; record.nextGeneration=0;
++        record.phase=Phase::Active; record.changed=now; record.reportSequence=0; record.confirmed=false; ++record.revision;
++        record.snapshotAt=now+m_Options.baselineInterval;
++        record.retryAt=now+m_Options.retry;
++        return Emit(0,message.npc,PartyNpcKind::Commit,record);
++    }
++    return false;
++}
++void PartyNpcAuthority::Suspend(uint64_t npc,Record& record) {
++    record.phase=Phase::Suspended;
++    if(record.nextGeneration) record.generation=record.nextGeneration;
++    record.nextGeneration=0;
++    Emit(0,npc,PartyNpcKind::Freeze,record);
++}
++void PartyNpcAuthority::Tick(double now) {
++    if (m_Stopped || !Time(now)) return;
++    for (auto& [npc,record]:m_Npcs) {
++        if ((record.phase==Phase::Releasing || record.phase==Phase::Preparing) && now>=record.deadline) { Suspend(npc,record); continue; }
++        if(record.phase==Phase::Active && record.confirmed && now>=record.snapshotAt) {
++            record.snapshotAt=now+m_Options.baselineInterval;
++            Emit(0,npc,PartyNpcKind::Canonical,record);
++        }
++        if (now<record.retryAt) continue;
++        record.retryAt=now+m_Options.retry;
++        if(record.phase==Phase::Releasing) Emit(record.owner.id,npc,PartyNpcKind::Quiesce,record);
++        else if(record.phase==Phase::Preparing) Emit(record.next.id,npc,PartyNpcKind::Prepare,record);
++        else if(record.phase==Phase::Active && !record.confirmed) Emit(record.owner.id,npc,PartyNpcKind::Commit,record);
++        else if(record.phase==Phase::Suspended) Emit(0,npc,PartyNpcKind::Freeze,record);
++        if (m_Failed) break;
++    }
++}
++void PartyNpcAuthority::Stop() {
++    if (m_Stopped) return;
++    m_Stopped=true;
++    for(auto& [npc,record]:m_Npcs) {
++        if(record.issuedGeneration<std::numeric_limits<uint64_t>::max()) record.nextGeneration=++record.issuedGeneration;
++        Suspend(npc,record);
++        if(m_Failed) break;
++    }
++}
++bool PartyNpcAuthority::Pop(PartyNpcDelivery& delivery) {
++    if (m_Failed || m_Out.empty()) return false;
++    delivery=std::move(m_Out.front()); m_Out.pop_front(); return true;
++}
++
++PartyNpcReplica::PartyNpcReplica(PartyNpcScope scope,PartyIdentity self,IPartyNpcWorld& world,size_t limit)
++    :m_Scope(scope),m_Self(self),m_World(world),m_Limit(limit) {
++    m_Stopped=!ScopeValid(scope) || !scope.Contains(self) || !limit || limit>4096;
++}
++PartyNpcReplica::~PartyNpcReplica() { Stop(); }
++bool PartyNpcReplica::Emit(PartyNpcMessage message) {
++    if(m_Out.size()>=4096) { Stop(); return false; }
++    m_Out.push_back(std::move(message)); return true;
++}
++bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const PartyNpcMessage& message) {
++    if(m_Stopped || source.id!=1 || !m_Scope.Contains(source) || channel!=PartyChannel::HostWorld ||
++        message.session!=m_Scope.session || message.epoch!=m_Scope.epoch || !m_Scope.Contains(message.owner) || EncodePartyNpc(message).empty()) return false;
++    const auto kind=message.kind;
++    if(kind!=PartyNpcKind::Commit && kind!=PartyNpcKind::Canonical && kind!=PartyNpcKind::Quiesce && kind!=PartyNpcKind::Prepare && kind!=PartyNpcKind::Freeze) return false;
++    auto it=m_Npcs.find(message.npc);
++    if(it==m_Npcs.end()) {
++        if(kind!=PartyNpcKind::Commit || m_Npcs.size()>=m_Limit) return false;
++        it=m_Npcs.emplace(message.npc,Local{}).first;
++    }
++    auto& local=it->second;
++    const auto defer=[&]() { local.pending=message; return false; };
++    if(kind==PartyNpcKind::Freeze) {
++        if(message.generation<local.generation || message.generation<local.fence) return false;
++        local.suspended=true; local.fence=message.generation;
++        if(!m_World.FreezeNpc(message.npc)) return defer();
++        local.running=false; local.frozen=true; local.generation=message.generation; local.prepared=0;
++        local.pending.reset();
++        return true;
++    }
++    if(local.suspended || message.generation<local.fence) return false;
++    if(kind==PartyNpcKind::Quiesce) {
++        if(!Same(local.owner,m_Self) || !Same(message.owner,m_Self) || message.generation<=local.generation || message.generation<local.attempt) return false;
++        local.attempt=message.generation;
++        if(local.cachedRelease.generation==message.generation) return Emit(local.cachedRelease);
++        PartyNpcState before;
++        if(!local.frozen && m_World.CaptureNpc(message.npc,before) && Progress(local.state,before) &&
++            (before.engaged || before.interacting || before.life!=PartyNpcLife::Alive)) {
++            if(local.sequence==std::numeric_limits<uint64_t>::max()) return false;
++            local.state=before;
++            local.cachedRelease=MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Declined,message.generation,local.revision,m_Self,before,++local.sequence);
++            return Emit(local.cachedRelease);
++        }
++        if(!m_World.FreezeNpc(message.npc)) return defer();
++        local.fence=message.generation;
++        local.running=false; local.frozen=true;
++        PartyNpcState state;
++        if(!m_World.CaptureNpc(message.npc,state)) return defer();
++        if(!Progress(local.state,state) || local.sequence==std::numeric_limits<uint64_t>::max()) return false;
++        local.state=state;
++        local.cachedRelease=MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Released,message.generation,local.revision,m_Self,state,++local.sequence);
++        local.pending.reset();
++        return Emit(local.cachedRelease);
++    }
++    if(kind==PartyNpcKind::Prepare) {
++        if(!Same(message.owner,m_Self) || message.generation<=local.generation || !Progress(local.state,message.state)) return false;
++        if(local.prepared==message.generation && local.revision==message.revision)
++            return Emit(MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Prepared,message.generation,message.revision,m_Self,message.state));
++        local.fence=message.generation;
++        if(!m_World.FreezeNpc(message.npc)) return defer();
++        local.running=false; local.frozen=true;
++        if(!m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
++        local.state=message.state; local.prepared=message.generation; local.revision=message.revision;
++        local.pending.reset();
++        return Emit(MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Prepared,message.generation,message.revision,m_Self,message.state));
++    }
++    if(kind==PartyNpcKind::Canonical && message.generation>local.generation && !Same(message.owner,m_Self)) {
++        auto baseline=message; baseline.kind=PartyNpcKind::Commit;
++        return Receive(source,channel,baseline);
++    }
++    if(kind==PartyNpcKind::Canonical && local.pending && local.pending->kind==PartyNpcKind::Commit &&
++        local.pending->generation==message.generation && Same(local.pending->owner,message.owner) && message.revision>local.pending->revision) {
++        auto baseline=message; baseline.kind=PartyNpcKind::Commit;
++        return Receive(source,channel,baseline);
++    }
++    if(message.generation<local.generation || (message.generation==local.generation && !Same(message.owner,local.owner))) return false;
++    if(kind==PartyNpcKind::Canonical) {
++        if(message.generation!=local.generation || message.revision<=local.revision || !Progress(local.state,message.state)) return false;
++        if(!Same(local.owner,m_Self) && !m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
++        local.state=message.state; local.revision=message.revision;
++        local.pending.reset();
++        return true;
++    }
++    if(message.generation==local.generation && Same(message.owner,local.owner) && message.revision>local.revision) {
++        // Refreshing one lease must never reset its report sequence or restart AI.
++        auto canonical=message; canonical.kind=PartyNpcKind::Canonical;
++        return Receive(source,channel,canonical);
++    }
++    if(message.generation==local.generation && message.revision<=local.revision) return true;
++    const bool mine=Same(message.owner,m_Self);
++    if(mine && message.generation>local.generation && local.prepared!=message.generation && !(local.generation==0 && message.generation==1 && m_Self.id==1)) return false;
++    if(!Progress(local.state,message.state)) return false;
++    if(!m_World.FreezeNpc(message.npc)) return defer();
++    local.running=false; local.frozen=true;
++    if(!m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
++    if(mine && message.state.life==PartyNpcLife::Alive && !m_World.ResumeNpc(message.npc)) return defer();
++    local.running=mine && message.state.life==PartyNpcLife::Alive; local.frozen=!mine;
++    local.owner=message.owner; local.generation=message.generation; local.revision=message.revision;
++    local.fence=message.generation;
++    local.prepared=0; local.sequence=0; local.cachedRelease={}; local.state=message.state;
++    local.reported.reset();
++    local.pending.reset();
++    return true;
++}
++bool PartyNpcReplica::Report(uint64_t npc,bool refresh) {
++    if(m_Stopped) return false;
++    auto it=m_Npcs.find(npc); if(it==m_Npcs.end()) return false;
++    auto& local=it->second;
++    if(!Same(local.owner,m_Self) || local.frozen || local.suspended || local.sequence==std::numeric_limits<uint64_t>::max()) return false;
++    PartyNpcState state;
++    if(!m_World.CaptureNpc(npc,state) || !Progress(local.state,state)) return false;
++    if(state.life!=PartyNpcLife::Alive && local.running) {
++        if(!m_World.FreezeNpc(npc)) return false;
++        local.running=false;
++    }
++    if(!refresh && local.reported && *local.reported==state) return true;
++    local.state=state;
++    if(!Emit(MakeNpcMessage(m_Scope,npc,PartyNpcKind::Report,local.generation,local.revision,m_Self,state,++local.sequence))) return false;
++    local.reported=state; return true;
++}
++bool PartyNpcReplica::Pop(PartyNpcMessage& message) {
++    if(m_Out.empty()) return false;
++    message=std::move(m_Out.front()); m_Out.pop_front(); return true;
++}
++bool PartyNpcReplica::Running(uint64_t npc) const {
++    const auto it=m_Npcs.find(npc); return it!=m_Npcs.end() && it->second.running;
++}
++void PartyNpcReplica::RetryPending() {
++    if(m_Stopped) return;
++    for(auto& [npc,local]:m_Npcs) {
++        if(!local.pending) continue;
++        auto pending=*local.pending;
++        local.pending.reset();
++        Receive({1,m_Scope.incarnations[0]},PartyChannel::HostWorld,pending);
++    }
++}
++bool PartyNpcReplica::Stop() {
++    m_Stopped=true; m_Out.clear();
++    m_StopConfirmed=true;
++    for(auto& [npc,local]:m_Npcs) {
++        if(m_World.FreezeNpc(npc)) local.running=false;
++        else m_StopConfirmed=false;
++        local.frozen=true;
++    }
++    return m_StopConfirmed;
++}
++}
+--- /dev/null
++++ b/core/src/PartyNpcSync.cpp
+@@ -0,0 +1,133 @@
++#include "coop/PartyNpcSync.h"
++#include <cmath>
++
++namespace coop {
++namespace {
++bool HostKind(PartyNpcKind kind) {
++    return kind==PartyNpcKind::Commit || kind==PartyNpcKind::Canonical || kind==PartyNpcKind::Quiesce || kind==PartyNpcKind::Prepare || kind==PartyNpcKind::Freeze;
++}
++bool Direct(PartyNpcKind kind) { return kind==PartyNpcKind::Quiesce || kind==PartyNpcKind::Prepare; }
++}
++PartyNpcSync::PartyNpcSync(PartyRoom& room,IPartyNpcWorld& world,PartyNpcOptions options)
++    :m_Room(room),m_World(world),m_Options(options) {}
++PartyNpcSync::~PartyNpcSync() { Stop(); }
++bool PartyNpcSync::Current() const {
++    PartyNpcScope scope;
++    return PartyNpcScope::FromRoom(m_Room.Status(),scope) && scope==m_Scope;
++}
++bool PartyNpcSync::Start() {
++    PartyNpcScope next;
++    if(m_Active || m_Failed || !PartyNpcScope::FromRoom(m_Room.Status(),next) || next==m_Scope) return false;
++    m_Scope=next;
++    m_Self={m_Room.Status().self,m_Scope.incarnations[m_Room.Status().self-1]};
++    m_Replica=std::make_unique<PartyNpcReplica>(m_Scope,m_Self,m_World,m_Options.capacity);
++    m_Host.reset();
++    if(m_Room.Status().host) m_Host=std::make_unique<PartyNpcAuthority>(m_Scope,m_Options);
++    if(m_Replica->Stopped() || (m_Host && m_Host->Failed())) { Fail(); return false; }
++    m_Known.clear(); m_Locations.clear(); m_NextReport=m_NextPolicy=m_NextRefresh=0; m_Active=true;
++    return true;
++}
++void PartyNpcSync::Fail() {
++    m_Failed=true;
++    Stop();
++    m_Room.ReportSceneLost();
++}
++void PartyNpcSync::Stop() {
++    const bool notify=m_Active && Current();
++    m_Active=false;
++    if(m_Host) m_Host->Stop();
++    if(m_Replica) m_Replica->Stop();
++    m_Known.clear(); m_Locations.clear();
++    if(notify) m_Room.ReportSceneLost();
++}
++bool PartyNpcSync::Register(uint64_t npc,const PartyNpcState& state,double now) {
++    if(!m_Active || !Current() || !m_Host || !m_Host->Register(npc,state,now)) {
++        if(m_Host && m_Host->Failed()) Fail();
++        return false;
++    }
++    m_Known.insert(npc); Flush(now); return !m_Failed;
++}
++bool PartyNpcSync::ObservePlayer(PartyIdentity peer,Vec3 position,double now) {
++    PartyNpcState check; check.xf.pos=position;
++    if(!m_Active || !Current() || !m_Host || !m_Scope.Contains(peer) || !std::isfinite(now) || now<0 || !ValidPartyNpcState(check)) return false;
++    m_Locations[peer.id]={peer,position,now}; return true;
++}
++bool PartyNpcSync::Propose(uint64_t npc,PartyIdentity peer,double now) {
++    if(!m_Active || !Current() || !m_Host || !m_Host->Propose(npc,peer,now)) return false;
++    Flush(now); return !m_Failed;
++}
++bool PartyNpcSync::ApplyHost(const PartyNpcMessage& message) {
++    if(!HostKind(message.kind) || !m_Scope.Contains(message.owner)) return false;
++    if(Direct(message.kind) && message.owner.id!=m_Self.id) return true;
++    if(message.kind==PartyNpcKind::Commit && !m_Known.contains(message.npc)) {
++        if(m_Known.size()>=m_Options.capacity) { Fail(); return false; }
++        m_Known.insert(message.npc);
++    }
++    return m_Replica->Receive({1,m_Scope.incarnations[0]},PartyChannel::HostWorld,message);
++}
++bool PartyNpcSync::Receive(const PartyGameEvent& event,double now) {
++    if(!m_Active || !Current()) { if(m_Active) Stop(); return false; }
++    if(event.epoch!=m_Scope.epoch || !m_Scope.Contains({event.source,event.incarnation}) || !std::isfinite(now) || now<0) return false;
++    PartyNpcMessage message;
++    if(!DecodePartyNpc(event.payload,message) || message.session!=m_Scope.session || message.epoch!=m_Scope.epoch) return false;
++    if(event.channel==PartyChannel::HostWorld && event.source==1 && HostKind(message.kind)) {
++        if(message.kind!=PartyNpcKind::Canonical && !event.reliable) return false;
++        return ApplyHost(message);
++    }
++    if(event.channel==PartyChannel::Interaction && m_Host && !HostKind(message.kind)) {
++        if(message.kind!=PartyNpcKind::Report && !event.reliable) return false;
++        return m_Host->Receive({event.source,event.incarnation},message,now);
++    }
++    return false;
++}
++void PartyNpcSync::Flush(double now) {
++    if(!m_Active) return;
++    for(size_t round=0;round<16;++round) {
++        bool work=false;
++        if(m_Host) {
++            if(m_Host->Failed()) { Fail(); return; }
++            PartyNpcDelivery delivery;
++            while(m_Host->Pop(delivery)) {
++                work=true;
++                const auto bytes=EncodePartyNpc(delivery.message);
++                if(bytes.empty()) { Fail(); return; }
++                const bool reliable=delivery.message.kind!=PartyNpcKind::Canonical || delivery.message.state.life!=PartyNpcLife::Alive || delivery.message.state.stripped;
++                if(!m_Room.SendGame(PartyChannel::HostWorld,bytes,reliable)) { Fail(); return; }
++                if(!delivery.target || delivery.target==m_Self.id) ApplyHost(delivery.message);
++            }
++        }
++        PartyNpcMessage reply;
++        while(m_Replica->Pop(reply)) {
++            work=true;
++            if(m_Host) m_Host->Receive(m_Self,reply,now);
++            else if(!m_Room.SendGame(PartyChannel::Interaction,EncodePartyNpc(reply),reply.kind!=PartyNpcKind::Report ||
++                reply.state.life!=PartyNpcLife::Alive || reply.state.stripped)) { Fail(); return; }
++        }
++        if(m_Replica->Stopped() || (m_Host && m_Host->Failed())) { Fail(); return; }
++        if(!work) return;
++    }
++    // A malformed callback cannot produce an unbounded game-thread message loop.
++    Fail();
++}
++void PartyNpcSync::Tick(double now) {
++    if(!m_Active || !std::isfinite(now) || now<0) return;
++    if(!Current()) { Stop(); return; }
++    m_Replica->RetryPending();
++    if(now>=m_NextReport) {
++        m_NextReport=now+0.1;
++        const bool refresh=now>=m_NextRefresh;
++        if(refresh) m_NextRefresh=now+1.;
++        for(uint64_t npc:m_Known) m_Replica->Report(npc,refresh);
++    }
++    if(m_Host) {
++        m_Host->Tick(now);
++        if(now>=m_NextPolicy) {
++            m_NextPolicy=now+0.5;
++            std::vector<PartyNpcLocation> locations;
++            for(const auto& [id,location]:m_Locations) locations.push_back(location);
++            for(uint64_t npc:m_Known) m_Host->ConsiderNearest(npc,locations,now);
++        }
++    }
++    Flush(now);
++}
++}
+--- /dev/null
++++ b/core/src/PartyReplayClient.cpp
+@@ -0,0 +1,64 @@
++#include "coop/PartyReplayClient.h"
++#include <cmath>
++
++namespace coop {
++PartyReplayClient::PartyReplayClient(std::unique_ptr<PartyRoom> room,Vec3 offset,uint8_t source)
++    :m_Room(std::move(room)),m_Offset(offset),m_Source(source) {}
++bool PartyReplayClient::Forward(const PartyGameEvent& event) {
++    const auto& status=m_Room->Status();
++    if(status.phase!=LobbyRoster::Phase::Playing || event.epoch!=status.epoch || event.source!=m_Source ||
++        event.source==status.self || event.payload.empty() || event.payload.size()>partywire::MaxPayload-4) return false;
++    bool member=false;
++    for(const auto& current:status.members)
++        if(current.id==event.source && current.incarnation==event.incarnation) member=true;
++    if(!member) return false;
++    const auto kind=MsgType(event.payload[0]);
++    const std::vector<uint8_t> body(event.payload.begin()+1,event.payload.end());
++    std::vector<uint8_t> packet;
++    if(kind==MsgType::AvatarState && event.channel==PartyChannel::Avatar) {
++        MsgAvatarState message;
++        if(!Decode(body,message) || message.epoch!=status.epoch) return false;
++        message.xf.pos=message.xf.pos+m_Offset;
++        if(!std::isfinite(message.xf.pos.x) || !std::isfinite(message.xf.pos.y) || !std::isfinite(message.xf.pos.z) ||
++            std::fabs(message.xf.pos.x)>90000.f || std::fabs(message.xf.pos.y)>90000.f || std::fabs(message.xf.pos.z)>90000.f) return false;
++        packet=PartyAvatarPacket(message);
++    } else if(kind==MsgType::Pose && event.channel==PartyChannel::Pose) {
++        MsgPose message;
++        if(!Decode(body,message) || message.epoch!=status.epoch || message.pose.rotations.size()<2) return false;
++        packet=PartyAvatarPacket(message);
++    } else if(kind==MsgType::Outfit && event.channel==PartyChannel::Avatar && event.reliable) {
++        MsgOutfit message; if(!Decode(body,message)) return false;
++        packet=PartyAvatarPacket(message);
++    } else if(kind==MsgType::Skeleton && event.channel==PartyChannel::Avatar && event.reliable) {
++        MsgSkeleton message; if(!Decode(body,message) || message.parents.size()<2) return false;
++        packet=PartyAvatarPacket(message);
++    } else return false;
++    if(packet.empty() || !m_Room->SendGame(event.channel,packet,event.reliable)) return false;
++    ++m_Forwarded; return true;
++}
++void PartyReplayClient::Tick(double now) {
++    if(!std::isfinite(now) || now<0) return;
++    m_Room->Tick(now);
++    const auto status=m_Room->Status();
++    // Synthetic readiness is visibly labeled [LAB BOT] in the roster. Wait for
++    // the real host's readiness/loading acknowledgement; never load a mission.
++    const PartyMember* host=nullptr; const PartyMember* self=nullptr;
++    for(const auto& member:status.members) {
++        if(member.id==1) host=&member;
++        if(member.id==status.self) self=&member;
++    }
++    if(status.state==PartyRoomStatus::State::Connected && host && self && status.epoch && status.mission==kPartyFreeformContract) {
++        if(status.phase==LobbyRoster::Phase::Lobby && now>=m_NextReady && self->ready!=host->ready) {
++            m_NextReady=now+0.5;
++            m_Room->SetReady(host->available,host->ready);
++        }
++        if(status.phase==LobbyRoster::Phase::Loading && host->loaded && !self->loaded && now>=m_NextLoaded) {
++            m_NextLoaded=now+0.5;
++            m_Room->ReportLoaded(); // Synthetic playback readiness, NOT a native game load.
++        }
++    }
++    PartyGameEvent event;
++    while(m_Room->PopGame(event)) Forward(event);
++}
++void PartyReplayClient::Leave(double now) { m_Room->Leave(now); }
++}
+--- /dev/null
++++ b/core/tests/TestPartyNpcAuthority.cpp
+@@ -0,0 +1,466 @@
++#include "TestFramework.h"
++#include "coop/PartyNpcAuthority.h"
++#include "coop/PartyNpcSync.h"
++#include "SimNetwork.h"
++#include <functional>
++#include <limits>
++#include <random>
++
++using namespace coop;
++namespace {
++PartyNpcScope Scope() { return {700,4,{101,102,103,104}}; }
++PartyIdentity Peer(uint8_t id) { return {id,uint64_t(100+id)}; }
++struct World:IPartyNpcWorld {
++    std::map<uint64_t,PartyNpcState> states;
++    std::map<uint64_t,bool> running;
++    bool freeze=true,apply=true,resume=true,capture=true;
++    unsigned resumes=0;
++    std::function<void()> check;
++    std::function<void(uint64_t)> onFreeze;
++    bool FreezeNpc(uint64_t npc) override {
++        if(!freeze) return false;
++        running[npc]=false; if(onFreeze) onFreeze(npc); if(check) check(); return true;
++    }
++    bool ApplyNpcBaseline(uint64_t npc,const PartyNpcState& state) override {
++        CHECK(!running[npc]);
++        if(!apply) return false;
++        states[npc]=state; return true;
++    }
++    bool ResumeNpc(uint64_t npc) override {
++        if(!resume) return false;
++        CHECK(states[npc].life==PartyNpcLife::Alive);
++        running[npc]=true; ++resumes; if(check) check(); return true;
++    }
++    bool CaptureNpc(uint64_t npc,PartyNpcState& state) override {
++        if(!capture || !states.contains(npc)) return false;
++        state=states[npc]; return true;
++    }
++};
++struct Four {
++    PartyNpcAuthority host{Scope()};
++    std::array<World,4> worlds;
++    std::array<std::unique_ptr<PartyNpcReplica>,4> peers;
++    double now=0;
++    Four() {
++        for(uint8_t id=1;id<=4;++id) {
++            worlds[id-1].check=[this] { Check(); };
++            peers[id-1]=std::make_unique<PartyNpcReplica>(Scope(),Peer(id),worlds[id-1]);
++        }
++    }
++    void Check() {
++        std::map<uint64_t,unsigned> active;
++        for(const auto& world:worlds) for(const auto& [npc,on]:world.running) active[npc]+=on;
++        for(const auto& [npc,count]:active) CHECK(count<=1);
++    }
++    bool Apply(uint8_t target,const PartyNpcMessage& message) {
++        PartyNpcMessage decoded;
++        const auto bytes=EncodePartyNpc(message);
++        CHECK(!bytes.empty()); CHECK(DecodePartyNpc(bytes,decoded));
++        const bool accepted=peers[target-1]->Receive(Peer(1),PartyChannel::HostWorld,decoded);
++        Check(); return accepted;
++    }
++    void Pump() {
++        for(int round=0;round<100;++round) {
++            bool work=false;
++            PartyNpcDelivery command;
++            while(host.Pop(command)) {
++                work=true;
++                for(uint8_t id=1;id<=4;++id) if(!command.target || command.target==id) Apply(id,command.message);
++            }
++            for(uint8_t id=1;id<=4;++id) {
++                PartyNpcMessage response;
++                while(peers[id-1]->Pop(response)) {
++                    work=true; PartyNpcMessage decoded;
++                    CHECK(DecodePartyNpc(EncodePartyNpc(response),decoded));
++                    host.Receive(Peer(id),decoded,now); Check();
++                }
++            }
++            if(!work) return;
++        }
++        CHECK_MSG(false,"NPC message loop did not settle");
++    }
++    bool Add(uint64_t npc=55) {
++        const bool ok=host.Register(npc,PartyNpcState{},now); Pump(); return ok;
++    }
++    bool Transfer(uint8_t id,uint64_t npc=55) {
++        now+=3.; const bool ok=host.Propose(npc,Peer(id),now); Pump(); return ok;
++    }
++};
++}
++
++TEST(PartyNpc_FourReplicasUseReleasePrepareCommitWithNoOverlappingSimulation) {
++    Four f; REQUIRE(f.Add());
++    CHECK(f.worlds[0].running[55]);
++    REQUIRE(f.host.Propose(55,Peer(4),3.));
++    PartyNpcDelivery command;
++    REQUIRE(f.host.Pop(command)); CHECK(command.message.kind==PartyNpcKind::Quiesce); CHECK(command.target==1);
++    CHECK(!f.worlds[3].running[55]);
++    f.worlds[0].states[55].xf.pos.x=7.f;
++    REQUIRE(f.Apply(1,command.message));
++    CHECK(!f.worlds[0].running[55]); CHECK(!f.worlds[3].running[55]);
++    PartyNpcMessage response;
++    REQUIRE(f.peers[0]->Pop(response)); CHECK(response.kind==PartyNpcKind::Released);
++    REQUIRE(f.host.Receive(Peer(1),response,3.1));
++    REQUIRE(f.host.Pop(command)); CHECK(command.message.kind==PartyNpcKind::Prepare); CHECK(command.target==4);
++    REQUIRE(f.Apply(4,command.message)); CHECK(!f.worlds[3].running[55]);
++    REQUIRE(f.peers[3]->Pop(response)); CHECK(response.kind==PartyNpcKind::Prepared);
++    REQUIRE(f.host.Receive(Peer(4),response,3.2));
++    REQUIRE(f.host.Pop(command)); CHECK(command.message.kind==PartyNpcKind::Commit); CHECK(command.target==0);
++    for(uint8_t id=1;id<=4;++id) REQUIRE(f.Apply(id,command.message));
++    CHECK(f.worlds[3].running[55]); CHECK(!f.worlds[0].running[55]);
++    for(const auto& world:f.worlds) CHECK(world.states.at(55).xf.pos.x==7.f);
++    CHECK(f.host.Find(55)->owner.id==4); CHECK(f.host.Find(55)->generation==2);
++}
++
++TEST(PartyNpc_GuestToGuestHandoffsAndIndependentNpcsKeepSingleWriters) {
++    Four f; REQUIRE(f.Add(55)); REQUIRE(f.Add(77));
++    REQUIRE(f.Transfer(2,55)); REQUIRE(f.Transfer(3,77)); REQUIRE(f.Transfer(4,55));
++    CHECK(f.worlds[3].running[55]); CHECK(f.worlds[2].running[77]);
++    CHECK(!f.peers[1]->Report(55)); CHECK(!f.peers[0]->Report(77));
++    f.worlds[3].states[55].xf.pos.x=30.f;
++    REQUIRE(f.peers[3]->Report(55)); f.Pump();
++    for(const auto& world:f.worlds) CHECK(world.states.at(55).xf.pos.x==30.f);
++    CHECK(f.host.Find(77)->owner.id==3);
++}
++
++TEST(PartyNpc_CanonicalKnockoutDeathAndClothingDoNotResurrectFromOldReports) {
++    Four f; REQUIRE(f.Add()); REQUIRE(f.Transfer(2));
++    auto& state=f.worlds[1].states[55]; state.life=PartyNpcLife::Unconscious; state.stripped=true;
++    REQUIRE(f.peers[1]->Report(55)); f.Pump();
++    for(const auto& world:f.worlds) { CHECK(world.states.at(55).life==PartyNpcLife::Unconscious); CHECK(world.states.at(55).stripped); }
++    CHECK(!f.peers[1]->Running(55)); CHECK(!f.host.Propose(55,Peer(3),10.));
++    state.life=PartyNpcLife::Dead;
++    REQUIRE(f.peers[1]->Report(55)); f.Pump();
++    for(const auto& world:f.worlds) CHECK(world.states.at(55).life==PartyNpcLife::Dead);
++    state.life=PartyNpcLife::Alive;
++    CHECK(!f.peers[1]->Report(55));
++    PartyNpcMessage forged;
++    forged.kind=PartyNpcKind::Report; forged.session=700; forged.epoch=4; forged.npc=55;
++    forged.generation=f.host.Find(55)->generation; forged.revision=1; forged.sequence=100; forged.owner=Peer(2);
++    CHECK(!f.host.Receive(Peer(2),forged,10.));
++    CHECK(f.host.Find(55)->state.life==PartyNpcLife::Dead);
++}
++
++TEST(PartyNpc_EngagementThatStartsDuringReleaseKeepsItsOriginalOwner) {
++    Four f; REQUIRE(f.Add());
++    f.worlds[0].states[55].engaged=true;
++    REQUIRE(f.Transfer(3));
++    CHECK(f.host.Find(55)->owner.id==1); CHECK(f.host.Find(55)->generation==1);
++    CHECK(f.host.Find(55)->issuedGeneration==2);
++    CHECK(f.worlds[0].running[55]); CHECK(f.worlds[2].resumes==0);
++    CHECK(!f.host.Propose(55,Peer(2),9.));
++}
++
++TEST(PartyNpc_MissingFreezeAcknowledgementNeverGrantsAnotherOwner) {
++    Four f; REQUIRE(f.Add());
++    f.worlds[0].freeze=false;
++    REQUIRE(f.host.Propose(55,Peer(4),3.)); f.Pump();
++    CHECK(f.host.Find(55)->phase==PartyNpcAuthority::Phase::Releasing);
++    CHECK(f.worlds[0].running[55]); CHECK(f.worlds[3].resumes==0);
++    f.host.Tick(7.); f.Pump();
++    CHECK(f.host.Find(55)->phase==PartyNpcAuthority::Phase::Suspended);
++    CHECK(f.worlds[3].resumes==0); CHECK(!f.peers[0]->Report(55));
++    CHECK(!f.host.Propose(55,Peer(2),8.));
++    f.worlds[0].freeze=true; f.peers[0]->RetryPending();
++    CHECK(!f.worlds[0].running[55]);
++}
++
++TEST(PartyNpc_PooledActorWaitsForItsBaselineBeforeAcknowledgingOwnership) {
++    Four f; f.worlds[3].freeze=false;
++    REQUIRE(f.Add()); REQUIRE(f.host.Propose(55,Peer(4),3.)); f.Pump();
++    CHECK(f.host.Find(55)->phase==PartyNpcAuthority::Phase::Preparing);
++    CHECK(!f.worlds[0].running[55]); CHECK(!f.worlds[3].running[55]);
++    f.worlds[3].freeze=true; f.peers[3]->RetryPending(); f.now=3.2; f.Pump();
++    CHECK(f.host.Find(55)->owner.id==4); CHECK(f.worlds[3].running[55]);
++}
++
++TEST(PartyNpc_LatePooledReplicaAppliesLatestDeathInsteadOfOriginalAliveCatalog) {
++    Four f; f.worlds[2].freeze=false; REQUIRE(f.Add());
++    f.worlds[0].states[55].life=PartyNpcLife::Dead;
++    REQUIRE(f.peers[0]->Report(55)); f.Pump();
++    CHECK(!f.worlds[2].states.contains(55));
++    f.worlds[2].freeze=true; f.peers[2]->RetryPending();
++    CHECK(f.worlds[2].states[55].life==PartyNpcLife::Dead); CHECK(!f.worlds[2].running[55]);
++}
++
++TEST(PartyNpc_ReleasedGenerationFencesDelayedCommitsEvenWithNewerRevision) {
++    Four f; REQUIRE(f.host.Register(55,PartyNpcState{},0.));
++    PartyNpcDelivery initial; REQUIRE(f.host.Pop(initial));
++    for(uint8_t id=1;id<=4;++id) REQUIRE(f.Apply(id,initial.message));
++    REQUIRE(f.host.Propose(55,Peer(2),3.));
++    PartyNpcDelivery release; REQUIRE(f.host.Pop(release)); REQUIRE(f.Apply(1,release.message));
++    auto stale=initial.message; stale.revision=1000;
++    CHECK(!f.Apply(1,stale)); CHECK(!f.worlds[0].running[55]);
++    f.now=3.1; f.Pump(); CHECK(f.worlds[1].running[55]);
++    f.host.Stop(); f.Pump();
++    auto delayed=initial.message; delayed.owner=Peer(2); delayed.generation=3; delayed.revision=2000;
++    CHECK(!f.Apply(2,delayed)); CHECK(!f.worlds[1].running[55]);
++}
++
++TEST(PartyNpc_EnvelopeIdentityEpochChannelAndUnregisteredIdsAreChecked) {
++    Four f; REQUIRE(f.Add()); REQUIRE(f.peers[0]->Report(55));
++    PartyNpcMessage report; REQUIRE(f.peers[0]->Pop(report));
++    auto bad=report; bad.npc=999; CHECK(!f.host.Receive(Peer(1),bad,1.));
++    bad=report; bad.epoch=5; CHECK(!f.host.Receive(Peer(1),bad,1.));
++    bad=report; bad.session=701; CHECK(!f.host.Receive(Peer(1),bad,1.));
++    bad=report; bad.owner=Peer(2); CHECK(!f.host.Receive(Peer(2),bad,1.));
++    CHECK(!f.host.Receive({1,999},report,1.));
++    REQUIRE(f.host.Receive(Peer(1),report,1.));
++    CHECK(!f.host.Receive(Peer(1),report,1.));
++    auto commit=report; commit.kind=PartyNpcKind::Commit;
++    CHECK(!f.peers[1]->Receive(Peer(2),PartyChannel::HostWorld,commit));
++    CHECK(!f.peers[1]->Receive(Peer(1),PartyChannel::Interaction,commit));
++    CHECK(!f.peers[1]->Receive({1,999},PartyChannel::HostWorld,commit));
++}
++
++TEST(PartyNpc_NearestOfFourUsesFreshPositionsHoldTimeAndHysteresis) {
++    Four f; REQUIRE(f.Add());
++    std::vector<PartyNpcLocation> locations{{Peer(1),{30,0,0},3.},{Peer(2),{10,0,0},3.},{Peer(3),{3,0,0},3.},{Peer(4),{1,0,0},0.}};
++    CHECK(!f.host.ConsiderNearest(55,locations,1.));
++    REQUIRE(f.host.ConsiderNearest(55,locations,3.)); f.now=3.; f.Pump();
++    CHECK(f.host.Find(55)->owner.id==3);
++    locations[0].position={2,0,0};
++    for(auto& location:locations) location.observed=6.;
++    CHECK(!f.host.ConsiderNearest(55,locations,6.)); // Only one metre closer than current owner.
++    locations[0].position={30,0,0}; locations[1].position={0,0,0}; locations[2].position={20,0,0}; locations[3].position={40,0,0};
++    REQUIRE(f.host.ConsiderNearest(55,locations,6.)); f.now=6.; f.Pump();
++    CHECK(f.host.Find(55)->owner.id==2);
++}
++
++TEST(PartyNpc_CodecRejectsInvalidStateTruncationTrailingDataAndFuzz) {
++    Four f; REQUIRE(f.host.Register(55,PartyNpcState{},0.));
++    PartyNpcDelivery command; REQUIRE(f.host.Pop(command));
++    const auto bytes=EncodePartyNpc(command.message); REQUIRE(!bytes.empty());
++    PartyNpcMessage decoded;
++    REQUIRE(DecodePartyNpc(bytes,decoded)); CHECK(decoded.state==command.message.state);
++    for(size_t size=0;size<bytes.size();++size) CHECK(!DecodePartyNpc({bytes.begin(),bytes.begin()+size},decoded));
++    auto trailing=bytes; trailing.push_back(0); CHECK(!DecodePartyNpc(trailing,decoded));
++    command.message.state.xf.pos.x=std::numeric_limits<float>::quiet_NaN(); CHECK(EncodePartyNpc(command.message).empty());
++    command.message.state={}; command.message.state.life=PartyNpcLife(99); CHECK(EncodePartyNpc(command.message).empty());
++    std::mt19937 random(551);
++    for(int i=0;i<10000;++i) {
++        std::vector<uint8_t> junk(random()%256); for(auto& value:junk) value=uint8_t(random());
++        CHECK(!DecodePartyNpc(junk,decoded));
++    }
++}
++
++TEST(PartyNpc_CapacityAndQueueOverflowFailExplicitlyWithoutNewWriters) {
++    PartyNpcOptions options; options.capacity=2; options.queueLimit=1;
++    PartyNpcAuthority host(Scope(),options);
++    REQUIRE(host.Register(1,PartyNpcState{},0.));
++    CHECK(!host.Register(1,PartyNpcState{},0.));
++    CHECK(!host.Register(2,PartyNpcState{},0.));
++    CHECK(host.Failed()); CHECK(!host.Propose(1,Peer(2),3.));
++    PartyNpcDelivery delivery; CHECK(!host.Pop(delivery));
++    PartyNpcAuthority invalid(PartyNpcScope{}); CHECK(invalid.Failed());
++}
++
++namespace {
++struct NetworkNpc {
++    std::shared_ptr<SimNetwork> net;
++    std::array<std::unique_ptr<PartyRoom>,4> rooms;
++    std::array<World,4> worlds;
++    std::array<std::unique_ptr<PartyNpcSync>,4> sync;
++    size_t count;
++    double now=0;
++    explicit NetworkNpc(size_t players=4,uint32_t seed=881):net(SimNetwork::Create(seed)),count(players) {
++        const Endpoint endpoint{0x0a000001,47047};
++        for(size_t i=0;i<count;++i) {
++            PartyRoomConfig config; config.name="NPC-test-"+std::to_string(i);
++            rooms[i]=i==0?PartyRoom::Host(net->Open(endpoint),config):
++                PartyRoom::Join(net->Open({uint32_t(0x0a000001+i),uint16_t(50001+i)}),endpoint,config,now);
++            worlds[i].check=[this] { Check(); };
++        }
++    }
++    void Check() {
++        std::map<uint64_t,unsigned> active;
++        for(size_t i=0;i<count;++i) for(const auto& [npc,on]:worlds[i].running) active[npc]+=on;
++        for(const auto& [npc,total]:active) CHECK(total<=1);
++    }
++    PartyIdentity Identity(size_t index) const {
++        const auto& status=rooms[index]->Status();
++        for(const auto& member:status.members) if(member.id==status.self) return {member.id,member.incarnation};
++        return {};
++    }
++    void Step(double seconds) {
++        const double end=now+seconds;
++        while(now<end) {
++            now+=1./60.; net->SetTime(now);
++            for(size_t i=0;i<count;++i) rooms[i]->Tick(now);
++            for(size_t i=0;i<count;++i) if(sync[i]) {
++                PartyGameEvent event;
++                while(rooms[i]->PopGame(event)) sync[i]->Receive(event,now);
++                sync[i]->Tick(now);
++            }
++            Check();
++        }
++    }
++    bool Begin() {
++        Step(2.);
++        if(rooms[0]->Status().members.size()!=count || !rooms[0]->SelectMission(kPartyFreeformContract)) return false;
++        Step(0.5);
++        for(size_t i=0;i<count;++i) if(!rooms[i]->SetReady(true,true)) return false;
++        Step(0.5); if(!rooms[0]->BeginLoad()) return false;
++        Step(0.5); for(size_t i=0;i<count;++i) if(!rooms[i]->ReportLoaded()) return false;
++        Step(0.5);
++        for(size_t i=0;i<count;++i) {
++            sync[i]=std::make_unique<PartyNpcSync>(*rooms[i],worlds[i]);
++            if(!sync[i]->Start()) return false;
++        }
++        return true;
++    }
++    bool Add(uint64_t npc=55) {
++        const bool result=sync[0]->Register(npc,PartyNpcState{},now);
++        Step(0.5); return result;
++    }
++};
++}
++
++TEST(PartyNpcSync_TwoAndFourPeersRunTheSameOwnershipAndDeathPipeline) {
++    for(size_t count:{size_t(2),size_t(4)}) {
++        NetworkNpc n(count); REQUIRE(n.Begin()); REQUIRE(n.Add());
++        const size_t selected=count-1;
++        REQUIRE(n.sync[0]->Propose(55,n.Identity(selected),n.now));
++        n.Step(1.5);
++        CHECK(n.sync[0]->Authority()->Find(55)->owner.id==n.Identity(selected).id);
++        CHECK(n.worlds[selected].running[55]);
++        n.worlds[selected].states[55].xf.pos.x=9.f;
++        n.worlds[selected].states[55].life=PartyNpcLife::Unconscious;
++        n.Step(0.5);
++        for(size_t i=0;i<count;++i) {
++            CHECK(n.worlds[i].states[55].xf.pos.x==9.f);
++            CHECK(n.worlds[i].states[55].life==PartyNpcLife::Unconscious);
++            CHECK(!n.worlds[i].running[55]);
++        }
++        n.worlds[selected].states[55].life=PartyNpcLife::Dead;
++        n.Step(0.5);
++        for(size_t i=0;i<count;++i) CHECK(n.worlds[i].states[55].life==PartyNpcLife::Dead);
++    }
++}
++
++TEST(PartyNpcSync_GuestHandoffsConvergeUnderLossDuplicationAndReordering) {
++    for(uint32_t seed=1;seed<=8;++seed) {
++        NetworkNpc n(4,seed); REQUIRE(n.Begin()); REQUIRE(n.Add());
++        n.net->config.loss=0.22; n.net->config.duplicate=0.3;
++        n.net->config.minLatency=0.001; n.net->config.maxLatency=0.07;
++        REQUIRE(n.sync[0]->Propose(55,n.Identity(1),n.now)); n.Step(2.5);
++        REQUIRE(n.sync[0]->Authority()->Find(55)->owner.id==n.Identity(1).id);
++        REQUIRE(n.sync[0]->Propose(55,n.Identity(3),n.now)); n.Step(2.5);
++        REQUIRE(n.sync[0]->Authority()->Find(55)->owner.id==n.Identity(3).id);
++        n.worlds[3].states[55].xf.pos.x=42.f;
++        n.Step(4.);
++        for(size_t i=0;i<4;++i) {
++            CHECK(n.sync[i]->Active()); CHECK(!n.sync[i]->Failed());
++            CHECK(n.worlds[i].states[55].xf.pos.x==42.f);
++        }
++        CHECK(n.net->dropped>0);
++    }
++}
++
++TEST(PartyNpcSync_PartitionFreezesAllPeersWithoutGivingATimedOutOwnerAReplacement) {
++    NetworkNpc n; REQUIRE(n.Begin()); REQUIRE(n.Add());
++    REQUIRE(n.sync[0]->Propose(55,n.Identity(2),n.now)); n.Step(1.5);
++    REQUIRE(n.worlds[2].running[55]);
++    n.net->config.cut=true;
++    n.Step(18.);
++    for(size_t i=0;i<4;++i) { CHECK(!n.sync[i]->Active()); CHECK(!n.worlds[i].running[55]); }
++    CHECK(n.rooms[0]->Status().phase==LobbyRoster::Phase::Interrupted);
++    CHECK(!n.sync[0]->Start());
++}
++
++TEST(PartyNpcSync_NonownerAndWrongChannelClaimsDoNotReachOtherReplicas) {
++    NetworkNpc n; REQUIRE(n.Begin()); REQUIRE(n.Add());
++    PartyNpcScope scope; REQUIRE(PartyNpcScope::FromRoom(n.rooms[1]->Status(),scope));
++    PartyNpcMessage claim;
++    claim.kind=PartyNpcKind::Report; claim.session=scope.session; claim.epoch=scope.epoch;
++    claim.npc=55; claim.generation=1; claim.revision=1; claim.sequence=99; claim.owner=n.Identity(1);
++    claim.state.life=PartyNpcLife::Dead;
++    REQUIRE(n.rooms[1]->SendGame(PartyChannel::Interaction,EncodePartyNpc(claim),true));
++    CHECK(!n.rooms[1]->SendGame(PartyChannel::HostWorld,EncodePartyNpc(claim),true));
++    claim.kind=PartyNpcKind::Commit;
++    REQUIRE(n.rooms[1]->SendGame(PartyChannel::Interaction,EncodePartyNpc(claim),true));
++    n.Step(1.);
++    for(size_t i=0;i<4;++i) CHECK(n.worlds[i].states[55].life==PartyNpcLife::Alive);
++    CHECK(n.sync[0]->Authority()->Find(55)->owner.id==1);
++    CHECK(!n.sync[1]->Register(777,PartyNpcState{},n.now));
++}
++
++TEST(PartyNpcSync_HostProximityPolicySelectsAmongAllFourValidatedIdentities) {
++    NetworkNpc n; REQUIRE(n.Begin()); REQUIRE(n.Add());
++    n.Step(2.);
++    REQUIRE(n.sync[0]->ObservePlayer(n.Identity(0),{40,0,0},n.now));
++    REQUIRE(n.sync[0]->ObservePlayer(n.Identity(1),{20,0,0},n.now));
++    REQUIRE(n.sync[0]->ObservePlayer(n.Identity(2),{1,0,0},n.now));
++    REQUIRE(n.sync[0]->ObservePlayer(n.Identity(3),{30,0,0},n.now));
++    n.Step(1.);
++    CHECK(n.sync[0]->Authority()->Find(55)->owner.id==n.Identity(2).id);
++    CHECK(n.worlds[2].running[55]);
++}
++
++TEST(PartyNpc_StopRequiresNativeConfirmationAndCannotRestartTheSameScope) {
++    NetworkNpc n; REQUIRE(n.Begin()); REQUIRE(n.Add());
++    n.sync[0]->Stop();
++    CHECK(!n.sync[0]->Start());
++    CHECK(!n.worlds[0].running[55]);
++    Four f; REQUIRE(f.Add()); f.worlds[0].freeze=false;
++    CHECK(!f.peers[0]->Stop()); CHECK(!f.peers[0]->StopConfirmed());
++    CHECK(f.peers[0]->Running(55)); CHECK(!f.peers[0]->Report(55));
++    f.worlds[0].freeze=true; CHECK(f.peers[0]->Stop()); CHECK(!f.peers[0]->Running(55));
++}
++
++TEST(PartyNpcSync_StoppingTheHostInterruptsAndFreezesAGuestOwnedNpc) {
++    NetworkNpc n; REQUIRE(n.Begin()); REQUIRE(n.Add());
++    REQUIRE(n.sync[0]->Propose(55,n.Identity(3),n.now)); n.Step(1.5);
++    REQUIRE(n.worlds[3].running[55]);
++    n.sync[0]->Stop(); n.Step(0.5);
++    for(size_t i=0;i<4;++i) {
++        CHECK(!n.sync[i]->Active());
++        CHECK(!n.worlds[i].running[55]);
++        CHECK(n.rooms[i]->Status().phase==LobbyRoster::Phase::Interrupted);
++    }
++}
++
++TEST(PartyNpc_BusyDeclinesDoNotFreezeInteractionsOrReuseOldHandoffTickets) {
++    Four f; REQUIRE(f.Add());
++    f.worlds[0].states[55].interacting=true;
++    REQUIRE(f.Transfer(2));
++    CHECK(f.worlds[0].running[55]); CHECK(f.worlds[0].resumes==1);
++    CHECK(f.host.Find(55)->owner.id==1); CHECK(f.host.Find(55)->generation==1);
++    f.worlds[0].states[55].interacting=false;
++    REQUIRE(f.peers[0]->Report(55)); f.Pump();
++    REQUIRE(f.Transfer(2));
++    CHECK(f.host.Find(55)->generation==3); CHECK(f.worlds[1].running[55]);
++}
++
++TEST(PartyNpc_EngagementRaceAfterNativeFreezeReturnsTheLeaseToItsOriginalOwner) {
++    Four f; REQUIRE(f.Add());
++    f.worlds[0].onFreeze=[&](uint64_t npc) { f.worlds[0].states[npc].engaged=true; };
++    REQUIRE(f.Transfer(3));
++    CHECK(f.host.Find(55)->generation==2); CHECK(f.host.Find(55)->owner.id==1);
++    CHECK(f.worlds[0].running[55]); CHECK(f.worlds[2].resumes==0);
++}
++
++TEST(PartyNpc_SameLeaseRefreshPreservesReportSequenceAndDoesNotRestartAi) {
++    Four f; REQUIRE(f.host.Register(55,PartyNpcState{},0.));
++    PartyNpcDelivery baseline; REQUIRE(f.host.Pop(baseline));
++    for(uint8_t id=1;id<=4;++id) REQUIRE(f.Apply(id,baseline.message));
++    REQUIRE(f.peers[0]->Report(55));
++    PartyNpcMessage first; REQUIRE(f.peers[0]->Pop(first)); CHECK(first.sequence==1);
++    auto refresh=baseline.message; refresh.revision=10;
++    REQUIRE(f.Apply(1,refresh)); CHECK(f.worlds[0].resumes==1);
++    f.worlds[0].states[55].xf.pos.x=2.f;
++    REQUIRE(f.peers[0]->Report(55));
++    PartyNpcMessage second; REQUIRE(f.peers[0]->Pop(second)); CHECK(second.sequence==2);
++}
++
++TEST(PartyNpc_NewOwnerDoesNotRunUntilNativeResumeActuallySucceeds) {
++    Four f; REQUIRE(f.Add()); f.worlds[3].resume=false;
++    REQUIRE(f.Transfer(4));
++    CHECK(f.host.Find(55)->owner.id==4);
++    CHECK(!f.worlds[3].running[55]); CHECK(!f.peers[3]->Running(55));
++    CHECK(!f.peers[3]->Report(55));
++    f.worlds[3].resume=true; f.peers[3]->RetryPending();
++    CHECK(f.worlds[3].running[55]); CHECK(f.worlds[3].resumes==1);
++    REQUIRE(f.peers[3]->Report(55)); f.Pump();
++    CHECK(f.host.Find(55)->confirmed);
++}
+--- /dev/null
++++ b/core/tests/TestPartyReplayClient.cpp
+@@ -0,0 +1,120 @@
++#include "TestFramework.h"
++#include "FakeWorld.h"
++#include "SimNetwork.h"
++#include "coop/PartyReplayClient.h"
++#include "coop/PartyPreviewRuntime.h"
++
++using namespace coop;
++namespace {
++struct Sink:IPartyAvatarWorld {
++    std::map<uint8_t,Transform> transforms;
++    std::map<uint8_t,Pose> poses;
++    std::map<uint8_t,OutfitDesc> outfits;
++    std::map<uint8_t,std::vector<int16_t>> skeletons;
++    unsigned shown=0;
++    bool ApplyPartyRoster(const PartyRoomStatus&) override { return true; }
++    bool ShowPartyAvatar(uint8_t id,uint64_t,uint32_t,const Transform& value) override { transforms[id]=value; ++shown; return true; }
++    bool ShowPartyPose(uint8_t id,uint64_t,uint32_t,const Pose& value) override { poses[id]=value; return true; }
++    bool SetPartyOutfit(uint8_t id,uint64_t,uint32_t,const OutfitDesc& value) override { outfits[id]=value; return true; }
++    bool SetPartySkeleton(uint8_t id,uint64_t,uint32_t,const std::vector<int16_t>& value) override { skeletons[id]=value; return true; }
++    bool HidePartyAvatar(uint8_t id,uint64_t,uint32_t) override { transforms.erase(id); return true; }
++    void HidePartyAvatars() override { transforms.clear(); }
++};
++struct Lab {
++    std::shared_ptr<SimNetwork> net=SimNetwork::Create(316);
++    std::array<FakeWorld,2> worlds {FakeWorld("Real host"),FakeWorld("Real guest")};
++    std::array<Sink,2> sinks;
++    std::array<std::unique_ptr<PartyPreviewRuntime>,2> games;
++    std::array<std::unique_ptr<PartyReplayClient>,2> bots;
++    double now=0;
++    Lab() {
++        Endpoint host{0x0a000001,47047};
++        for(size_t i=0;i<2;++i) {
++            worlds[i].inScene=true;
++            worlds[i].scene.scene="assembly:/_PRO/Scenes/Missions/TheFacility/_Scene_Mission_Polarbear_Module_002_B.entity";
++            worlds[i].player.pos={float(10+10*i),10.f,0.f};
++            worlds[i].pose.rotations.resize(2); worlds[i].pose.rootPos.x=float(1+2*i);
++            worlds[i].skeleton={-1,0}; worlds[i].outfit.repositoryId=i==0?"host-disguise":"guest-disguise";
++            PartyRoomConfig config; config.name=i==0?"Real host":"Real guest";
++            auto room=i==0?PartyRoom::Host(net->Open(host),config):PartyRoom::Join(net->Open({0x0a000002,50002}),host,config,now);
++            games[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),worlds[i],sinks[i]);
++            config.name="[LAB BOT "+std::to_string(i+1)+"]";
++            auto synthetic=PartyRoom::Join(net->Open({uint32_t(0x0a000003+i),uint16_t(50003+i)}),host,config,now);
++            bots[i]=std::make_unique<PartyReplayClient>(std::move(synthetic),Vec3{i==0?1.2f:-1.2f,0,0});
++        }
++    }
++    void Step(double seconds) {
++        const double end=now+seconds;
++        while(now<end) {
++            now+=1./60.; net->SetTime(now);
++            for(auto& game:games) game->Tick(now);
++            for(auto& bot:bots) bot->Tick(now);
++        }
++    }
++    bool Start() {
++        Step(2.);
++        for(auto& game:games) if(!game->Ready()) return false;
++        Step(1.);
++        if(!games[0]->Start()) return false;
++        Step(2.);
++        return games[0]->Status().phase==LobbyRoster::Phase::Playing;
++    }
++};
++}
++
++TEST(PartyReplay_TwoRealSourcesAndTwoLabeledSyntheticPeersFillFourSeats) {
++    Lab lab; REQUIRE(lab.Start());
++    CHECK(lab.games[0]->Status().members.size()==4);
++    size_t bots=0;
++    for(const auto& member:lab.games[0]->Status().members) bots+=member.name.find("[LAB BOT ")==0;
++    CHECK(bots==2);
++    lab.Step(1.);
++    for(size_t i=0;i<2;++i) {
++        const auto id=lab.bots[i]->Status().self;
++        CHECK(lab.bots[i]->Forwarded()>0);
++        for(size_t real=0;real<2;++real) {
++            REQUIRE(lab.sinks[real].transforms.contains(id));
++            CHECK(std::fabs(lab.sinks[real].transforms[id].pos.x-(10.f+(i==0?1.2f:-1.2f)))<0.001f);
++            CHECK(lab.sinks[real].poses[id].rootPos.x==1.f);
++            CHECK(lab.sinks[real].outfits[id].repositoryId=="host-disguise");
++            CHECK(lab.sinks[real].skeletons[id]==std::vector<int16_t>({-1,0}));
++        }
++    }
++}
++
++TEST(PartyReplay_WaitsForRealHostReadinessRatherThanClaimingANativeGameExists) {
++    Lab lab;
++    lab.worlds[0].inScene=false; lab.worlds[1].inScene=false;
++    lab.Step(3.);
++    CHECK(!lab.games[0]->Ready());
++    for(const auto& bot:lab.bots) {
++        bool ready=false; for(const auto& member:bot->Status().members) if(member.id==bot->Status().self) ready=member.ready;
++        CHECK(!ready); CHECK(bot->Forwarded()==0);
++    }
++    CHECK(!lab.games[0]->Start());
++}
++
++TEST(PartyReplay_OnlyMirrorsItsChosenSourceAndFollowsDisguiseChanges) {
++    Lab lab; REQUIRE(lab.Start());
++    lab.worlds[1].player.pos.x=70.f; lab.worlds[1].outfit.repositoryId="unrelated-guest-outfit";
++    lab.worlds[0].player.pos.x=12.f; lab.worlds[0].outfit.repositoryId="new-host-outfit";
++    lab.Step(2.);
++    for(size_t i=0;i<2;++i) {
++        const auto id=lab.bots[i]->Status().self;
++        CHECK(std::fabs(lab.sinks[1].transforms[id].pos.x-(12.f+(i==0?1.2f:-1.2f)))<0.001f);
++        CHECK(lab.sinks[1].outfits[id].repositoryId=="new-host-outfit");
++    }
++}
++
++TEST(PartyReplay_StopsOutsidePlayAndResumesOnlyInTheNewEpoch) {
++    Lab lab; REQUIRE(lab.Start());
++    const auto previous=lab.games[0]->Status().epoch;
++    REQUIRE(lab.games[0]->Lobby()); lab.Step(0.5);
++    const auto shown=lab.sinks[1].shown; lab.Step(0.5); CHECK(lab.sinks[1].shown==shown);
++    CHECK(lab.games[0]->Status().epoch>previous);
++    for(auto& game:lab.games) REQUIRE(game->Ready());
++    lab.Step(1.); REQUIRE(lab.games[0]->Start()); lab.Step(2.);
++    CHECK(lab.sinks[1].shown>shown);
++    lab.bots[0]->Leave(lab.now); lab.Step(1.);
++    CHECK(lab.games[0]->Status().phase==LobbyRoster::Phase::Interrupted);
++}
+--- a/DEVELOPMENT-ONLY.md
++++ b/DEVELOPMENT-ONLY.md
+@@ -1,9 +1,9 @@
+-# Four-player movement preview 1
++# Isolated NPC development copy
+ 
+-Build 0.13.94-four-player.preview.1 / party protocol 2. This isolated native build is now wired to PartyPreviewRuntime through the plugin frame loop and to an explicit dedicated preview launcher. It is a movement/disguise preview, with up to three remote avatars and typed scoped/interpolated streams. The legacy Session is excluded once preview mode starts.
++Version: 0.13.94-four-player.npc-dev.1. The installed two-PC-tested Preview 1 is unchanged.
+ 
+-No four-player NPC/body/item/objective/extraction authority exists yet. Freeform Training must be loaded manually on every PC. Actual native gameplay is untested; start with two real PCs before inviting four. The launcher has an exact build check. See ../../FOUR-PLAYER-PREVIEW-1.md for current scope and evidence.
++PartyNpcAuthority / PartyNpcReplica / PartyNpcSync implement and test the four-seat NPC authority protocol. They are not bound to SdkWorld or instantiated by the native preview runtime. Do not install this development DLL expecting shared NPC gameplay. See ../../NPC-AUTHORITY-FOUNDATION.md for native freeze, interaction and perception requirements.
+ 
+-Native scene transitions interrupt the room and clear pose/actor references safely while retaining resource factories. Accepted current room identities alone may bind animators. The registry/pose worker shutdown contract still requires engine scene synchronization. Do not bind native addresses from a network packet or create multiple independent SdkWorld/legacy ownership models.
++The optional standalone replay-client EXE intentionally targets the frozen movement preview (0.13.94-four-player.preview.1 / party protocol 2). It fills synthetic slots by replaying a validated host avatar stream. It runs no game, NPCs or interactions and must remain visibly labeled [LAB BOT]. This tool can exercise three remote avatar contexts on one or two real PCs, but cannot prove four independent native simulations work.
+ 
+-Dependencies are referenced from the sibling HitmanCoop/_deps directory; build outputs stay under this copy's _build. Neither the installed Foundation 4.1 build nor its preserved archives are updated by building this directory. The release package provides explicit installer, remover and verified Foundation 4.1 rollback controls.
++SDK dependencies are read from the sibling HitmanCoop/_deps directory. Build outputs stay in this copy's _build. Full suite: 188 tests passing (178 core plus six pose and four guards).
+--- a/launcher/Launcher.cs
++++ b/launcher/Launcher.cs
+@@ -32,7 +32,7 @@
+ 
+ public sealed class CoopLauncher : Window {
+ 
+-    const string Build = "0.13.94-four-player.preview.1";
++    const string Build = "0.13.94-four-player.npc-dev.1";
+ 
+     readonly SemaphoreSlim gate = new SemaphoreSlim(1, 1);
+ 
+--- a/launcher/PartyPreviewLauncher.cs
++++ b/launcher/PartyPreviewLauncher.cs
+@@ -14,7 +14,7 @@
+ using System.Windows.Threading;
+ 
+ public sealed class PartyPreviewLauncher : Window {
+-    const string Build = "0.13.94-four-player.preview.1";
++    const string Build = "0.13.94-four-player.npc-dev.1";
+     readonly Grid root;
+     readonly TextBlock state, detail, roster, feedback, mission;
+     readonly TextBox address;
+--- a/plugin/Src/CoopText.h
++++ b/plugin/Src/CoopText.h
+@@ -6,7 +6,7 @@
+ #include <string_view>
+ 
+ // Words and numbers the game-thread code and the UI share.
+-inline constexpr const char* c_ModVersion = "0.13.94-four-player.preview.1";
++inline constexpr const char* c_ModVersion = "0.13.94-four-player.npc-dev.1";
+ 
+ // The game version this build is for (set by plugin/CMakeLists.txt from the SDK it is built
+ // against): "3.290" normally, "3.280" for the build players who can't update get (the installer
+--- a/tools/LauncherBridgeHarness.cpp
++++ b/tools/LauncherBridgeHarness.cpp
+@@ -12,7 +12,7 @@
+     const auto start = GetTickCount64();
+     while (GetTickCount64() - start < 45000) {
+         bridge.Poll(double(GetTickCount64() - start) / 1000.0, [](const coop::LauncherRequest& request) {
+-            return "{\"ok\":true,\"version\":\"0.13.94-four-player.preview.1\",\"bridge_version\":1,\"action\":\"" + request.action + "\"}";
++            return "{\"ok\":true,\"version\":\"0.13.94-four-player.npc-dev.1\",\"bridge_version\":1,\"action\":\"" + request.action + "\"}";
+         });
+         Sleep(5);
+     }
+--- /dev/null
++++ b/tools/ReplayLabHarness.cpp
+@@ -0,0 +1,78 @@
++#include "coop/PartyPreviewRuntime.h"
++#include "FakeWorld.h"
++#include <Windows.h>
++#include <fstream>
++#include <chrono>
++
++using namespace coop;
++namespace {
++double Now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
++struct Sink:IPartyAvatarWorld {
++    std::map<uint8_t,Transform> avatars;
++    std::map<uint8_t,Pose> poses;
++    std::map<uint8_t,OutfitDesc> outfits;
++    bool ApplyPartyRoster(const PartyRoomStatus&) override { return true; }
++    bool ShowPartyAvatar(uint8_t id,uint64_t,uint32_t,const Transform& xf) override { avatars[id]=xf; return true; }
++    bool ShowPartyPose(uint8_t id,uint64_t,uint32_t,const Pose& pose) override { poses[id]=pose; return true; }
++    bool SetPartyOutfit(uint8_t id,uint64_t,uint32_t,const OutfitDesc& outfit) override { outfits[id]=outfit; return true; }
++    bool SetPartySkeleton(uint8_t,uint64_t,uint32_t,const std::vector<int16_t>&) override { return true; }
++    bool HidePartyAvatar(uint8_t id,uint64_t,uint32_t) override { avatars.erase(id); return true; }
++    void HidePartyAvatars() override { avatars.clear(); }
++};
++}
++int main(int argc,char** argv) {
++    if(argc!=3) return 1;
++    std::string error;
++    auto socket=UdpSocket::Open(0,error); if(!socket) return 2;
++    const Endpoint endpoint{0x7f000001,socket->LocalPort()};
++    auto guestSocket=UdpSocket::Open(0,error); if(!guestSocket) return 3;
++    PartyRoomConfig config;
++    config.protocol=2; config.build="0.13.94-four-player.preview.1"; config.game="3.290.1";
++    config.name="Simulated host";
++    auto host=PartyRoom::Host(std::move(socket),config);
++    config.name="Simulated guest";
++    auto guest=PartyRoom::Join(std::move(guestSocket),endpoint,config,Now());
++    if(!host || !guest) return 4;
++    std::array<FakeWorld,2> worlds{FakeWorld("Host"),FakeWorld("Guest")};
++    std::array<Sink,2> sinks;
++    for(auto& world:worlds) {
++        world.inScene=true; world.scene.scene="assembly:/_PRO/Scenes/Missions/TheFacility/_Scene_Mission_Polarbear_Module_002_B.entity";
++        world.player.pos.x=10.f; world.pose.rotations.resize(2); world.pose.rootPos.x=1.f; world.skeleton={-1,0};
++    }
++    PartyPreviewRuntime hostRuntime(std::move(host),worlds[0],sinks[0]);
++    PartyPreviewRuntime guestRuntime(std::move(guest),worlds[1],sinks[1]);
++    std::ofstream(argv[1])<<"127.0.0.1:"<<endpoint.port;
++    const double end=Now()+20.; double readyAt=0;
++    while(Now()<end) {
++        const double now=Now(); hostRuntime.Tick(now); guestRuntime.Tick(now);
++        if(now>=readyAt && hostRuntime.Status().members.size()==4) {
++            readyAt=now+0.5;
++            if(!hostRuntime.LocalReady()) hostRuntime.Ready();
++            if(!guestRuntime.LocalReady()) guestRuntime.Ready();
++            bool all=true; for(const auto& member:hostRuntime.Status().members) all=all && member.ready;
++            if(all && hostRuntime.Status().phase==LobbyRoster::Phase::Lobby) hostRuntime.Start();
++        }
++        size_t mirrored=0;
++        if(hostRuntime.Status().phase==LobbyRoster::Phase::Playing) {
++            for(const auto& member:hostRuntime.Status().members) {
++                if(member.name.find("[LAB BOT ")!=0) continue;
++                bool valid=true;
++                for(const auto& sink:sinks) {
++                    auto position=sink.avatars.find(member.id); auto pose=sink.poses.find(member.id); auto outfit=sink.outfits.find(member.id);
++                    valid=valid && position!=sink.avatars.end() && pose!=sink.poses.end() && outfit!=sink.outfits.end();
++                    if(position!=sink.avatars.end()) valid=valid && std::fabs(std::fabs(position->second.pos.x-10.f)-1.2f)<0.001f;
++                    if(pose!=sink.poses.end()) valid=valid && pose->second.rootPos.x==1.f;
++                    if(outfit!=sink.outfits.end()) valid=valid && outfit->second==worlds[0].outfit;
++                }
++                mirrored+=valid;
++            }
++        }
++        if(mirrored==2) {
++            std::ofstream(argv[2])<<"PASS: built replay EXE joined two actual localhost UDP participants; both simulated game sinks received two correctly offset poses/outfits. No HITMAN process used.\n";
++            return 0;
++        }
++        Sleep(5);
++    }
++    std::ofstream(argv[2])<<"FAIL: replay CLI integration timed out.\n";
++    return 5;
++}

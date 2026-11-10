@@ -1,0 +1,199 @@
+#include "PoseHook.h"
+#include "TestFramework.h"
+
+#include <array>
+#include <cstring>
+#include <thread>
+#include <atomic>
+
+namespace {
+using UpdateFn = void (*)(void*, void*, uint8_t*, const void*, uint64_t, uint64_t, uint64_t);
+void NativeUpdate(void*, void*, uint8_t*, const void*, uint64_t, uint64_t, uint64_t) {}
+
+PoseHook::Bone MakeBone(float p_Value) {
+    PoseHook::Bone s_Bone {};
+    s_Bone.rot[3] = 1.f;
+    for (float& s_Pos : s_Bone.pos)
+        s_Pos = p_Value;
+    return s_Bone;
+}
+
+// Uses the actual Windows vtable hook and output-buffer layout, without
+// launching/capturing HITMAN. It verifies the adapter, not native NPC spawning.
+struct Fixture {
+    void* table[2] { nullptr, reinterpret_cast<void*>(&NativeUpdate) };
+    struct Animator { void** table; } animators[5];
+    Fixture() {
+        PoseHook::Uninstall();
+        PoseHook::ClearExtraPoses();
+        PoseHook::ClearTargetPose();
+        PoseHook::SetTargetMap({});
+        PoseHook::SetTargetMask({});
+        for (auto& s_Animator : animators)
+            s_Animator.table = table;
+    }
+    ~Fixture() { PoseHook::Uninstall(); }
+    bool Install() { return PoseHook::Install(&animators[0]); }
+    std::vector<PoseHook::Bone> Run(size_t p_Index, float p_Value = 1.f) {
+        std::vector<PoseHook::Bone> s_Bones(4, MakeBone(p_Value));
+        std::array<uint8_t, 24> s_Output {};
+        auto* s_Data = s_Bones.data();
+        uint32_t s_Count = static_cast<uint32_t>(s_Bones.size());
+        std::memcpy(s_Output.data() + 8, &s_Data, sizeof(s_Data));
+        std::memcpy(s_Output.data() + 16, &s_Count, sizeof(s_Count));
+        reinterpret_cast<UpdateFn>(table[1])(&animators[p_Index], nullptr, s_Output.data(), nullptr, 0, 0, 0);
+        return s_Bones;
+    }
+};
+}
+
+TEST(PlayerPoses_ThreeDistinctRigsNativeDiagnosticsAndLocalCapture) {
+    Fixture f;
+    REQUIRE(f.Install());
+    PoseHook::SetSource(&f.animators[0]);
+    for (uint8_t id = 2; id <= 4; ++id) {
+        REQUIRE(PoseHook::BindPlayerTarget(id, 100 + id, &f.animators[id - 1]));
+        std::vector<PoseHook::Bone> pose { MakeBone(10.f * id), MakeBone(10.f * id + 1), MakeBone(10.f * id + 2) };
+        // Different maps/masks/translation policies for each remote player.
+        REQUIRE(PoseHook::SetPlayerTargetPose(id, 100 + id, pose, id == 4,
+            id == 3 ? std::vector<int32_t>{2, -1, 0, 999} : std::vector<int32_t>{},
+            id == 2 ? std::vector<uint8_t>{0, 1, 1} : std::vector<uint8_t>{}));
+    }
+    const auto a = f.Run(1);
+    const auto b = f.Run(2);
+    const auto c = f.Run(3);
+    CHECK(a[0].pos[0] == 1.f); // Masked root.
+    CHECK(a[1].pos[0] == 21.f);
+    CHECK(a[2].pos[0] == 1.f); // Preserve NPC limb lengths.
+    CHECK(b[0].pos[0] == 32.f);
+    CHECK(b[1].pos[0] == 1.f); // Unmapped bone.
+    CHECK(b[3].pos[0] == 1.f); // Out-of-range map ignored.
+    CHECK(c[0].pos[0] == 40.f);
+    CHECK(c[2].pos[0] == 42.f); // All-position rig.
+    CHECK(c[3].pos[0] == 1.f); // Short source bounded.
+    std::vector<PoseHook::Bone> native;
+    for (uint8_t id = 2; id <= 4; ++id) {
+        REQUIRE(PoseHook::PlayerTargetNativePose(id, 100 + id, native));
+        CHECK(native.size() == 4);
+        CHECK(native[0].pos[0] == 1.f);
+    }
+    f.Run(0, 77.f);
+    REQUIRE(PoseHook::TakeSourcePose(native));
+    CHECK(native[0].pos[0] == 77.f);
+    CHECK(!PoseHook::TakeSourcePose(native));
+}
+
+TEST(PlayerPoses_ReconnectClearsRigAndRejectsOldIncarnation) {
+    Fixture f;
+    REQUIRE(f.Install());
+    REQUIRE(PoseHook::BindPlayerTarget(4, 10, &f.animators[0]));
+    REQUIRE(PoseHook::SetPlayerTargetPose(4, 10, {MakeBone(40.f)}, true));
+    CHECK(f.Run(0)[0].pos[0] == 40.f);
+    REQUIRE(PoseHook::BindPlayerTarget(4, 10, &f.animators[0]));
+    CHECK(f.Run(0)[0].pos[0] == 40.f); // Idempotent roster refresh.
+    REQUIRE(PoseHook::BindPlayerTarget(4, 11, &f.animators[1]));
+    CHECK(!PoseHook::SetPlayerTargetPose(4, 10, {MakeBone(99.f)}, true));
+    CHECK(!PoseHook::ClearPlayerTarget(4, 10));
+    std::vector<PoseHook::Bone> native {MakeBone(99.f)};
+    CHECK(!PoseHook::PlayerTargetNativePose(4, 11, native));
+    CHECK(native.empty());
+    CHECK(f.Run(0)[0].pos[0] == 1.f); // Old animator detached.
+    CHECK(f.Run(1)[0].pos[0] == 1.f); // No stale pose on replacement.
+    REQUIRE(PoseHook::SetPlayerTargetPose(4, 11, {MakeBone(50.f)}, true));
+    CHECK(f.Run(1)[0].pos[0] == 50.f);
+    REQUIRE(PoseHook::ClearPlayerTarget(4, 11));
+    CHECK(f.Run(1)[0].pos[0] == 1.f);
+    CHECK(!PoseHook::SetPlayerTargetPose(4, 11, {MakeBone(60.f)}, true));
+}
+
+TEST(PlayerPoses_CapacityIdentityBoundsAndDuplicateWriters) {
+    Fixture f;
+    REQUIRE(f.Install());
+    CHECK(!PoseHook::BindPlayerTarget(0, 1, &f.animators[0]));
+    CHECK(!PoseHook::BindPlayerTarget(5, 1, &f.animators[0]));
+    CHECK(!PoseHook::BindPlayerTarget(1, 0, &f.animators[0]));
+    CHECK(!PoseHook::BindPlayerTarget(1, 1, nullptr));
+    PoseHook::SetTarget(&f.animators[0]);
+    CHECK(!PoseHook::BindPlayerTarget(1, 1, &f.animators[0]));
+    PoseHook::SetTarget(nullptr);
+    REQUIRE(PoseHook::SetPoseFor(&f.animators[0], {MakeBone(5.f)}));
+    CHECK(!PoseHook::BindPlayerTarget(1, 1, &f.animators[0]));
+    PoseHook::ClearPoseFor(&f.animators[0]);
+    for (uint8_t id = 1; id <= 3; ++id)
+        REQUIRE(PoseHook::BindPlayerTarget(id, id, &f.animators[id - 1]));
+    CHECK(!PoseHook::BindPlayerTarget(4, 4, &f.animators[3]));
+    CHECK(!PoseHook::BindPlayerTarget(2, 2, &f.animators[0]));
+    CHECK(!PoseHook::SetPoseFor(&f.animators[0], {MakeBone(5.f)}));
+    CHECK(!PoseHook::SetPlayerTargetPose(1, 1, std::vector<PoseHook::Bone>(1024), true));
+    REQUIRE(PoseHook::ClearPlayerTarget(2, 2));
+    REQUIRE(PoseHook::BindPlayerTarget(4, 4, &f.animators[3]));
+    PoseHook::ClearPlayerTargets();
+    CHECK(!PoseHook::SetPlayerTargetPose(4, 4, {MakeBone(50.f)}, true));
+}
+
+TEST(PlayerPoses_ConcurrentWorkerClearAndRebind) {
+    Fixture f;
+    REQUIRE(f.Install());
+    std::atomic<bool> running {true};
+    std::atomic<bool> valid {true};
+    std::thread worker([&] {
+        while (running.load()) {
+            const float value = f.Run(0)[0].pos[0];
+            if (value != 1.f && value != 40.f)
+                valid = false;
+        }
+    });
+    for (uint64_t incarnation = 1; incarnation <= 2000; ++incarnation) {
+        CHECK(PoseHook::BindPlayerTarget(4, incarnation, &f.animators[0]));
+        CHECK(PoseHook::SetPlayerTargetPose(4, incarnation, {MakeBone(40.f)}, true));
+        CHECK(PoseHook::ClearPlayerTarget(4, incarnation));
+    }
+    running = false;
+    worker.join();
+    CHECK(valid.load());
+    // Uninstall only after workers join, matching engine hook shutdown rules.
+    PoseHook::Uninstall();
+    CHECK(f.table[1] == reinterpret_cast<void*>(&NativeUpdate));
+    REQUIRE(f.Install());
+    CHECK(f.Run(0)[0].pos[0] == 1.f);
+}
+
+TEST(PlayerPoses_RotationHemisphereAndIndependentLegacyTarget) {
+    Fixture f;
+    REQUIRE(f.Install());
+    PoseHook::SetTarget(&f.animators[0]);
+    PoseHook::SetTargetPose({MakeBone(12.f)}, true);
+    REQUIRE(PoseHook::BindPlayerTarget(3, 10, &f.animators[1]));
+    auto bone = MakeBone(30.f);
+    bone.rot[0] = 0.6f;
+    bone.rot[3] = -0.8f;
+    REQUIRE(PoseHook::SetPlayerTargetPose(3, 10, {bone}, true));
+    auto result = f.Run(1);
+    CHECK(result[0].rot[0] == -0.6f);
+    CHECK(result[0].rot[3] == 0.8f); // Equivalent quaternion on native hemisphere.
+    CHECK(result[0].pos[0] == 30.f);
+    CHECK(f.Run(0)[0].pos[0] == 12.f);
+    PoseHook::SetTarget(&f.animators[1]); // Refused: would overwrite player 3.
+    CHECK(f.Run(0)[0].pos[0] == 12.f);
+    CHECK(f.Run(1)[0].pos[0] == 30.f);
+    PoseHook::ClearPlayerTargets();
+    CHECK(f.Run(0)[0].pos[0] == 12.f);
+    CHECK(f.Run(1)[0].pos[0] == 1.f);
+}
+
+TEST(PlayerPoses_UninstallClearsEveryRemoteRigBeforeReinstall) {
+    Fixture f;
+    REQUIRE(f.Install());
+    REQUIRE(PoseHook::BindPlayerTarget(2, 7, &f.animators[0]));
+    REQUIRE(PoseHook::SetPlayerTargetPose(2, 7, {MakeBone(11.f)}, true, {0, 0, 0}, {1, 1, 1}));
+    CHECK(f.Run(0)[2].pos[0] == 11.f);
+    PoseHook::Uninstall();
+    REQUIRE(f.Install());
+    REQUIRE(PoseHook::BindPlayerTarget(2, 7, &f.animators[0]));
+    CHECK(f.Run(0)[0].pos[0] == 1.f);
+    REQUIRE(PoseHook::SetPlayerTargetPose(2, 7, {MakeBone(15.f)}, false));
+    const auto result = f.Run(0);
+    CHECK(result[0].pos[0] == 15.f);
+    CHECK(result[1].pos[0] == 1.f);
+    CHECK(result[2].pos[0] == 1.f);
+}

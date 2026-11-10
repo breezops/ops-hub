@@ -1,0 +1,37 @@
+HITMAN CO-OP - FOUR-PLAYER MOVEMENT PREVIEW 2
+Build: 0.13.94-four-player.preview.2 / party protocol 2
+Requires HITMAN 3.290.1 (Steam PC), SDK 4.2.1 ABI 1.
+
+This preview tests up to FOUR players' movement, crouching, vaulting and disguises in Freeform Training. NPCs, bodies, items, targets and exits are NOT shared in this backend yet. Keep Foundation 4.1 for the previous two-player interaction tests.
+
+INSTALL / UPDATE (EVERY PC USES THIS SAME PACKAGE)
+1. Close HITMAN and all co-op launcher windows.
+2. Extract the ENTIRE ZIP into a new folder. Open START-HERE.cmd.
+3. Choose 1 to install/update. It detects Steam or lets you select HITMAN 3.
+4. Open START-HERE again and choose 4, or open HITMAN-Coop-Party-Preview.exe.
+5. Launch HITMAN. Load ICA Facility > Freeform Training manually on every PC.
+6. Host clicks Host preview. Guests enter the host's public IP and click Join preview.
+7. Check the roster contains everyone. Each person clicks I'm ready.
+8. Host clicks Start preview. The roster must show everyone in the preview.
+
+PREVIEW 2 FIX: remote stand-ins are excluded from the native combat picker. If a stand-in is still knocked down, this PC requires a Freeform Training restart. Stop/Start alone cannot repair that native actor. The launcher displays the fault and blocks readiness until the scene reloads. This prevention fix still needs a real in-game test.
+
+FIRST IN-GAME SMOKE TEST: use the host and ONE friend first. Walk, crouch, vault and change disguise, then stop/restart the preview. If stable, repeat with four players total. Automated tests do not prove the native game will be stable.
+
+DIRECT CONNECTION
+The host forwards UDP 47047 to the host PC. The previous working port forward applies. Guests do not forward ports. Allow HITMAN through Windows Firewall if Windows asks. Steam Offline Mode can be used with Windows networking connected; this preview does not depend on Steam matchmaking or IOI servers. Offline behavior still needs a real-PC check.
+
+STOP / RECONNECT
+Stop preview returns to the lobby and resets readiness. Native mission changes or a disconnect interrupt the preview without claiming a shared mission victory. If a guest loses the host, try Reconnect, then the host stops the interrupted preview and everyone readies again. Reconnecting is not guaranteed after host shutdown.
+After leaving a room, reload Freeform Training before creating or joining a new room so old native stand-ins are cleared. Keep this launcher open while playing. Use these preview controls; the old SDK host/join menu controls the previous backend.
+
+RESTORE / REMOVE
+Close HITMAN and launchers. START-HERE choice 2 restores the exact backed-up Foundation 4.1 installer and launcher. Both PCs must restore to play Foundation 4.1 together. Choice 4 then opens the restored Foundation 4.1 launcher. Choice 1 switches back to this preview.
+Choice 3 removes tracked co-op files and restores original loader files where backups exist. Game saves and game archives are not modified. The package includes the verified Foundation 4.1 ZIP, with its hash checked before restoring.
+
+No Visual Studio or developer tools are needed. Windows co-op notification sounds stay disabled, crash-report prompts are disabled, and automatic upstream updates are off for this test build.
+Logs: HITMAN 3/Retail/mods/HitmanCoop.log
+Original co-op by Jordan Rodrigues. ZHMModSDK by OrfeasZ and contributors.
+
+REGRESSION TEST FOR PREVIEW 2
+Use two or three PCs; a fourth is optional. Every PC must install Preview 2 and restart HITMAN. In Freeform Training, host/join, ready, then Start preview. Walk around a teammate and try vaulting beside and toward them from both directions. Check no Subdue/Eliminate prompt targets a teammate. Confirm a normal NPC still offers the expected interaction (NPC outcomes remain separate on each PC). Stop/ready/start twice, then test a guest leaving, reloading Freeform, rejoining and readying again. Save logs from every PC if a teammate falls, flickers, or any game crashes. If the launcher requests a mission restart, use HITMAN Restart Mission on the affected PC; the host stops the interrupted preview, then everyone readies and starts again.
