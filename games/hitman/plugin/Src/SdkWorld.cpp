@@ -2623,28 +2623,43 @@ void SdkWorld::StepSoloNpcHold(NpcActionPhase::Boundary& boundary) {
     };
     if (m_SoloHoldPhase==0 && m_SoloHoldRequested) {
         m_SoloHoldRequested=false;
-        if (m_SoloHoldUsed || NpcMutationGate::CurrentScope() || !Globals::ActorManager) return;
+        if (m_SoloHoldUsed || NpcMutationGate::CurrentScope() || !Globals::ActorManager) {
+            CoopLog::Info("npc-hold","Selection refused: cycle already used, another native scope active, or actor manager unavailable");return;
+        }
         coop::Transform local;
-        if (!GetLocalAvatar(local)) return;
+        if (!GetLocalAvatar(local)) { CoopLog::Info("npc-hold","Selection refused: local player position unavailable");return; }
         ZActor* chosen=nullptr; uint64_t npc=0,birth=0; float closest=8.f;
+        size_t listed=0,invalid=0,down=0,target=0,stale=0,rejected=0,held=0,noJob=0,untracked=0,noSpatial=0,outsideRange=0,eligible=0;
+        float nearest=-1.f;
         for (const auto& entry:Globals::ActorManager->m_activatedActors) {
+            ++listed;
             auto* actor=entry.m_pInterfaceRef;
-            if (!actor || !entry.m_entityRef || !entry.m_entityRef->GetType() || ActorDown(actor)) continue;
-            const auto* outfit=actor->m_rOutfit.m_pInterfaceRef;
-            if (!outfit || outfit->m_eActorType!=EActorType::eAT_Guard) continue;
+            if (!actor || !entry.m_entityRef || !entry.m_entityRef->GetType()) { ++invalid;continue; }
+            if (ActorDown(actor)) { ++down;continue; }
+            // The entrance NPC may be a mechanic/civilian. This is a native
+            // actor-control test, so outfit role is not an eligibility condition.
+            if (actor->m_bContractTarget) { ++target;continue; }
             const auto id=entry.m_entityRef->GetType()->m_nEntityID;
             const auto born=m_NpcActorBirths.Find(actor);
-            if (!born || born<=m_NpcJobAttachmentMark) continue; // Fresh native restart required.
+            if (!born || born<=m_NpcJobAttachmentMark) { ++stale;continue; } // Fresh native restart required.
             const auto observation=boundary.Observe(actor,id,born);
-            if (!observation.valid || !observation.native.coherent() || observation.native.held() || !observation.native.job) continue;
+            if (!observation.valid || !observation.native.coherent()) { ++rejected;continue; }
+            if (observation.native.held()) { ++held;continue; }
+            if (!observation.native.job) { ++noJob;continue; }
             const auto jobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(observation.native.unit));
-            if (!jobs.healthy || !jobs.observed || jobs.outstanding!=1) continue;
+            if (!jobs.healthy || !jobs.observed || jobs.outstanding!=1) { ++untracked;continue; }
             const auto* spatial=entry.m_entityRef.QueryInterface<ZSpatialEntity>();
-            if (!spatial) continue;
+            if (!spatial) { ++noSpatial;continue; }
             const auto distance=coop::Distance(local.pos,ToTransform(spatial->GetObjectToWorldMatrix()).pos);
+            if (nearest<0.f || distance<nearest) nearest=distance;
+            if (!(distance<8.f)) { ++outsideRange;continue; }
+            ++eligible;
             if (distance<closest) { closest=distance;chosen=actor;npc=id;birth=born; }
         }
-        if (!chosen) { CoopLog::Info("npc-hold","No eligible nearby guard: restart once after attachment, approach a conscious guard within 8m, then press F8 again");return; }
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold",
+            "Selection audit: listed=%zu invalid=%zu down=%zu target=%zu stale-birth=%zu rejected=%zu game-held=%zu no-job=%zu untracked-job=%zu no-spatial=%zu outside-8m=%zu eligible=%zu nearest-eligible-distance=%.2fm; guards and civilians allowed",
+            listed,invalid,down,target,stale,rejected,held,noJob,untracked,noSpatial,outsideRange,eligible,nearest);
+        if (!chosen) { CoopLog::Info("npc-hold","No eligible nearby NPC selected; see selection audit for the exact refusal stage. No native hold applied");return; }
         const auto scope=NpcMutationGate::Begin();
         if (!scope || !NpcMutationGate::Bind(scope,npc,chosen,birth,1) || !NpcHoldArbiter::Watch(chosen)) {
             if (scope) NpcMutationGate::Clear(scope);
@@ -2652,7 +2667,7 @@ void SdkWorld::StepSoloNpcHold(NpcActionPhase::Boundary& boundary) {
         }
         m_SoloHoldTicket=NpcMutationGate::Find(scope,npc,birth,1);
         m_SoloHoldUsed=true; m_SoloHoldPhase=1; m_SoloHoldDeadline=m_Now+5.;
-        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Selected nearest guard %s at %.1fm; birth=%llu; one cycle only",NpcLabel(chosen).c_str(),closest,birth);
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Selected nearest NPC %s at %.1fm; birth=%llu; one cycle only",NpcLabel(chosen).c_str(),closest,birth);
     }
     if (m_SoloHoldPhase<1 || m_SoloHoldPhase>3) return;
     const auto& ticket=m_SoloHoldTicket;

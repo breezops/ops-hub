@@ -611,3 +611,13 @@ All 28 native test processes pass, including retained Windows-fiber cancellation
 wrong stack/identity, shutdown during control, external and recursive holds, and
 integrated cancellation/ownership/script-collision refusal. Hold-1 is a first
 local in-game diagnostic, not a guest preparation or physical-retirement binding.
+
+Hold-1's first live attempt attached all three hooks and received two F8 presses,
+but selected no NPC. No native hold/resume cycle ran. The user was beside the
+stationary entrance NPC working over oil. A civilian/mechanic outfit role may
+have failed the guard-only filter, but the old log did not identify the stage.
+Hold-2 accepts conscious non-target native NPCs regardless of outfit role and
+logs every selection rejection stage plus nearest eligible distance. Identity,
+fresh birth, scheduled slot, observed-job and hold-ownership checks are unchanged.
+The existing standing NPC is sufficient; walking visuals are not required to
+verify native job completion/resume. No knockout or further map access is needed.
