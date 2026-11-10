@@ -227,9 +227,14 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
         const void* body = avatar.actor->m_pAnimatedActor;
         const void* skeleton = *reinterpret_cast<void* const*>(static_cast<const uint8_t*>(animator) + 0x50);
         const uint32_t bones = AvatarBoneCount(avatar);
-        const bool changed = avatar.partnerRig == 1 && avatar.skeletonRematches < 4 &&
-            ((avatar.rigBody && avatar.rigBody != body) ||
-             (avatar.rigSkeleton && avatar.rigSkeleton != skeleton) || (avatar.rigBones && bones && avatar.rigBones != bones));
+        // Bone-count changes always need a fresh map: the worker correctly
+        // rejects the old map, so suppressing this after several changes would
+        // leave the player in native pose indefinitely. Only pointer churn is
+        // capped; ordinary pose traffic cannot select a new native bone count.
+        const bool changed = avatar.partnerRig == 1 &&
+            ((avatar.rigBones && bones && avatar.rigBones != bones) ||
+             (avatar.skeletonRematches < 4 && ((avatar.rigBody && avatar.rigBody != body) ||
+              (avatar.rigSkeleton && avatar.rigSkeleton != skeleton))));
         if (changed) {
             ++avatar.skeletonRematches;
             ResetPartnerRig(avatar, avatar.appearance.KeepVisible() ? 0.0 : 0.3);
