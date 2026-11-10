@@ -180,6 +180,7 @@ struct Sites {
     std::array<uint8_t,4096> text{};
     static constexpr size_t Caller=64,ActionCaller=104,Loop=512,Descriptor=640,Job=1536;
     static constexpr size_t Cancel=2048,Cleanup=2304,Dispatch=2560;
+    static constexpr size_t ActorControl=3000;
     void Put(size_t at,std::initializer_list<uint8_t> bytes) {
         std::copy(bytes.begin(),bytes.end(),text.begin()+at);
     }
@@ -221,6 +222,16 @@ struct Sites {
     CrashGuards::NpcActionSites ResolveNative() {
         const auto from=reinterpret_cast<uintptr_t>(text.data());
         return CrashGuardsTest::ActionSitesInText(from,from+text.size());
+    }
+    void AddActorControl() {
+        Put(ActorControl,{0x48,0x89,0x5c,0x24,8,0x57,0x48,0x83,0xec,0x20,0x44,0x0f,0xb6,0x81,0x7d,0x11,0,0,0x0f,0xb6,0xc2,0xc0,0xe0,6,0x41,0x80,0xe0,0xbf,0x44,0x0a,0xc0,0x48,0x8b,0xd9,0x48,0x63,0x81,0x9c,0x11,0,0,0x0f,0xb6,0xfa,0x44,0x88,0x81,0x7d,0x11,0,0,0x48,0x69,0xc8,0xf8,0,0,0,0x48,0x8d,5,0,0,0,0,0x48,0x83,0x7c,1,0x10,0,0x74,0x27});
+        Rel(ActorControl+61,1900);
+        Put(ActorControl+73,{0x41,0xc0,0xe8,6,0x48,0x83,0xc1,8,0x48,3,0xc8,0x44,0x32,0x41,0x2c,0x41,0x80,0xe0,1,0x44,0x30,0x41,0x2c,0xf6,0x41,0x2c,1,0x74,0x0a,0xba,4,0,0,0,0xe8,0,0,0,0});
+        Rel(ActorControl+108,Cancel);
+    }
+    CrashGuards::NpcBehaviorSites ResolveBehavior() {
+        const auto from=reinterpret_cast<uintptr_t>(text.data());
+        return CrashGuardsTest::BehaviorSitesInText(from,from+text.size());
     }
 };
 }
@@ -274,4 +285,26 @@ TEST(NpcActionSites_UnknownCancellationStatesOrAmbiguousCodeCannotBeUsed) {
     CHECK(!sites.ResolveNative());
     sites.text[Sites::Dispatch+64]=0xcc; CHECK(bool(sites.ResolveNative()));
     sites.text[Sites::Cleanup]=0xcc; CHECK(!sites.ResolveNative());
+}
+
+TEST(NpcBehaviorSites_ActorControlMustUseTheSameUnitTableAndCancellation) {
+    Sites sites; sites.AddCancellation(); CHECK(!sites.ResolveBehavior());
+    sites.AddActorControl();
+    const auto result=sites.ResolveBehavior(); REQUIRE(bool(result));
+    CHECK(result.actorControl==sites.text.data()+Sites::ActorControl);
+    CHECK(result.table==sites.text.data()+1900);
+    sites.Rel(Sites::ActorControl+61,1908); CHECK(!sites.ResolveBehavior());
+    sites.Rel(Sites::ActorControl+61,1900);
+    sites.Rel(Sites::ActorControl+108,Sites::Cancel+1); CHECK(!sites.ResolveBehavior());
+    sites.Rel(Sites::ActorControl+108,Sites::Cancel); CHECK(bool(sites.ResolveBehavior()));
+}
+
+TEST(NpcBehaviorSites_ChangedActorLayoutOrUnitFlagCannotResolve) {
+    Sites sites; sites.AddCancellation(); sites.AddActorControl(); REQUIRE(bool(sites.ResolveBehavior()));
+    sites.text[Sites::ActorControl+38]=0x12; CHECK(!sites.ResolveBehavior());
+    sites.text[Sites::ActorControl+38]=0x11;
+    sites.text[Sites::ActorControl+73+14]=0x2d; CHECK(!sites.ResolveBehavior());
+    sites.text[Sites::ActorControl+73+14]=0x2c; CHECK(bool(sites.ResolveBehavior()));
+    std::memcpy(sites.text.data()+Sites::ActorControl+128,sites.text.data()+Sites::ActorControl,112);
+    CHECK(!sites.ResolveBehavior());
 }

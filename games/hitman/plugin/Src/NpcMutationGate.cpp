@@ -195,5 +195,16 @@ NpcMutationGate::Hit::Hit(void* actor) {
     m_Blocked=BlocksDamage(actor);
 }
 NpcMutationGate::Hit::~Hit() { if(m_Admitted) g_Ingress.fetch_sub(1,std::memory_order_release); }
+NpcMutationGate::Pin::Pin(const Ticket& ticket) {
+    auto state=g_Ingress.load(std::memory_order_acquire);
+    while (!(state&WriterBit) && state<WriterBit-1) {
+        if (g_Ingress.compare_exchange_weak(state,state+1,std::memory_order_acq_rel)) {
+            { std::lock_guard lock(g_Mutex); m_Active=Current(ticket); }
+            if (!m_Active) g_Ingress.fetch_sub(1,std::memory_order_release);
+            return;
+        }
+    }
+}
+NpcMutationGate::Pin::~Pin() { if (m_Active) g_Ingress.fetch_sub(1,std::memory_order_release); }
 std::atomic<void*>* NpcMutationGate::BlockedSlots() { return g_Blocked; }
 std::atomic<uint32_t>* NpcMutationGate::SlotLimit() { return &g_Limit; }

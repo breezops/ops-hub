@@ -23,6 +23,19 @@ bool Retire(Scope,uint64_t npc,uint64_t birth);
 Ticket Find(Scope,uint64_t npc,uint64_t birth,uint64_t lease);
 Ticket FindActor(void* actor);
 
+// Keeps this exact native binding stable through an internal operation. Unlike
+// Hit, this grants no damage permission. No thread-owned lock spans native code.
+class Pin {
+public:
+    explicit Pin(const Ticket&);
+    Pin(const Pin&)=delete;
+    Pin& operator=(const Pin&)=delete;
+    ~Pin();
+    explicit operator bool() const { return m_Active; }
+private:
+    bool m_Active=false;
+};
+
 class Hit {
 public:
     explicit Hit(void* actor);

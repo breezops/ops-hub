@@ -233,6 +233,56 @@ observe original action return and native teardown completion, and then retire
 the matching actor/scope bindings. A pre-clear callback must not manufacture that
 receipt. Native NPC mode remains disabled until these operations are verified.
 
+### Native per-actor hold/resume primitive
+
+`VerifiedNpcBehaviorSites` extends the cancellation bundle with the game's
+existing actor/bool function. It checks the actor flag/runtime-ID offsets, unit
+stride, live-unit check, unit hold-bit update and call to the same cancellation
+routine, all against the same units table. It leaves the SDK's unknown flag name
+unchanged. Read-only inspection matched this path in installed 3.290.1. Resolve
+the bundle before installing the job probe, whose patch changes the job prefix.
+
+`NpcActionPhase` optionally wraps the action output loop. A callback receives a
+noncopyable permission valid on that native stack only, before original action
+scheduling. `SetHeld` requires an exact scope/birth/lease pin, a supplied fresh
+native identity/lifetime validator, membership in the current enabled-ID span,
+matching runtime ID, unit actor pointer and consistent actor/unit flags. It invokes the existing
+native actor function and verifies identity and state again afterward. A hold
+completes only when both flags agree, the native action/job references are clear
+and the matching job probe has no outstanding call for that unit. A native return
+without those observations remains pending. Resume also requires local ownership
+and a drained operation; callers must separately prove canonical baseline apply
+and authority over any pre-existing native/script hold.
+
+`NpcMutationGate::Pin` protects binding metadata through the whole native call
+without a thread-owned lock or granting damage permission. No such lock or TLS
+spans cancellation or a native stack switch. The output-loop hook always calls
+the original loop with the original span, including after a callback fault.
+Unhealthy status latches and refuses reinstallation; removal refuses observed
+in-flight phase/action calls or a modified patch. Externally established native
+quiescence and callback lifetime are still required for install/remove/unload.
+
+Seven isolated phase fixtures exercise the actual hook/trampoline and modeled
+actor function: identity refusal, changed native identity after return, partial
+state, local-owner resume, alternate-stack permission refusal, fault handling
+and a suspended job. The latter uses a Windows fiber to suspend the original job,
+then resumes it through modeled cancellation and confirms it returned before
+reporting completion. The existing alternate-stack fixture separately covers
+the game's custom-context property. Two additional resolver tests reject changed
+actor layouts/flags, unit tables, cancellation targets and ambiguous code. The
+full suite is 260 tests: 203 core, 10 pose, 6 guards, 34 native NPC and 7 phase
+fixtures. SDK-free CTest now runs four executables; isolated processes preserve
+the probes' one-native-entry lifetime invariant.
+
+This primitive is **not installed by the playable preview**, and no production
+SDK validation callback or NPC world adapter calls it yet. The action loop is a
+candidate engine boundary; the live actor-list/lifetime conditions and native
+function's animation-controller effects still need validation. Pool admission,
+external script hold arbitration, irreversible damage/interaction paths, native
+contract acquisition, canonical apply and actual scene-retirement confirmation
+remain required before native shared-NPC mode can be enabled. An operation's
+completed result is not by itself a scene preparation or retirement receipt.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.

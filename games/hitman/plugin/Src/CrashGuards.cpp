@@ -436,6 +436,21 @@ CrashGuards::NpcActionSites ResolveActionSites(uintptr_t from,uintptr_t to) {
     if (dispatchCalls!=2) return {};
     return {reinterpret_cast<void*>(loop),job,reinterpret_cast<void*>(cancel),reinterpret_cast<void*>(cleanup),reinterpret_cast<void*>(dispatch)};
 }
+CrashGuards::NpcBehaviorSites ResolveBehaviorSites(uintptr_t from,uintptr_t to) {
+    const auto actions=ResolveActionSites(from,to);
+    if (!actions) return {};
+    const auto actor=FindUnique(
+        "48 89 5C 24 08 57 48 83 EC 20 44 0F B6 81 7D 11 00 00 0F B6 C2 C0 E0 06 41 80 E0 BF 44 0A C0 48 8B D9 48 63 81 9C 11 00 00 0F B6 FA 44 88 81 7D 11 00 00 48 69 C8 F8 00 00 00 48 8D 05 ?? ?? ?? ?? 48 83 7C 01 10 00 74 27",
+        from,to);
+    if (!actor || to-actor<112) return {};
+    if (FindUnique(
+        "41 C0 E8 06 48 83 C1 08 48 03 C8 44 32 41 2C 41 80 E0 01 44 30 41 2C F6 41 2C 01 74 0A BA 04 00 00 00 E8 ?? ?? ?? ??",
+        actor,actor+112)!=actor+73 || RelTarget(actor+108)!=reinterpret_cast<uintptr_t>(actions.cancel)) return {};
+    const auto caller=FindUnique(c_UnitsCaller,from,to);
+    const auto table=RelTarget(actor+61);
+    if (!caller || table!=RelTarget(caller+3)) return {};
+    return {actions,reinterpret_cast<void*>(actor),reinterpret_cast<void*>(table)};
+}
 }
 void* CrashGuards::VerifiedNpcActionJob() {
     uintptr_t from=0,to=0;
@@ -445,12 +460,19 @@ CrashGuards::NpcActionSites CrashGuards::VerifiedNpcActionSites() {
     uintptr_t from=0,to=0;
     return TextRange(from,to) ? ResolveActionSites(from,to) : NpcActionSites{};
 }
+CrashGuards::NpcBehaviorSites CrashGuards::VerifiedNpcBehaviorSites() {
+    uintptr_t from=0,to=0;
+    return TextRange(from,to) ? ResolveBehaviorSites(from,to) : NpcBehaviorSites{};
+}
 #ifdef COOP_GUARD_TESTS
 void* CrashGuardsTest::ActionJobInText(uintptr_t from,uintptr_t to) {
     return ResolveActionJob(from,to);
 }
 CrashGuards::NpcActionSites CrashGuardsTest::ActionSitesInText(uintptr_t from,uintptr_t to) {
     return ResolveActionSites(from,to);
+}
+CrashGuards::NpcBehaviorSites CrashGuardsTest::BehaviorSitesInText(uintptr_t from,uintptr_t to) {
+    return ResolveBehaviorSites(from,to);
 }
 #endif
 

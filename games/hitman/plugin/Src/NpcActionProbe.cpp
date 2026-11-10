@@ -115,6 +115,11 @@ bool NpcActionProbe::Install(void* entry) {
     g_Installed=true; return true;
 }
 bool NpcActionProbe::Installed() { return g_Installed; }
+bool NpcActionProbe::InstalledFor(const void* entry) {
+    std::lock_guard install(g_Install);
+    std::array<uint8_t,16> actual;
+    return g_Installed && entry==g_Entry && Read(g_Entry,actual) && actual==Patch();
+}
 NpcActionProbe::Stats NpcActionProbe::Diagnostics() {
     std::lock_guard lock(g_Records);
     return {g_Entered,g_Returned,g_Callers.load(),g_Installed.load(),g_Healthy && g_Installed.load()};

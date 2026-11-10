@@ -17,6 +17,7 @@ struct UnitStats {
 // external native quiescence. No automatic installation in the player preview.
 bool Install(void* verifiedEntry);
 bool Installed();
+bool InstalledFor(const void* entry);
 Stats Diagnostics();
 // Only compares unit addresses; never reads native actor/unit memory. A zero
 // count is NOT preparation proof: scheduling and other action paths remain open.
