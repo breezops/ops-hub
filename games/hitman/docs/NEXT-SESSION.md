@@ -50,7 +50,7 @@ worker barrier. Next: identify/verify a native lifetime boundary using local
 engine code/call relationships and read-only analysis before binding retirement
 confirmation, birth pruning or shared guest admission. Preserve Hold-3/life.1.
 
-## Prepared checkpoint: Lifetime-2 destruction-entry observer
+## Completed live checkpoint: Lifetime-2 destruction-entry observer
 
 OPS0.1.14/native preview.4.life.2, recipe diagnostics/lifetime-2. Check journal
 for final build/package/delivery receipts. Strict constructor/vtable/deleting-
@@ -61,12 +61,20 @@ book/client locks before native body execution. Pinned retained observer; Stop
 detaches/drains pointer callbacks only. Normal/absolute suites each35processes.
 No retirement confirmation, lifetime pin, birth pruning or shared NPC admission.
 
-Next solo startup: Lifetime-2 Install/Repair, Freeformwait15sreplyinmission.
-Confirm destruction plus job/action observers attached and83healthy identities.
-HOLD/F8OFF. Then nativeRestart/walk20s twice/quit. Inspect destructor entry/return,
-invalidated/unknown counts, cut drainage and fresh83NPC audits. This differs from
-Lifetime-1 by observing actual destructor-entry identity invalidation. Do not
-infer physical scene retirement from counts; keep all proven packages preserved.
+Live Lifetime-2 passed both native restarts. Destructor audits99entered/99returned/
+99invalidated/0unknown then198/198/198/0. All3observers attached. Eleven paired
+healthy audits (5+3+3),83matched/no rejected/untracked/conflicting IDs. Fresh
+constructor marks99->198->297. Valid old-job cuts3/4pending0; separate restart
+zero samples94entries/94returns and184/184. New missions settled83jobs; final
+271entries/188returns/83outstanding, loop5980. Full log/result saved at
+research/checks/playtest-22-solo-lifetime-2. Game closed. Do not repeat unchanged.
+
+This validates pointer-only destruction ENTRY invalidation live; global body
+return counts do not prove exact per-birth completion, optional free, worker
+barrier or whole-scene retirement. Next build per-identity lifetime/admission
+evidence around the proven birth invalidation/job cuts before confirming native
+scene retirement or enabling restricted guest NPC preparation. No pruning or
+ConfirmNpcSceneRetired binding from these counters. Preserve all prior packages.
 
 ## Immediate engineering step — solo remains sufficient
 
