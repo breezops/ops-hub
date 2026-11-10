@@ -28,7 +28,7 @@ local function tick(state)
     end
     local world=pc:GetWorld():GetFullName()
     if state.world and state.world~=world then
-        state.requested=false;state.native_requested=false;state.explicit=false;state.owned=false;state.menu_until=nil
+        state.requested=false;state.native_requested=false;state.explicit=false;state.owned=false;state.menu_until=nil;state.had_menu=false;state.target=nil
     end
     state.world=world
     -- Native C++ callers can bypass a reflected-function hook. Read the
@@ -46,20 +46,15 @@ local function tick(state)
         end)
     end
     local now=Context.gameplay():GetRealTimeSeconds(pc)
-    -- A focus-loss/native menu is not an Escape vote. Only the native pause
-    -- input hook arms intent. Clear unsolicited menus in the co-op session.
-    if menu and not state.explicit then
-        for _,widget in ipairs(menus) do widget:RemoveFromParent() end
-        local manager=pc.m_gameStateManager
-        if not valid(manager) then manager=Context.singleton("GameStateManager") end
-        if valid(manager) and manager:IsSuspended() then manager:UnsuspendGame() end
-        state.native_requested=false;state.owned=true;menu=false
+    -- Disable focus auto-pause through settings, never by repeatedly closing
+    -- native menus or undoing suspensions owned by loading/dialogue/game code.
+    if state.had_menu and not menu then
+        state.explicit=false;state.native_requested=false
     end
-    if menu then state.menu_until=now+0.25 end
-    local menu_active=menu or now<(state.menu_until or 0)
-    -- Once the menu exists, its lifecycle owns local intent. The native
-    -- suspension flag can change independently while the pause UI is open.
-    if menu then state.native_requested=false end
+    state.had_menu=menu
+    if menu and state.explicit then state.menu_until=now+0.25 end
+    local menu_active=(menu and state.explicit) or now<(state.menu_until or 0)
+    if menu and state.explicit then state.native_requested=false end
     if menu_active then state.owned=true end
     state.requested=menu_active or state.native_requested or false
     write_request(state)
@@ -88,18 +83,17 @@ local function tick(state)
     local utility=Context.gameplay()
     local paused=utility:IsGamePaused(pc)
     state.observed_menu=menu;state.observed_pause=paused;state.desired=desired
-    local cinematic=StrayCoopCinematics
-    if paused and not desired and not state.explicit and cat and cat:IsInNormalLocomotion()
-        and not pc:IsIngameCinematicModeEnabled() and not (cinematic and cinematic.waiting) then
-        -- Native focus-loss pause can bypass SuspendGame's reflected hook.
-        -- Reclaim it only during ordinary controllable gameplay.
-        state.owned=true
+    if state.target~=desired then
+        state.target=desired;state.attempts=0;state.retry_at=0
     end
-    if desired and not paused then
-        if utility:SetGamePaused(pc,true) then state.owned=true end
-    elseif not desired and state.owned then
-        if not paused or utility:SetGamePaused(pc,false) then state.owned=false end
-    end
+    -- Failed or externally contested state changes must not become a 20 Hz
+    -- toggle loop. Retry at most three times for each actual intent change.
+    if paused~=desired and (desired or state.owned) and (state.attempts or 0)<3
+        and now>=(state.retry_at or 0) then
+        state.attempts=(state.attempts or 0)+1;state.retry_at=now+0.5
+        if utility:SetGamePaused(pc,desired) then state.owned=desired end
+        if state.attempts==3 then log("Pause change retry limit reached; waiting for new pause intent") end
+    elseif not desired and not paused then state.owned=false end
     if desired~=state.effective then
         state.effective=desired
         log((desired and "Shared simulation paused" or "Shared simulation resumed")
@@ -122,7 +116,7 @@ function M.start()
             if s and s.running and valid(context:get()) and reason:get()==2 then
                 -- This pre-hook also owns the engine pause the native menu is
                 -- about to install, so its final release cannot strand it.
-                s.owned=true
+                if s.explicit then s.owned=true end
                 s.native_requested=s.explicit or false;s.requested=s.native_requested
                 s.world=context:get():GetWorld():GetFullName()
                 write_request(s)

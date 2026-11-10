@@ -36,3 +36,11 @@ the local cat; public StartDialog is guarded by that binding and was not forced.
 A normal player-initiated conversation is needed to separate fixture setup from
 receiver lifecycle problems. The scheduler smoke ran beyond the previous
 65–90 second crash interval without child exit, but is not a stability guarantee.
+
+Pause-loop correction: remove repeated unsolicited-menu dismissal and unowned
+native pause recovery. Focus loss is handled by AutoPauseEnabled=false only.
+Only explicit native pause input and connected peer votes request shared pause.
+Engine pause changes retry at most three times, 500 ms apart, per intent change.
+Regression exercises 300 polls for untouched native menus and 300 failed pause
+polls (exactly three calls). All 58 tests pass. Physical Escape/Alt-Tab behavior
+remains unverified; this candidate is not published to the Stray updater.

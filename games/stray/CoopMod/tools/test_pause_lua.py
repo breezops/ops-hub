@@ -39,8 +39,13 @@ class PauseMenuTests(unittest.TestCase):
             files["Mods/StrayCoop/remote.tsv"]="STRAYCOOP\\t6\\t1\\t1\\t1\\n"
             -- Cinematic/internal suspension is not a player pause request.
             suspended=true;poll();assert(not paused)
-            -- Focus loss may create a native menu, but cannot cast a pause vote.
-            suspended=false;menu=true;poll();assert(not paused and not menu)
+            -- Unknown native menus are never dismissed or treated as pause input.
+            suspended=false;menu=true;poll();assert(not paused and menu)
+            -- Unowned native pause must stay untouched through hundreds of ticks.
+            paused=true
+            for i=1,300 do poll() end
+            assert(paused and menu)
+            paused=false;menu=false;poll()
             -- Actual Escape UI can exist while the native manager says false.
             hooks["/Script/Hk_project.GameStateManager:_OnMenuStartPressed"][1]()
             suspended=false;menu=true;poll()
@@ -55,10 +60,20 @@ class PauseMenuTests(unittest.TestCase):
             files["Mods/StrayCoop/pause-remote.tsv"]="PAUSE\\t3\\t1\\t0\\t1\\n"
             poll();assert(paused)
             clock=106;poll();assert(not paused)
-            -- A disconnect may release the peer, but never an open local menu.
+            -- A disconnect may release the peer, but never an explicit local menu.
+            hooks["/Script/Hk_project.GameStateManager:_OnMenuStartPressed"][1]()
             menu=true;poll();assert(paused)
             P.stop();assert(paused);assert(settings.AutoPauseEnabled)
             assert(#notices>0 and notices[1]:find("Partner is paused",1,true))
+            -- A rejected native change cannot cause continuous pause calls.
+            files["Mods/StrayCoop/pause-remote.tsv"]=""
+            menu=false;paused=false;P.start();poll();calls=0
+            utility.SetGamePaused=function(self,p,value) calls=calls+1;return false end
+            hooks["/Script/Hk_project.GameStateManager:_OnMenuStartPressed"][1]()
+            menu=true
+            for i=1,300 do clock=clock+.05;poll() end
+            assert(calls==3,"pause retries: "..calls.." errors="..tostring(StrayCoopPause.errors).." explicit="..tostring(StrayCoopPause.explicit).." desired="..tostring(StrayCoopPause.desired))
+            P.stop()
         ''')
 
 if __name__=='__main__': unittest.main(verbosity=2)
