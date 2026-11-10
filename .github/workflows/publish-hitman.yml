@@ -1,0 +1,34 @@
+name: Publish HITMAN release to OPS HUB
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Published HITMAN tag, e.g. hitman-v0.1.0 (safe to retry)'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: ops-hub-hitman-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'hitman-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify, upload ZIP, then publish manifest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HITMAN_PUBLISH_TOKEN: ${{ secrets.HITMAN_PUBLISH_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+        run: python tools/publish-hitman.py
