@@ -27,7 +27,7 @@ admission before wiring restricted guest NPC authority. Keep the proven solo
 primitive and normal multiplayer package preserved. Do not repeat the unchanged
 F8 test; another test should address a specific new boundary or regression.
 
-## Next private checkpoint: Lifetime-1 read-only restart evidence
+## Completed private checkpoint: Lifetime-1 read-only restart evidence
 
 OPS0.1.13 / native preview.4.life.1, recipe diagnostics/lifetime-1. Check journal
 for completed build/package/delivery receipts before prompting. One observed
@@ -37,11 +37,18 @@ No ClearScene CallOriginal wrapper: SDK holds a shared detour-list lock inside
 plugin callbacks; keep Continue and unchanged native dispatch. Native-return and
 physical retirement remain UNKNOWN. No ConfirmNpcSceneRetired/birth pruning.
 
-Solo startup check, then two native restarts with 20 seconds walking after each,
-quit normally. No F8/knockout/disguise/host/join. Lifetime-1 has hold diagnostic
-OFF and only job/action observers should attach. Check old-observed-pending for
-each valid cut independently of new mission jobs and healthy fresh identities.
-Never repeat the already-passed Hold-3 cycle unless a regression requires it.
+Live run passed both native restarts. Eleven paired action/job audits (5+3+3)
+matched all83 NPCs with healthy identities and no rejected/untracked/conflicting
+flags. Constructor marks99 ->198 ->297. Valid cuts3/4 each reported old observed
+pending0 with healthy book/probe; frontend cuts1/2 stayed invalid as expected.
+Native restart first samples94entered/94returned/0outstanding and184/184/0;
+each new mission settled83jobs. Final271entered/188returned/83outstanding,
+loop5992. Saved research/checks/playtest-21-solo-lifetime-1/Host.log/result.json.
+Game closed. Do not repeat this unchanged diagnostic. This is observed job
+return evidence, not actor destruction, native ClearScene return or an engine
+worker barrier. Next: identify/verify a native lifetime boundary using local
+engine code/call relationships and read-only analysis before binding retirement
+confirmation, birth pruning or shared guest admission. Preserve Hold-3/life.1.
 
 ## Immediate engineering step — solo remains sufficient
 
