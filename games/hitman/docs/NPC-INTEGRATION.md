@@ -1,5 +1,9 @@
 # Shared NPC integration — development stage
 
+The intended persistent party and host-controlled mission flow is specified in
+[SESSION-LOOP.md](SESSION-LOOP.md). Manual preview readiness is temporary; native
+preparation and baseline checks must also support automatic admission.
+
 The public player build remains OPS 0.1.3 / native Preview 4. It passed the
 two-PC movement/turning tests; brief post-disguise gliding remains a known limit.
 Its immutable package is preserved. This branch adds source and test integration,
