@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include "MinHookDiagnostics.h"
 
 // Observation only: this does not block scheduling, cancel a job or freeze an NPC.
 // The native action may yield onto another stack before its function returns.
@@ -25,6 +26,7 @@ struct InstallReport {
     const char* stage="not-attempted";
     int hookStatus=0;
     uint32_t lastError=0;
+    MinHookDiagnostics::Report allocations;
 };
 InstallReport Installation();
 bool Installed();

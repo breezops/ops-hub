@@ -1451,6 +1451,16 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const bool jobsInstalled=sites && NpcActionProbe::InstallRetained(sites.actions.job);
         if (jobsInstalled) m_World.MarkPartyNpcJobAttachment();
         const auto jobReport=NpcActionProbe::Installation();
+        const auto traceAllocation=[](const char* observer,const MinHookDiagnostics::Report& a,int status) {
+            if (status==9) CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
+                "%s creation allocator evidence=%s queries=%llu free-region-queries=%llu query-failures=%llu last-query-error=%u virtual-attempts=%llu virtual-successes=%llu virtual-failures=%llu last-virtual-bytes=%llu last-virtual-error=%u heap-attempts=%llu heap-failures=%llu; tracing only; allocation policy unchanged",
+                observer,MinHookDiagnostics::AllocationPath(a),a.queries,a.freeRegions,a.queryFailures,a.queryError,
+                a.virtualAttempts,a.virtualSuccesses,a.virtualFailures,a.lastVirtualBytes,a.virtualError,a.heapAttempts,a.heapFailures);
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
+                "%s read-only near-range scan: complete=%d free-bytes=%llu aligned-4K-candidates=%llu largest-free-extent=%llu query-error=%u; aligned candidates are observations, not successful allocations",
+                observer,a.nearScanComplete?1:0,a.nearFreeBytes,a.nearAlignedCandidates,a.nearLargestFreeExtent,a.nearScanError);
+        };
+        traceAllocation("job",jobReport.allocations,jobReport.hookStatus);
         CoopLog::Fmt(coop::LogLevel::Info,"npc-job",
             "READ-ONLY job attachment: installed=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; pre-existing jobs UNKNOWN; retained until process exit; NPC control OFF",
             jobsInstalled?1:0,jobReport.stage,jobReport.hookStatus,jobReport.lastError);
@@ -1467,6 +1477,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
             ? "Read-only action observer installed; native controls and mutation scopes OFF; game restart required to reload this diagnostic"
             : "Read-only action observer unavailable; no NPC controls enabled");
         const auto report=NpcActionObserver::Installation();
+        traceAllocation("action",report.allocations,report.hookStatus);
         CoopLog::Fmt(coop::LogLevel::Info,"npc-act",
             "Observer installation after Freeform load: sites-found=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; NPC control OFF",
             sites?1:0,NpcActionObserver::StageName(report.stage),report.hookStatus,report.lastError);

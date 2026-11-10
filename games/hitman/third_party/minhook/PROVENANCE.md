@@ -14,3 +14,12 @@ the process can still execute native continuations. Thread-aware entry patching
 is not proof that native jobs drained or that NPC state can safely be mutated.
 
 Ship LICENSE.txt with binary packages, in addition to including these sources.
+
+The local CMake build force-includes native/MinHookAllocationCalls.h in vendor
+C translation units. It redirects only this instance's VirtualAlloc,
+VirtualQuery, HeapAlloc and HeapReAlloc calls through native/MinHookDiagnostics.
+Vendor source files remain unchanged. Synchronous hook creation captures fixed
+counters and immediate VirtualAlloc/VirtualQuery errors without allocating or
+changing the allocator policy; native yielding jobs are never traced this way.
+Allocation fault injection is compiled only into native fixtures, not player
+builds. No process addresses are logged by this tracing.

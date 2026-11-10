@@ -122,7 +122,7 @@ bool NpcActionProbe::Install(void* entry) {
 bool NpcActionProbe::InstallRetained(void* entry) {
     std::lock_guard install(g_Install);
     const auto refuse=[](const char* stage,int status=0,uint32_t error=0) {
-        g_Report={stage,status,error}; return false;
+        g_Report.stage=stage; g_Report.hookStatus=status; g_Report.lastError=error; return false;
     };
     if (g_RetainedAttempted || g_Entry || g_Installed || g_Callers.load()) return refuse("already-attempted-or-custom");
     std::array<uint8_t,16> bytes{};
@@ -135,7 +135,7 @@ bool NpcActionProbe::InstallRetained(void* entry) {
     const auto init=MH_Initialize();
     if (init!=MH_OK && init!=MH_ERROR_ALREADY_INITIALIZED) return refuse("library-init",init,GetLastError());
     void* original=nullptr;
-    const auto created=MH_CreateHook(entry,reinterpret_cast<void*>(&Worker),&original);
+    const auto created=MinHookDiagnostics::Create(entry,reinterpret_cast<void*>(&Worker),&original,g_Report.allocations);
     if (created!=MH_OK) return refuse("hook-create",created,GetLastError());
     if (!original) return refuse("missing-original");
     g_Retained=true; g_Entry=entry;
@@ -149,7 +149,7 @@ bool NpcActionProbe::InstallRetained(void* entry) {
         { std::lock_guard records(g_Records); g_Healthy=false; }
         return refuse("patch-read",0,GetLastError());
     }
-    g_Report={"installed",0,0}; return true;
+    g_Report.stage="installed"; g_Report.hookStatus=0; g_Report.lastError=0; return true;
 }
 NpcActionProbe::InstallReport NpcActionProbe::Installation() {
     std::lock_guard lock(g_Install); return g_Report;

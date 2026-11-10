@@ -509,3 +509,30 @@ does not distinguish those paths. Diagnose actual allocator failures/usable
 address ranges before changing hook installation or requesting another full
 mission test. One earlier action.2 success does not establish reliable delayed
 attachment; the next live check should confirm attachment before actions.
+
+### Creation allocation diagnostics (private action.4)
+
+`native/MinHookDiagnostics` traces actual VirtualAlloc/VirtualQuery and heap
+allocation calls during this instance's synchronous hook creation. A forced
+include on each vendor C source redirects the API names; the vendor's fourteen
+pinned source/header/license files remain byte-identical. Per-source flags are
+required because Visual Studio cannot reliably express mixed-target C/C++
+language-specific flags at target level. The wrapper implementation compiles
+separately without aliases, and never redirects other modules' imports.
+
+Fixed per-thread capture counters do not allocate or lock. They survive the
+installation refusal report and record immediate VirtualAlloc/VirtualQuery
+errors. Heap failures carry counts rather than an invented Win32 error, since
+those APIs do not guarantee one. No TLS capture spans native action jobs: hook
+creation is synchronous, and normal job execution uses its existing bookkeeping.
+On error 9 only, a separate bounded, read-only query walk counts free bytes,
+largest free extent and aligned 4K candidate starts within the pinned allocator's
+1GB range. Candidate counts are observations, not successful allocations.
+The logging includes no process addresses and the allocator policy is unchanged.
+
+Four isolated fixtures verify VirtualAlloc refusal, hook-table HeapAlloc refusal,
+no-candidate refusal, successful creation/trampoline execution after each fault
+is removed, and concurrent independent report capture/reset. All twenty native
+CTest processes pass. Fault injection is compiled only into the SDK-free fixture
+library; it is absent from the player build. This is diagnostic evidence for the
+next startup check, not a claimed fix for the live intermittent allocation error.

@@ -1,6 +1,7 @@
 #pragma once
 #include "CrashGuards.h"
 #include "NpcBehaviorReadback.h"
+#include "MinHookDiagnostics.h"
 #include <array>
 #include <span>
 
@@ -29,7 +30,7 @@ using Callback=void (*)(void*,const View&);
 struct Config { void* context=nullptr; Validate validate=nullptr; Callback callback=nullptr; uint32_t gameThread=0; };
 struct Stats { uint64_t entered=0,callbacks=0,busy=0; bool installed=false,active=false,healthy=false; };
 enum class InstallStage { NotAttempted, InvalidConfig, AlreadyAttempted, EntryRead, EntryMismatch, ModulePin, LibraryInit, HookCreate, MissingOriginal, HookEnable, Installed };
-struct InstallReport { InstallStage stage=InstallStage::NotAttempted; int hookStatus=0; uint32_t lastError=0; };
+struct InstallReport { InstallStage stage=InstallStage::NotAttempted; int hookStatus=0; uint32_t lastError=0; MinHookDiagnostics::Report allocations; };
 InstallReport Installation();
 const char* StageName(InstallStage);
 // Uses MinHook's thread-aware entry patching. Requires the complete untouched

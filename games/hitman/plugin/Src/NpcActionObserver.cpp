@@ -83,7 +83,9 @@ NpcActionObserver::Observation NpcActionObserver::View::Observe(const void* acto
 }
 bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Config config) {
     std::lock_guard install(g_Install);
-    const auto refuse=[](InstallStage stage,int status=0,uint32_t error=0) { g_InstallReport={stage,status,error}; return false; };
+    const auto refuse=[](InstallStage stage,int status=0,uint32_t error=0) {
+        g_InstallReport.stage=stage; g_InstallReport.hookStatus=status; g_InstallReport.lastError=error; return false;
+    };
     if (!sites || !config.callback || !config.validate || !config.gameThread || config.gameThread!=GetCurrentThreadId()) return refuse(InstallStage::InvalidConfig);
     if (g_Attempted) return refuse(InstallStage::AlreadyAttempted);
     std::array<uint8_t,15> bytes{};
@@ -98,7 +100,7 @@ bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Confi
     const auto init=MH_Initialize();
     if (init!=MH_OK && init!=MH_ERROR_ALREADY_INITIALIZED) return refuse(InstallStage::LibraryInit,init,GetLastError());
     void* original=nullptr;
-    const auto created=MH_CreateHook(sites.actions.loop,reinterpret_cast<void*>(&Bridge::Run),&original);
+    const auto created=MinHookDiagnostics::Create(sites.actions.loop,reinterpret_cast<void*>(&Bridge::Run),&original,g_InstallReport.allocations);
     if (created!=MH_OK) return refuse(InstallStage::HookCreate,created,GetLastError());
     if (!original) return refuse(InstallStage::MissingOriginal);
     g_Config=config; g_Table=sites.table;
@@ -108,7 +110,7 @@ bool NpcActionObserver::Install(const CrashGuards::NpcBehaviorSites& sites,Confi
     g_Active=true; g_Installed.store(true,std::memory_order_release);
     const auto enabled=MH_EnableHook(sites.actions.loop);
     if (enabled!=MH_OK) { g_Active=false; g_Installed=false; return refuse(InstallStage::HookEnable,enabled,GetLastError()); }
-    g_InstallReport={InstallStage::Installed,0,0};
+    g_InstallReport.stage=InstallStage::Installed; g_InstallReport.hookStatus=0; g_InstallReport.lastError=0;
     return true;
 }
 NpcActionObserver::InstallReport NpcActionObserver::Installation() {
