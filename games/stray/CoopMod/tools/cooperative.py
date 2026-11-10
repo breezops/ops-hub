@@ -21,7 +21,7 @@ def validate(value):
         if not isinstance(e,list) or len(e)!=4:raise ValueError('invalid coop event')
         seq,kind,path,line=e
         if type(seq) is not int or not previous<seq<2**53:raise ValueError('invalid event order')
-        if kind not in ('use','advance','unroll','end','interaction','scene'):raise ValueError('invalid event kind')
+        if kind not in ('use','advance','unroll','end','interaction','scene','sequence','help','item'):raise ValueError('invalid event kind')
         if not isinstance(path,str) or len(path)>300 or not PATH.fullmatch(path):raise ValueError('invalid local interaction identifier')
         if type(line) is not int or not 0<=line<=10000:raise ValueError('invalid dialog line')
         previous=seq

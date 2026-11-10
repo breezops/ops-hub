@@ -25,7 +25,7 @@ def main():
     branding=tools/'assets';branding.mkdir()
     for name in ('launcher.ico','StrayCoop.exe'):shutil.copy2(PROJECT/'assets/launcher'/name,branding/name)
     scripts=release/'payload/Mods/StrayCoop/Scripts';scripts.mkdir(parents=True)
-    for name in ('movement.lua','cooperative.lua','animation.lua','interpolation.lua','objects.lua','pause.lua','story.lua','context.lua','cinematics.lua'):
+    for name in ('movement.lua','cooperative.lua','dialogue_identity.lua','animation.lua','interpolation.lua','objects.lua','pause.lua','story.lua','context.lua','cinematics.lua'):
         shutil.copy2(PROJECT/'src/StrayCoop/Scripts'/name,scripts/name)
     (scripts/'main.lua').write_text(MAIN)
     (release/'launcher-config.json').write_text(json.dumps({'version':version,'protocol':PROTOCOL,'runtime':1,'service':SERVICE},indent=2)+'\n')

@@ -77,7 +77,7 @@ def main():
     for name in ('dwmapi.dll','UE4SS.dll'): shutil.copy2(loader/name,payload/name)
     shutil.copy2(ROOT/'Hk_project/Binaries/Win64/UE4SS-settings.ini',payload/'UE4SS-settings.ini')
     scripts=payload/'Mods/StrayCoop/Scripts';scripts.mkdir(parents=True)
-    for name in ('movement.lua','cooperative.lua','animation.lua','interpolation.lua','objects.lua','pause.lua','story.lua','context.lua','cinematics.lua'):
+    for name in ('movement.lua','cooperative.lua','dialogue_identity.lua','animation.lua','interpolation.lua','objects.lua','pause.lua','story.lua','context.lua','cinematics.lua'):
         shutil.copy2(PROJECT/'src/StrayCoop/Scripts'/name,scripts/name)
     (scripts/'main.lua').write_text(MAIN,encoding='utf-8')
     shutil.copy2(PROJECT/'vendor/UE4SS-LICENSE.txt',output/'UE4SS-LICENSE.txt')

@@ -40,10 +40,12 @@ local function resume()
                 and widget:IsInViewport() then menus[#menus+1]=widget end
         end)
     end
-    for _,widget in ipairs(menus) do widget:RemoveFromParent() end
+    -- Resume startup menus through the actual UI. Removing a widget or
+    -- invoking MenuStart can leave/open a native suspension state.
+    if #menus>0 then log("Startup pause menu requires one real Resume action");return end
     local manager=p.m_gameStateManager
     if valid(manager) and manager:IsSuspended() then manager:UnsuspendGame() end
-    StaticFindObject("/Script/Engine.Default__GameplayStatics"):SetGamePaused(p,false)
+    Context.gameplay():SetGamePaused(p,false)
 end
 local function snapshot()
     local p=pc()
@@ -54,6 +56,7 @@ local function snapshot()
     local save=valid(instance) and instance:GetSaveInstance() or nil
     local rows={"HARNESS\t1\t"..os.time(),"WORLD\t"..clean(p:GetWorld():GetFullName()),
         "CHAPTER\t"..tostring(utilities:GetChapter(p)),
+        "ADVENTURE_STATE\t"..tostring(instance:GetCurrentAdventureChapterState(4)),
         "ZONE\t"..(valid(zone) and clean(zone:GetCurrentZoneName():ToString()) or "-"),
         "SAVE\t"..tostring(valid(save) and valid(save.m_saveData)),
         "PAUSED\t"..tostring(StaticFindObject("/Script/Engine.Default__GameplayStatics"):IsGamePaused(p)),
@@ -183,10 +186,17 @@ function M.dispatch(command)
             "DIALOG\t"..(valid(d) and clean(d:GetFullName()) or "-"),
             "RUNNING\t"..tostring(valid(d) and d:IsDialogRunning() or false),
             "TEXT_READY\t"..tostring(valid(d) and d:IslineTextDisplayed() or false)}
+        rows[#rows+1]="CAT_FROZEN\t"..tostring(cat:IsFrozen())
+        rows[#rows+1]="CAT_PILOT_DISABLED\t"..tostring(cat:IsPilotDisabled())
+        rows[#rows+1]="CAT_WALK_INTERP\t"..tostring(cat:IsWalkInterpolating())
         if valid(b) then
             rows[#rows+1]="CURRENT_INTERACTION\t"..(valid(b:GetCurrentInteraction()) and clean(b:GetCurrentInteraction():GetFullName()) or "-")
             rows[#rows+1]="WITHIN\t"..tostring(b:IsWithinDialog())
             rows[#rows+1]="INTERACTING\t"..tostring(b:IsInteracting())
+            b.m_inventory:ForEach(function(_,entry)
+                local item=entry:get()
+                if valid(item) then rows[#rows+1]="INVENTORY\t"..clean(item.ID:ToString()).."\t"..clean(item:GetFullName()) end
+            end)
             rows[#rows+1]="DRONE\t"..tostring(valid(b:GetDrone()))
             rows[#rows+1]="DIALOG_CAT\t"..(valid(d) and valid(d:GetCat()) and clean(d:GetCat():GetFullName()) or "-")
             local component=b:GetCurrentInteraction()
@@ -198,6 +208,11 @@ function M.dispatch(command)
                 rows[#rows+1]="TARGET_DISTANCE\t"..tostring(math.sqrt((a.X-c.X)^2+(a.Y-c.Y)^2+(a.Z-c.Z)^2))
             end
         end
+        for _,settings in ipairs(FindAllOf("HKGameUserSettings") or {}) do
+            if valid(settings) then rows[#rows+1]="SETTINGS\t"..clean(settings:GetFullName()).."\t"..tostring(settings.AutoPauseEnabled) end
+        end
+        local settings=Context.settings()
+        rows[#rows+1]="CONTEXT_SETTINGS\t"..(valid(settings) and clean(settings:GetFullName()) or "-")
         if StrayCoopPause then
             for _,key in ipairs({"running","queued","errors","explicit","owned","observed_menu","observed_pause","desired","native_requested"}) do
                 rows[#rows+1]="PAUSE_"..key.."\t"..tostring(StrayCoopPause[key])
@@ -206,11 +221,38 @@ function M.dispatch(command)
         for _,o in ipairs(FindAllOf("TalkableComponent") or {}) do
             if valid(o) and valid(o:GetOwner()) then rows[#rows+1]="TALKABLE\t"..clean(o:GetFullName()).."\t"..clean(o:GetOwner():GetFullName()).."\t"..tostring(o:IsEnabled()).."\t"..tostring(o:IsUseEnabled()).."\t"..tostring(o:IsBeingUsed()) end
         end
+        local broom=StaticFindObject("/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.SEQ_IntroBroomDroid_2")
+        local alarm=StaticFindObject("/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.Seq_Slum_intro_Alarm")
+        rows[#rows+1]="BROOM_DONE\t"..tostring(valid(broom) and broom.SeqDone)
+        rows[#rows+1]="ALARM_ON\t"..tostring(valid(alarm) and alarm.AlarmIsOn)
+        local meet=StaticFindObject("/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.Seq_Slum_Meet_Guardian_2")
+        if valid(meet) and valid(meet.MeetGuardian_Sequence) then
+            local player=meet.MeetGuardian_Sequence:GetSequencePlayer()
+            if valid(player) then
+                rows[#rows+1]="MEET_PLAYING\t"..tostring(player:IsPlaying())
+                rows[#rows+1]="MEET_PAUSED\t"..tostring(player:IsPaused())
+                rows[#rows+1]="MEET_FRAME\t"..tostring(player:GetCurrentTime().Time.FrameNumber.Value)
+                rows[#rows+1]="MEET_END\t"..tostring(player:GetEndTime().Time.FrameNumber.Value)
+            end
+        end
+        local guardianDialog=StaticFindObject("/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.Dial_Guardian_2")
+        if valid(guardianDialog) then
+            for _,key in ipairs({"IntroTalkedFinished","PostCardShown","FirstTime","Untranslated"}) do
+                rows[#rows+1]="GUARDIAN_"..key.."\t"..tostring(guardianDialog[key])
+            end
+        end
+        if s then for id in pairs(s.sequence_applied or {}) do rows[#rows+1]="COOP_SEQUENCE_APPLIED\t"..id end end
+        if s then for id in pairs(s.sequence_started or {}) do rows[#rows+1]="COOP_SEQUENCE\t"..id end end
         if s then for id,line in pairs(s.lines) do rows[#rows+1]="LINE\t"..id.."\t"..line end end
         if StrayCoopMovement then
             for id,r in pairs(StrayCoopMovement.remotes) do rows[#rows+1]="REMOTE_GEAR\t"..id.."\t"..tostring(r.gear_name or "-") end
         end
         local f=assert(io.open(root.."coop-status.tsv","w"));f:write(table.concat(rows,"\n").."\n");f:close()
+    elseif command=="harness cooperative-refresh-idle" then
+        local s=StrayCoopCooperative
+        assert(s and s.counter==0 and s.applied==0 and not next(s.pending),"Refresh is allowed only before any shared interaction")
+        s.running=false;dofile(root.."Scripts/cooperative.lua").start()
+        log("Refreshed idle cooperative worker; native hooks unchanged")
     elseif command=="harness guardian-stage" then
         local cat=pc().Pawn;local guardian
         for _,o in ipairs(FindAllOf("TalkableComponent") or {}) do
@@ -220,6 +262,27 @@ function M.dispatch(command)
         local p=guardian:K2_GetActorLocation()
         cat:K2_SetActorLocation({X=p.X+220,Y=p.Y,Z=p.Z+70},false,{},true)
         log("Staged isolated cat near native Guardian; quest state unchanged")
+    elseif command=="harness guardian-release-extra-lock" then
+        local p=pc();local scene=StaticFindObject("/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.Seq_Slum_Meet_Guardian_2")
+        assert(valid(scene) and scene.SeqPlayed and p:IsIngameCinematicModeEnabled(),"No Guardian cinematic lock to inspect")
+        p:PopIngameCinematicModeEnabled(0)
+        log("Released one extra Guardian cinematic entry in isolated test")
+    elseif command=="harness broom-catchup" then
+        local scene=StaticFindObject("/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.SEQ_IntroBroomDroid_2")
+        assert(valid(scene),"Slums broom sequence unavailable")
+        if not scene.SeqDone then scene:LogicTrigger() end
+        log("Requested missing authored broom scene")
+    elseif command=="harness guardian-controls" then
+        local rows={}
+        local input=pc().PlayerInput
+        if valid(input) then input.ActionMappings:ForEach(function(_,entry)
+            local v=entry:get();rows[#rows+1]=v.ActionName:ToString().."\t"..v.Key.KeyName:ToString()
+        end) end
+        local f=assert(io.open(root.."guardian-controls.tsv","w"));f:write(table.concat(rows,"\n").."\n");f:close()
+    elseif command=="harness guardian-scene" then
+        local scene=StaticFindObject("/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.Seq_Slum_Meet_Guardian_2")
+        assert(valid(scene) and scene:IsA("/Script/Hk_project.Sequence"),"Guardian sequence unavailable")
+        scene:LogicTrigger();log("Native Guardian first-meeting logic trigger requested")
     elseif command=="harness coop-talk" then
         local cat=pc().Pawn;local b=cat:GetBackpack();assert(valid(b),"Backpack unavailable")
         local chosen
@@ -234,6 +297,16 @@ function M.dispatch(command)
         assert(valid(d) and valid(d:GetCat()) and d:GetCat():GetFullName()==cat:GetFullName(),"Dialogue is not bound to local test cat")
         if not d:IsDialogRunning() then d:StartDialog() end
         log("Native dialogue start fixture requested")
+    elseif command=="harness b12-help" then
+        local b=pc().Pawn:GetBackpack();assert(valid(b) and b:IsB12HelpEnabled(),"B12 help unavailable")
+        b:_OnHelpPressed();log("Native B12 help input requested")
+    elseif command=="harness show-postcard" then
+        local b=pc().Pawn:GetBackpack();local d=b:GetCurrentDialog()
+        assert(valid(d) and d:GetFullName():find("Dial_Guardian_C ",1,true) and d:IsDialogRunning() and d:CanBeShownItems(),"Guardian item prompt unavailable")
+        local chosen
+        b.m_inventory:ForEach(function(_,entry) local item=entry:get();if valid(item) and item.ID:ToString()=="PostCard" then chosen=item end end)
+        assert(valid(chosen),"Local postcard missing")
+        d:BeginShowItem(chosen);log("Native Guardian postcard choice requested")
     elseif command=="harness coop-next" then
         local b=pc().Pawn:GetBackpack();local d=b:GetCurrentDialog();assert(valid(d),"No current dialog")
         d:RequestNextDialogLine();log("Native dialog advance requested")

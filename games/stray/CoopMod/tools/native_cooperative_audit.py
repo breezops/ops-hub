@@ -4,7 +4,7 @@ This invokes a native Guardian dialogue fixture, not real player input or proof
 of full Slums quest replication. Keep local_test.py alive in its own terminal.
 """
 from pathlib import Path
-import json,time
+import argparse,json,time
 from checkpoint_harness import active_session,states,BINS,PROJECT
 
 def wait(fn,timeout=15):
@@ -34,19 +34,26 @@ def status():
         value={r[0]:r[1] for r in rows if len(r)==2}
         value['lines']={r[1]:int(r[2]) for r in rows if r[0]=='LINE'}
         value['gear']=[r[2] for r in rows if r[0]=='REMOTE_GEAR']
+        value['sequences']=[r[1] for r in rows if r[0]=='COOP_SEQUENCE']
+        value['sequences_applied']=[r[1] for r in rows if r[0]=='COOP_SEQUENCE_APPLIED']
         result.append(value)
     return result
 
 def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--initiator',choices=['host','client'],default='client')
+    parser.add_argument('--reload',action='store_true')
+    args=parser.parse_args();initiator=0 if args.initiator=='host' else 1
     session=active_session()
     out=PROJECT/'reports'/('cooperative-native-'+time.strftime('%Y%m%d-%H%M%S'))
-    out.mkdir();results={'fixture':session['profile'],'checks':[],'normal_player_input':'not_tested'}
+    out.mkdir();results={'fixture':session['profile'],'checks':[],'normal_player_input':'not_tested','initiator':args.initiator}
     try:
         command('harness restart');time.sleep(.6)
-        if not all(s['chapter']==4 for s in states()):command('harness open 4')
+        if args.reload or not all(s['chapter']==4 for s in states()):command('harness open 4')
         # A one-time fixture resume only after streaming finishes; no polling
         # loop dismisses menus or toggles pause during the actual test.
         wait(lambda: all(s['chapter']==4 and s.get('waiting')=='false' for s in states()),60)
+        time.sleep(12)
         command('harness resume')
         stable_since=None
         def ready():
@@ -64,20 +71,20 @@ def main():
         results['checks'].append('both native adapters started; focus auto-pause disabled')
         print('PASS native adapters and auto-pause setting',flush=True)
         command('harness guardian-stage');time.sleep(3)
-        command('harness coop-talk',1)
+        command('harness coop-talk',initiator)
         end=time.monotonic()+60
         while time.monotonic()<end:
             running=status();results['last_dialog']=running
             if all(s['RUNNING']=='true' and 'Dial_Guardian_C ' in s['DIALOG'] and s.get('DIALOG_CAT','-')!='-' and s['CURRENT_INTERACTION'].endswith('PersistentLevel.BP_Droid_Guardian.talkable') for s in running):break
             time.sleep(.5)
         else:raise RuntimeError('Guardian fixture did not begin on both peers')
-        results['checks'].append('client-triggered native Guardian dialogue began on both peers')
-        print('PASS client-triggered Guardian dialogue on both peers',flush=True)
+        results['checks'].append('initiator-triggered native Guardian dialogue began on both peers')
+        print('PASS initiator-triggered Guardian dialogue on both peers',flush=True)
         target=next(t for t in running[1]['lines'] if t.endswith('PersistentLevel.BP_Droid_Guardian.talkable'))
         expected=[s['DIALOG'] for s in running]
         before=[s['lines'].get(target,0) for s in running]
         # First reveal text, then wait for both native text-ready states.
-        command('harness coop-next',1)
+        command('harness coop-next',initiator)
         end=time.monotonic()+12
         while time.monotonic()<end:
             ready=status();results['text_ready_state']=ready
@@ -86,12 +93,16 @@ def main():
             if all(s['TEXT_READY']=='true' for s in ready):break
             time.sleep(.5)
         else:raise RuntimeError('Both Guardian text states did not become ready; refusing blind advance')
-        command('harness coop-next',1)
+        command('harness coop-next',initiator)
         end=time.monotonic()+10
         while time.monotonic()<end:
             advanced=status();results['after_advance']=advanced
-            if any(s['DIALOG']!=d for s,d in zip(advanced,expected)):
-                raise RuntimeError('Guardian changed dialogue during advance; completion/quest transition needs verification')
+            if all(s['DIALOG']!=d and s['DIALOG']!='-' for s,d in zip(advanced,expected)) and advanced[0]['DIALOG']==advanced[1]['DIALOG']:
+                results['checks'].append('Guardian advance completed on both peers with matching follow-up dialogue')
+                wait(lambda: all(v.get('player',{}).get('locomotion') and v.get('paused')=='false' for v in states()),15)
+                results['checks'].append('both cats regained normal locomotion after Guardian dialogue')
+                print('PASS shared Guardian completion, matching follow-up and restored locomotion',flush=True)
+                return
             if all(s['lines'].get(target,0)>n for s,n in zip(advanced,before)):break
             time.sleep(.5)
         else:raise RuntimeError('Shared native dialogue line advancement not confirmed')

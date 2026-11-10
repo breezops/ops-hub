@@ -61,3 +61,32 @@ to advance if both text-ready states are not confirmed.
 The chapter sweep previously could issue up to ten setup resume commands. It is
 now limited to one, after a minimum chapter setup delay. Gameplay pause recovery
 remains disabled; startup focus/menu behavior still requires a native fix.
+
+## Current repair candidate
+
+The loaded Slums SDK identified actual authored entry points: Guardian uses
+LogicTrigger and SeqPlayed, the alarm uses LogicTrigger/AlarmIsOn, and the broom
+robot uses LogicTrigger/SeqDone. StartSequence is not the actual cutscene cue.
+The candidate observes these markers, emits them in broom/alarm/Guardian order,
+and replays only those explicitly allowed native scene graphs. Already-applied
+markers do not restart a scene. Guardian's confirmed entry guard is mirrored
+before invoking its graph to prevent the local proximity trigger re-entering it.
+
+Backpack externalTalkable actor numbers differ between processes. A scoped alias
+now resolves the local backpack only for the matching native dialogue. Shared
+B12 help uses its native input handler. Item choices carry a dialogue-scoped item
+ID and find the receiver's own inventory item; no inventory item is invented.
+
+The first natural approach test proved the broom marker mismatch: source true,
+receiver false. The source left Guardian's cinematic while the receiver retained
+cinematic mode at the same end position. This is evidence for the missing cue /
+entry guard repair, not proof the repair has passed. Manually unwinding one
+extra cinematic entry cleared the receiver's cinematic flag but did not restore
+normal cat locomotion, so this is not used as a production recovery strategy.
+
+The guardian-ordered-chain fixture is a fresh natural approach test with the new
+cue order and entry guard. No teleport or forced Guardian start is used. It must
+still pass exit/control, dialogue, help, postcard choice and checkpoint checks
+before publication. 61 automated tests pass, including differing actor-number
+aliases and duplicate-entry/echo regression. Source-only candidate; no new
+launcher release or production Stray update has been published.

@@ -19,6 +19,13 @@ class CooperativeTests(unittest.TestCase):
         for value in bad:
             with self.assertRaises(ValueError):cooperative.validate(value)
 
+    def test_authored_guardian_event_and_backpack_alias_stay_inside_bounded_protocol(self):
+        s=self.snapshot()
+        s['events']=[[1,'sequence','/Game/Map/_MainGame/03_Slums/Slums_GD.Slums_GD:PersistentLevel.Seq_Slum_Meet_Guardian_2',0],
+            [2,'advance','/Game/Map/_MainGame/BaseMap.BaseMap:PersistentLevel.CoopLocalBackpack.Dial_b12_ask_the_guardian_2.externalTalkable',1]]
+        self.assertEqual(cooperative.validate(s),s)
+        self.assertIn('sequence',cooperative.render(s,1,3,True,'session'))
+
     def test_partial_or_stale_files_clear_intent(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'local.tsv';p.write_text('GEAR\t1\t1\t2\t3\t0\t0\t0')
