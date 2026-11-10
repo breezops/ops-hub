@@ -1,5 +1,22 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.3 — 2026-11-09
+
+- Carry the animation world orientation alongside each player's bone pose.
+- Convert the skeleton root into the receiving animation frame, preserving
+  body facing independently of travel direction during crouched turns/strafe.
+- Interpolate that orientation with the pose; retain the existing presentation
+  when either frame is unavailable or invalid.
+- Clear captured frames on source rebind/scene change; keep outfit rig guards.
+- Add low-rate frame-conversion counters to logs for the next live test.
+- Native build is 0.13.94-four-player.preview.4. All players must update;
+  the party envelope remains protocol 2, with an optional pose extension behind
+  the existing exact native-build check.
+
+Preview 3 passed the user's two-PC repeated-disguise test with no invisibility;
+movement and Stop/Ready/Start passed. This new turning correction has automated
+coverage, but its visual result in HITMAN still needs a two-PC playtest.
+
 ## 0.1.2 — 2026-11-09
 
 - Size the launcher within the Windows work area instead of forcing an 820-pixel minimum height.

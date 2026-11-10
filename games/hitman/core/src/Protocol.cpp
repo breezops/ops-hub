@@ -435,10 +435,13 @@ void MsgPose::Write(ByteWriter& w) const {
     }
 
     const size_t s_Count = std::min<size_t>(pose.rotations.size(), kMaxPoseBones);
-    w.U16(static_cast<uint16_t>(s_Count));
+    // Optional animation frame is isolated by the room's exact native-build gate.
+    w.U16(static_cast<uint16_t>(s_Count) | (pose.hasWorldRotation ? 0x8000u : 0));
 
     for (size_t i = 0; i < s_Count; ++i)
         w.U32(PackQuat(pose.rotations[i]));
+    if (pose.hasWorldRotation)
+        w.U32(PackQuat(pose.worldRotation));
 }
 
 bool MsgPose::Read(ByteReader& r) {
@@ -460,6 +463,9 @@ bool MsgPose::Read(ByteReader& r) {
     if (!r.U16(s_Count))
         return false;
 
+    pose.hasWorldRotation = (s_Count & 0x8000u) != 0;
+    s_Count &= 0x7fffu;
+    pose.worldRotation = {};
     if (s_Count > kMaxPoseBones)
         return r.Fail();
 
@@ -474,6 +480,11 @@ bool MsgPose::Read(ByteReader& r) {
         s_Rot = UnpackQuat(s_Packed);
     }
 
+    if (pose.hasWorldRotation) {
+        uint32_t packed = 0;
+        if (!r.U32(packed)) return false;
+        pose.worldRotation = UnpackQuat(packed);
+    }
     return true;
 }
 

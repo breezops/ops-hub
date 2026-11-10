@@ -32,7 +32,7 @@ using System.Windows.Threading;
 
 public sealed class CoopLauncher : Window {
 
-    const string Build = "0.13.94-four-player.preview.3";
+    const string Build = "0.13.94-four-player.preview.4";
 
     readonly SemaphoreSlim gate = new SemaphoreSlim(1, 1);
 

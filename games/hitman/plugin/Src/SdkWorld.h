@@ -580,6 +580,7 @@ private:
     bool m_PoseHookFailed = false;
     std::vector<PoseHook::Bone> m_PoseScratch;
     std::vector<PoseHook::Bone> m_LocalBones;
+    PoseHook::Frame m_LocalPoseFrame;
     // The NPC our 47 is choking, killing or dragging, streamed to the partner.
     void PickLocalVictim();
     ZActor* m_LocalVictim = nullptr;

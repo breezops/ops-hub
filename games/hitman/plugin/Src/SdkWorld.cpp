@@ -179,6 +179,8 @@ void SdkWorld::OnSceneCleared() {
     m_LegacyAvatar.puppet.Forget();
     m_TakedownVictim = nullptr;
     PoseHook::SetSource(nullptr);
+    m_LocalBones.clear();
+    m_LocalPoseFrame = {};
     PoseHook::SetTarget(nullptr);
     PoseHook::ClearTargetPose();
     PoseHook::SetSource(nullptr, 1);
@@ -1376,8 +1378,10 @@ bool SdkWorld::GetLocalPose(coop::Pose& p_Out) {
 
     std::vector<PoseHook::Bone> s_Fresh;
 
-    if (PoseHook::TakeSourcePose(s_Fresh))
+    if (PoseHook::TakeSourcePose(s_Fresh, 0, &m_LocalPoseFrame))
         m_LocalBones = std::move(s_Fresh);
+    p_Out.hasWorldRotation = m_PartyPresentation.Status().phase == coop::LobbyRoster::Phase::Playing && m_LocalPoseFrame.hasWorldRotation;
+    p_Out.worldRotation = m_LocalPoseFrame.worldRotation;
 
     if (m_LocalBones.size() < 2)
         return false;
@@ -1399,6 +1403,7 @@ void SdkWorld::ShowRemotePose(const coop::Pose& p_Pose) {
 }
 
 void SdkWorld::ShowRemotePose(RemoteAvatarState& avatar, const coop::Pose& p_Pose) {
+    avatar.remotePoseFrame = {p_Pose.hasWorldRotation, p_Pose.worldRotation};
     avatar.remoteBones.resize(p_Pose.rotations.size());
 
     for (size_t i = 0; i < p_Pose.rotations.size(); ++i) {

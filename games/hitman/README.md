@@ -16,13 +16,16 @@ site integration status and player flow.
   against Preview 1. This is research source, not enabled or directly applicable
   to Preview 2 without integrating its protection changes.
 
-Current native build: `0.13.94-four-player.preview.3`, HITMAN 3.290.1,
+Current native build: `0.13.94-four-player.preview.4`, HITMAN 3.290.1,
 ZHMModSDK 4.2.1 ABI 1, party protocol 2. Up to four players share movement,
 poses and disguises in Freeform Training. NPCs, bodies, inventory, objectives
 and extraction remain separate on each PC. Preview 1 had successful two/three-PC
 presentation tests and a reported stand-in takedown bug. Preview 2's protection
-fix passed the two-PC vault test. Preview 3 adds outfit presentation changes
-that still need live validation.
+fix passed the two-PC vault test. Preview 3 passed repeated outfit changes without
+invisibility, movement and Stop/Ready/Start on two PCs; the guest reported the
+launcher usable at 200% scaling. Preview 4 carries animation world orientation
+with the pose to address crouched turning; this change needs a live two-PC test.
+See [pose frame conversion](docs/POSE-FRAMES.md).
 
 ## Developer entry points
 

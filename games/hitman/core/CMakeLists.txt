@@ -61,6 +61,7 @@ if (COOP_BUILD_TESTS)
     add_executable(coop_tests
             tests/Main.cpp
             tests/TestCore.cpp
+            tests/TestPoseFrame.cpp
             tests/TestGameEvents.cpp
             tests/TestCoopFixes.cpp
             tests/TestSession.cpp

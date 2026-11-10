@@ -47,6 +47,8 @@ struct RemoteAvatarState {
     bool puppetFailed = false;
     double puppetRequestStart = -1.0;
     std::vector<PoseHook::Bone> remoteBones;
+    PoseHook::Frame remotePoseFrame;
+    double frameTraceAt = -100.0;
     ZActor* remoteVictim = nullptr;
     uint64_t remoteVictimId = 0;
     uint8_t remoteVictimFlags = 0;
@@ -115,6 +117,8 @@ struct RemoteAvatarState {
         puppetFailed = defaults.puppetFailed;
         puppetRequestStart = defaults.puppetRequestStart;
         remoteBones = defaults.remoteBones;
+        remotePoseFrame = {};
+        frameTraceAt = -100.0;
         remoteVictim = defaults.remoteVictim;
         remoteVictimId = defaults.remoteVictimId;
         remoteVictimFlags = defaults.remoteVictimFlags;
