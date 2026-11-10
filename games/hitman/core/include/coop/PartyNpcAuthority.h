@@ -142,6 +142,10 @@ public:
     bool Stop();
     bool StopConfirmed() const { return m_StopConfirmed; }
 private:
+    struct CommitProgress {
+        PartyNpcMessage message;
+        enum class Step { Freeze, Apply, Resume } step=Step::Freeze;
+    };
     struct Local {
         PartyIdentity owner;
         uint64_t generation=0, revision=0, sequence=0, prepared=0, fence=0, attempt=0;
@@ -149,6 +153,7 @@ private:
         bool running=false, frozen=true, suspended=false;
         PartyNpcMessage cachedRelease;
         std::optional<PartyNpcMessage> pending;
+        std::optional<CommitProgress> install;
         std::optional<PartyNpcState> reported;
     };
     PartyNpcScope m_Scope;

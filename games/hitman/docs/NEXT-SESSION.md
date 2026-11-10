@@ -86,16 +86,24 @@ the mutation scope and registering watches. Its selected-actor log now records
 entity IDs alongside labels and births. The existing live Pool-1 log predates
 this change and does not contain the two entity IDs.
 
-Next, connect catalog preparation and acknowledged freeze, baseline apply and
-resume through the retained native boundary. Sequence pending native operations
-so polling a pending resume cannot reissue a completed freeze or baseline write.
-Resolve the same two mission actors on both PCs and begin with living actor
-transforms under host authority. Use the existing room admission, transport and
-replica. Production still supplies no native party NPC adapter. Whole-scene pool
-admission, native retirement recovery, canonical life/interaction application
-and multi-player NPC perception need further bindings. Existing stand-ins are
-deliberately unseen by NPCs.
+Catalog-1 connects native preparation, acknowledged freeze, baseline apply and
+resume through the retained action boundary. In Freeform Training each PC
+resolves the two named actors after a fresh native restart. The existing room
+handshake checks the private build and exact stable IDs. The host resumes its
+observed jobs. The guest verifies held, drained actors and transform readbacks.
+Pending commits advance through freeze, apply and resume receipts without
+restarting earlier steps. Catalog-1 tests living position and facing with two
+players. See `diagnostics/catalog-1/START-HERE.txt`. Whole-scene admission,
+retirement recovery, canonical life/interaction and multiplayer NPC perception
+remain follow-up work. Existing stand-ins are deliberately unseen by NPCs.
 Two PCs are routine; use3/4for roster/fan-out/seat reuse/disconnect checks.
+
+Catalog-1 is staged for the first live test at
+`R:\Hitman COOP test\HITMAN-Coop-Catalog-1`. OPS 0.1.17 passes 209 core tests,
+the SDK ABI check, synthetic installation and exact OPS 0.1.3 rollback, and
+archive and delivered payload verification. ZIP SHA-256
+`ec1f74151fd35826f8fb84adadb0dd717834829e9e47d53d6ccfacd3bb16a55d`.
+Live movement and stability of the two guest actor transforms are pending.
 
 Product target remains4players, host-controlled persistent lobby and native
 mission/restart following, automatic admission rather than manual Ready/Start,

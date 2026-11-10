@@ -22,7 +22,7 @@ struct World:IPartyNpcWorld {
     std::map<uint64_t,bool> running;
     bool freeze=true,apply=true,resume=true,capture=true,prepare=true;
     unsigned preparations=0;
-    unsigned resumes=0;
+    unsigned resumes=0, applies=0;
     unsigned catalogPreparations=0, catalogStops=0;
     std::set<uint64_t> preparedCatalog;
     std::vector<uint64_t> retirements;
@@ -52,6 +52,7 @@ struct World:IPartyNpcWorld {
         running[npc]=false; if(onFreeze) onFreeze(npc); if(check) check(); return true;
     }
     bool ApplyNpcBaseline(uint64_t npc,const PartyNpcState& state) override {
+        ++applies;
         CHECK(!running[npc]);
         if(!apply) return false;
         states[npc]=state; return true;
@@ -908,4 +909,46 @@ TEST(PartyNpc_NewOwnerDoesNotRunUntilNativeResumeActuallySucceeds) {
     CHECK(f.worlds[3].running[55]); CHECK(f.worlds[3].resumes==1);
     REQUIRE(f.peers[3]->Report(55)); f.Pump();
     CHECK(f.host.Find(55)->confirmed);
+}
+
+TEST(PartyNpc_PendingResumeDoesNotRefreezeAnAlreadyRunningNativeActor) {
+    Four f;
+    auto& native=f.worlds[0];
+    unsigned freezes=0;
+    native.onFreeze=[&](uint64_t) { ++freezes; };
+    native.resume=false;
+    REQUIRE(f.host.Register(55,PartyNpcState{},0.));
+    PartyNpcDelivery commit; REQUIRE(f.host.Pop(commit));
+    CHECK(!f.Apply(1,commit.message));
+    CHECK(freezes==1); CHECK(native.applies==1);
+    f.peers[0]->RetryPending();
+    CHECK(freezes==1); CHECK(native.applies==1);
+
+    // The native callback runs between frames, before ResumeNpc is polled again.
+    native.running[55]=true; native.resume=true;
+    CHECK(!f.peers[0]->Running(55));
+    f.peers[0]->RetryPending();
+    CHECK(f.peers[0]->Running(55));
+    CHECK(freezes==1); CHECK(native.applies==1);
+    REQUIRE(f.peers[0]->Stop());
+    CHECK(freezes==2); CHECK(!native.running[55]);
+    native.onFreeze={};
+}
+
+TEST(PartyNpc_PendingGuestBaselineKeepsTheNewestRevisionWhileHeld) {
+    Four f;
+    auto& native=f.worlds[1];
+    unsigned freezes=0;
+    native.onFreeze=[&](uint64_t) { ++freezes; };
+    native.apply=false;
+    REQUIRE(f.host.Register(55,PartyNpcState{},0.));
+    PartyNpcDelivery commit; REQUIRE(f.host.Pop(commit));
+    CHECK(!f.Apply(2,commit.message));
+    auto newer=commit.message; newer.kind=PartyNpcKind::Canonical; ++newer.revision; newer.state.xf.pos.x=14;
+    CHECK(!f.Apply(2,newer));
+    CHECK(!f.Apply(2,commit.message));
+    native.apply=true;
+    f.peers[1]->RetryPending();
+    CHECK(freezes==1); CHECK(native.states[55].xf.pos.x==14); CHECK(!native.running[55]);
+    native.onFreeze={};
 }

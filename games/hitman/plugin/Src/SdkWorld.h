@@ -39,7 +39,11 @@ class IItemBase;
 
 // IGameWorld backed by the running game through ZHMModSDK. Game thread only,
 // except the toast list which the render thread reads under m_ToastMutex.
-class SdkWorld final : public coop::IGameWorld, public coop::IPartyAvatarWorld {
+class SdkWorld final : public coop::IGameWorld, public coop::IPartyAvatarWorld
+#ifdef COOP_NPC_CATALOG
+    , public coop::IPartyNpcWorld
+#endif
+{
 public:
     bool CanOpenPartyPreview() const { return !m_LegacyAvatar.entity && !m_PartyPresentation.Status().session; }
     std::string PartyPreviewError() const override;
@@ -83,6 +87,17 @@ public:
     void ArmSoloNpcHold() { m_SoloHoldRequested=true; }
     void StepSoloNpcHold(NpcActionPhase::Boundary&);
     void StepSoloNpcPool(NpcActionPhase::Boundary&);
+#ifdef COOP_NPC_CATALOG
+    bool ResolveNpcCatalog(std::set<uint64_t>& ids) const;
+    CatalogPreparation PrepareNpcCatalog(const std::set<uint64_t>& ids) override;
+    void StopNpcCatalog() override;
+    bool FreezeNpc(uint64_t id) override;
+    bool ApplyNpcBaseline(uint64_t id,const coop::PartyNpcState&) override;
+    bool ResumeNpc(uint64_t id) override;
+    bool CaptureNpc(uint64_t id,coop::PartyNpcState&) override;
+    void StepPartyNpcCatalog(NpcActionPhase::Boundary&);
+    void SetNpcCatalogHost(bool host) { m_CatalogHost=host; }
+#endif
     // nativeContract is this PC's native ContractSessionId, never a room/peer
     // value. The future adapter must obtain it before acknowledging readiness.
     bool BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract);
@@ -602,6 +617,26 @@ private:
     std::atomic<uint32_t> m_PartyGameThread=0;
     std::atomic<bool> m_PartyGameThreadChanged=false;
     ZActor* FindFreshPartyNpc(uint64_t id) const;
+#ifdef COOP_NPC_CATALOG
+    enum class CatalogPhase { Idle, Binding, Preparing, Active, Stopped };
+    enum class CatalogActorPhase { Hold, Drain, Held, Resume, StartJob, Running };
+    struct CatalogActor {
+        NpcMutationGate::Ticket ticket;
+        CatalogActorPhase phase=CatalogActorPhase::Hold;
+        uint64_t observedAt=0, deadline=0;
+        std::optional<coop::PartyNpcState> baseline, receipt;
+    };
+    CatalogActor* FindCatalogActor(uint64_t id);
+    bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&);
+    void RefuseNpcCatalog(const char* reason);
+    std::string NpcCatalogError() const;
+    std::array<CatalogActor,2> m_CatalogActors;
+    std::array<uint64_t,2> m_CatalogIds{};
+    NpcMutationGate::Scope m_CatalogScope=0;
+    CatalogPhase m_CatalogPhase=CatalogPhase::Idle;
+    uint64_t m_CatalogStartedAt=0;
+    bool m_CatalogHost=false;
+#endif
 #ifdef COOP_NPC_POOL_DIAGNOSTICS
     bool CanBeginPartyNpcHold(NpcActionPhase::Boundary&, ZActor*, uint64_t id, uint64_t birth) const;
     bool BindPartyNpcHoldCatalog(NpcActionPhase::Boundary&, std::span<const uint64_t> ids,

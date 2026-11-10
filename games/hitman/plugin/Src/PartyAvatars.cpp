@@ -20,6 +20,9 @@ bool Finite(coop::Quat q) {
 }
 
 std::string SdkWorld::PartyPreviewError() const {
+#ifdef COOP_NPC_CATALOG
+    if (auto fault=NpcCatalogError(); !fault.empty()) return fault;
+#endif
     if(m_NpcEventOverflow)
         return "Native NPC event queue overflowed. Reload Freeform Training before starting again.";
     if (!CrashGuards::InteractionGuardActive())

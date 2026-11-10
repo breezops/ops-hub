@@ -246,6 +246,8 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
     const auto defer=[&]() { local.pending=message; return false; };
     if(kind==PartyNpcKind::Freeze) {
         if(message.generation<local.generation || message.generation<local.fence) return false;
+        if(local.install && message.generation<local.install->message.generation) return false;
+        local.install.reset();
         local.suspended=true; local.fence=message.generation;
         if(!m_World.FreezeNpc(message.npc)) return defer();
         local.running=false; local.frozen=true; local.generation=message.generation; local.prepared=0;
@@ -300,6 +302,7 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
     if(message.generation<local.generation || (message.generation==local.generation && !Same(message.owner,local.owner))) return false;
     if(kind==PartyNpcKind::Canonical) {
         if(message.generation!=local.generation || message.revision<=local.revision || !Progress(local.state,message.state)) return false;
+        if(local.pending && local.pending->kind==PartyNpcKind::Canonical && message.revision<local.pending->revision) return false;
         if(!Same(local.owner,m_Self) && !m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
         local.state=message.state; local.revision=message.revision;
         local.pending.reset();
@@ -314,9 +317,31 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
     const bool mine=Same(message.owner,m_Self);
     if(mine && message.generation>local.generation && local.prepared!=message.generation && !(local.generation==0 && message.generation==1 && m_Self.id==1)) return false;
     if(!Progress(local.state,message.state)) return false;
-    if(!m_World.FreezeNpc(message.npc)) return defer();
-    local.running=false; local.frozen=true;
-    if(!m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
+    using Step=CommitProgress::Step;
+    if(local.install) {
+        auto& install=*local.install;
+        const auto& previous=install.message;
+        if(message.generation<previous.generation) return false;
+        if(message.generation==previous.generation) {
+            if(!Same(message.owner,previous.owner) || message.revision<previous.revision) return false;
+            if(message.revision==previous.revision && !(message.state==previous.state)) return false;
+            if(message.revision>previous.revision) {
+                // An owner may already be running natively while its resume receipt is pending.
+                if(install.step==Step::Resume || !Progress(previous.state,message.state)) return false;
+                install.message=message;
+            }
+        } else local.install=CommitProgress{message};
+    } else local.install=CommitProgress{message};
+    auto& step=local.install->step;
+    if(step==Step::Freeze) {
+        if(!m_World.FreezeNpc(message.npc)) return defer();
+        local.running=false; local.frozen=true;
+        step=Step::Apply;
+    }
+    if(step==Step::Apply) {
+        if(!m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
+        step=Step::Resume;
+    }
     if(mine && message.state.life==PartyNpcLife::Alive && !m_World.ResumeNpc(message.npc)) return defer();
     local.running=mine && message.state.life==PartyNpcLife::Alive; local.frozen=!mine;
     local.owner=message.owner; local.generation=message.generation; local.revision=message.revision;
@@ -324,6 +349,7 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
     local.prepared=0; local.sequence=0; local.cachedRelease={}; local.state=message.state;
     local.reported.reset();
     local.pending.reset();
+    local.install.reset();
     return true;
 }
 bool PartyNpcReplica::Report(uint64_t npc,bool refresh) {

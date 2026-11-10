@@ -169,9 +169,10 @@ void PartyPreviewRuntime::Leave(double now) {
     m_Message="Leaving preview. Reload the mission before creating a new room.";
 }
 void PartyPreviewRuntime::SceneCleared() {
+    const bool retire=m_NpcWorld && (m_NpcOptions.fixedCatalog.empty() || m_NpcCatalogStarted || m_NpcCatalogSpent);
     StopNpcs();
     m_Npcs.reset(); m_NpcCatalog.clear(); m_NextNpcCatalog=0;
-    if (m_NpcWorld) {
+    if (retire) {
         m_NpcRetirementPending=true;
         m_NpcRetirement=NextRetirement();
         if (m_NpcRetirement) m_NpcWorld->BeginNpcSceneRetirement(m_NpcRetirement);

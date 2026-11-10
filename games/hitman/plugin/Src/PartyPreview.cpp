@@ -31,12 +31,19 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
     bool ok=true;
     std::string message;
     if (request.action=="preview_host" || request.action=="preview_join") {
+#ifdef COOP_NPC_CATALOG
+        coop::PartyNpcOptions npcOptions;
+#endif
         if (!m_Unsupported.empty()) { ok=false; message=UnsupportedText(); }
         else if (!m_World.PartyPreviewError().empty()) { ok=false; message=m_World.PartyPreviewError(); }
         else if ((m_Session && m_Session->Active()) || (m_PartyPreview && Live(m_PartyPreview->Status()))) {
             ok=false; message="Leave the current session first.";
         } else if (!m_World.CanOpenPartyPreview()) {
             ok=false; message="Reload Freeform Training to clear the previous session, then try again.";
+#ifdef COOP_NPC_CATALOG
+        } else if (!m_World.ResolveNpcCatalog(npcOptions.fixedCatalog)) {
+            ok=false; message="Load Freeform Training and use Restart Mission once before hosting or joining the NPC test.";
+#endif
         } else {
             m_Session.reset(); // Inactive legacy sockets must release the host port.
             std::string error;
@@ -50,6 +57,12 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                 else {
                     coop::PartyRoomConfig config;
                     config.build=c_ModVersion; config.game=m_GameVersion; config.name=m_NameBuffer;
+#ifdef COOP_NPC_CATALOG
+                    std::ostringstream key;
+                    key<<COOP_NPC_CATALOG_ROOM_BUILD<<std::hex;
+                    for (const auto id:npcOptions.fixedCatalog) key<<'/'<<id;
+                    config.build=key.str();
+#endif
                     auto room=host ? coop::PartyRoom::Host(std::move(socket),config) :
                         coop::PartyRoom::Join(std::move(socket),endpoint,config,now);
                     if (!room) { ok=false; message="Could not create the preview room."; }
@@ -60,7 +73,13 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         CrashGuards::SetKnowledge(nullptr);
                         CrashGuards::SetActor(nullptr);
                         m_Session.reset(); m_LastJoin.reset(); m_Reconnecting=false; m_Relay.reset(); m_FrameStatus={};
+#ifdef COOP_NPC_CATALOG
+                        npcOptions.capacity=npcOptions.fixedCatalog.size();
+                        m_World.SetNpcCatalogHost(host);
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,npcOptions);
+#else
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World);
+#endif
                         message=host ? "Preview hosted on UDP 47047. Friends can join by your address." : "Joining the preview host.";
                     }
                 }

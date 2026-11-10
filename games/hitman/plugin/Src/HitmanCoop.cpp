@@ -1510,9 +1510,13 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const bool arbiter=jobsInstalled && NpcHoldArbiter::Install(sites);
         const auto holdReport=NpcHoldArbiter::Installation();
         traceAllocation("hold-arbiter",holdReport.allocations,holdReport.status);
-        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Native hold arbiter installed=%d stage=%s status=%d; private solo cycle requires F8 after a fresh native restart",arbiter?1:0,holdReport.stage,holdReport.status);
-#ifdef COOP_NPC_POOL_DIAGNOSTICS
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Native hold arbiter installed=%d stage=%s status=%d",arbiter?1:0,holdReport.stage,holdReport.status);
+#ifdef COOP_NPC_CATALOG
+        CoopLog::Info("npc-catalog","Private Freeform catalog enabled for two living NPC transforms under host authority");
+#elif defined(COOP_NPC_POOL_DIAGNOSTICS)
         CoopLog::Info("npc-pool","Private two-NPC prototype enabled; F8 selects two nearest eligible NPCs after native restart; one cycle per process");
+#else
+        CoopLog::Info("npc-hold","Private solo cycle requires F8 after a fresh native restart");
 #endif
         if (arbiter) {
             observerConfig.controlValidate=[](void* context,const NpcMutationGate::Ticket& ticket,int32_t& runtime) {
@@ -1523,9 +1527,16 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
                 if (g_HoldDiagnosticFrameDepth.load()) return; // Reject reentry under OnFrameUpdate's outer session lock.
                 {
                     std::unique_lock lock(self.m_SessionMutex,std::try_to_lock);
-                    if (!lock.owns_lock() || self.m_PartyPreview || (self.m_Session && self.m_Session->Active())) return;
+                    if (!lock.owns_lock() || (self.m_Session && self.m_Session->Active())) return;
+#ifndef COOP_NPC_CATALOG
+                    if (self.m_PartyPreview) return;
+#endif
                 } // Release session mutex BEFORE any yielding native control.
+#ifdef COOP_NPC_CATALOG
+                self.m_World.StepPartyNpcCatalog(boundary);
+#else
                 self.m_World.StepSoloNpcHold(boundary);
+#endif
             };
             observerConfig.arbitrateHolds=true;
         }
