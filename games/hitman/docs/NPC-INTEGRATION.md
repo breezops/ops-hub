@@ -328,6 +328,15 @@ and the actual archive passes the launcher's staging/checksum checks. A live
 identity audit is still required; modeled tests do not establish constructor
 coverage, runtime-slot relationships or safe control behavior in HITMAN.
 
+The user's first solo identity run on 3.290.1 passed ten audits: seven before
+restart and three afterward. Every audit reported 83 enabled, unique and
+admissible NPCs, zero untracked/rejected/duplicate identities, healthy tracking
+and the same SDK update thread. The constructor watermark advanced from 99 to
+198 across restart; an outfit-discard event also occurred during the run.
+This supports the observed constructor coverage and runtime-slot relationships
+for this Freeform run. It does not validate other missions, multiple PCs, the
+action-loop invocation context, hold/resume side effects or physical teardown.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.
