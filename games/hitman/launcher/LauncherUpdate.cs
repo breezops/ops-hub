@@ -31,7 +31,7 @@ public sealed class LauncherUpdate {
         if(!File.Exists(configFile)) throw new IOException("Extract the entire HITMAN launcher ZIP first. Its updater-config.json file is missing.");
         config=json.Deserialize<Configuration>(File.ReadAllText(configFile));
         home=Path.GetFullPath(storage);
-        if(config==null || config.schema!=1 || config.project!="hitman" || !ValidVersion(config.release_version))
+        if(config==null || config.schema!=1 || config.project!="hitman" || !ValidVersion(config.release_version) || String.IsNullOrWhiteSpace(config.mod_build) || String.IsNullOrWhiteSpace(config.game_version))
             throw new InvalidDataException("The HITMAN launcher configuration is invalid. Extract the complete package.");
         Address(config.manifest_path);
     }
@@ -139,7 +139,8 @@ public sealed class LauncherUpdate {
                             throw new InvalidDataException("Unsafe path in update.");
                     if(!seen.Add(relative.TrimEnd('/')) || ((entry.ExternalAttributes>>16)&0xF000)==0xA000)
                         throw new InvalidDataException("Duplicate path or link in update.");
-                    expanded+=entry.Length;if(expanded>MaxExpanded) throw new InvalidDataException("Expanded update is too large.");
+                    if(entry.Length>MaxExpanded-expanded) throw new InvalidDataException("Expanded update is too large.");
+                    expanded+=entry.Length;
                     string target=Path.GetFullPath(Path.Combine(stage,relative.Replace('/',Path.DirectorySeparatorChar)));
                     if(!target.StartsWith(stage+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Unsafe extraction path.");
                     if(name.EndsWith("/")) Directory.CreateDirectory(target);
@@ -149,7 +150,7 @@ public sealed class LauncherUpdate {
             foreach(string file in new[]{"Install-Friend.ps1","installer.ps1","payload-hashes.json","HITMAN-Coop-Party-Preview.exe","updater-config.json"})
                 if(!File.Exists(Path.Combine(stage,file))) throw new InvalidDataException("Update is missing "+file);
             var next=json.Deserialize<Configuration>(File.ReadAllText(Path.Combine(stage,"updater-config.json")));
-            if(next==null || next.project!="hitman" || next.release_version!=release.version || next.mod_build!=release.mod_build ||
+            if(next==null || next.schema!=1 || next.project!="hitman" || next.release_version!=release.version || next.mod_build!=release.mod_build ||
                 next.game_version!=release.game_version || next.site_url!=config.site_url || next.manifest_path!=config.manifest_path)
                 throw new InvalidDataException("Release configuration disagrees with the update channel.");
             File.WriteAllText(Path.Combine(stage,"verified-archive.sha256"),release.sha256);

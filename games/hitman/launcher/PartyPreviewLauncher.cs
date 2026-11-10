@@ -17,6 +17,7 @@ using System.Windows.Threading;
 public sealed class PartyPreviewLauncher : Window {
     static LauncherUpdate Updates;
     static string Build;
+    static string startupNotice;
     readonly Grid root;
     readonly TextBlock state, detail, roster, feedback, mission;
     readonly TextBox address;
@@ -33,7 +34,10 @@ public sealed class PartyPreviewLauncher : Window {
                 File.WriteAllText(args[3], CoopLauncher.Exchange(Int32.Parse(args[1]), args[2]).GetAwaiter().GetResult());
                 return 0;
             }
-            if(args.Length==0 && Updates.RedirectToCurrent()) return 0;
+            if(args.Length==0) {
+                try { if(Updates.RedirectToCurrent()) return 0; }
+                catch(Exception error) { startupNotice=error.Message; }
+            }
             Application app = new Application();
             PartyPreviewLauncher window = new PartyPreviewLauncher();
             if (args.Length == 2 && args[0] == "--preview") {
@@ -94,6 +98,7 @@ public sealed class PartyPreviewLauncher : Window {
         Find<Button>("Remove").Click+=async(s,e)=>await RunSetup("Remove");
         Find<TextBlock>("Release").Text="LAUNCHER "+Updates.ReleaseVersion+"  /  "+Build;
         Disable();
+        if(!String.IsNullOrEmpty(startupNotice)) feedback.Text=startupNotice;
     }
     async Task RunSetup(string mode) {
         if (updating) return;
