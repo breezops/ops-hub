@@ -104,6 +104,8 @@ void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
 }
 
 void SdkWorld::OnSceneCleared() {
+    m_NpcLifeReceipts.Clear();
+    m_NpcNativeEvents.clear(); m_NpcEventOverflow=false;
     ForgetPlayerAvatarScenes();
     ResetBundles(true);
     m_NativeExits.clear();
@@ -2482,8 +2484,14 @@ bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
     if (!spatial) return false;
     coop::PartyNpcState state;
     state.xf=ToTransform(spatial->GetObjectToWorldMatrix());
-    state.life=Pacified(actor) ? coop::PartyNpcLife::Unconscious :
-        (Dead(actor) ? coop::PartyNpcLife::Dead : coop::PartyNpcLife::Alive);
+    const auto ticket=NpcMutationGate::FindActor(actor);
+    NpcLifeReceipts::Life observed;
+    if(ticket.npc==id && m_NpcLifeReceipts.Read(ticket,observed)) {
+        if(!actor->IsDead() && !actor->IsPacified()) return false; // Event may precede native state.
+        state.life=observed==NpcLifeReceipts::Life::Dead ? coop::PartyNpcLife::Dead : coop::PartyNpcLife::Unconscious;
+    } else if(actor->IsPacified()) state.life=coop::PartyNpcLife::Unconscious;
+    else if(actor->IsAlive() && !actor->IsDead()) state.life=coop::PartyNpcLife::Alive;
+    else return false; // IsDead alone also means KO in supported native builds.
     state.stripped=state.life!=coop::PartyNpcLife::Alive &&
         !coop::BodyHasClothes(actor->m_bHasClothOutfit,actor->m_bNude);
     const auto tension=CrashGuards::TensionOf(actor->m_pKnowledge);
@@ -2496,6 +2504,54 @@ bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
     if (!coop::ValidPartyNpcState(state)) return false;
     out=state;
     return true;
+}
+
+bool SdkWorld::BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract) {
+    return m_InScene && m_NpcLifeReceipts.Begin(scope,nativeContract);
+}
+bool SdkWorld::BindPartyNpcObservation(const NpcMutationGate::Ticket& ticket) {
+    if(!m_InScene || !ticket.actor || ticket.actor!=FindNpc(ticket.npc)) return false;
+    auto* actor=static_cast<ZActor*>(ticket.actor);
+    if(IsPartnerActor(actor) || !actor->m_bEnabled) return false;
+    ZEntityRef ref; actor->GetID(ref);
+    if(!ref || !ref->GetType() || ref->GetType()->m_nEntityID!=ticket.npc) return false;
+    return m_NpcLifeReceipts.Bind(ticket,NpcLifeReceipts::ActorEventId(reinterpret_cast<uint64_t>(ref.m_pObj)));
+}
+void SdkWorld::ObservePartyNpcEvent(const std::string& name,const std::string& json) {
+    // Called under the session mutex, possibly on an engine worker. Parse and
+    // copy only: native actor lists are resolved later on the game thread.
+    const auto scope=NpcMutationGate::CurrentScope();
+    if(!m_InScene || !scope || m_NpcLifeReceipts.ScopeKey()!=scope ||
+       (name!="Kill" && name!="Pacify")) return;
+    uint32_t eventActor=0;
+    std::string contract;
+    if(!coop::GameEvents::UInt32(json,"ActorId",eventActor) ||
+       !coop::GameEvents::String(json,"ContractSessionId",contract) || contract.empty() || contract.size()>256) return;
+    if(m_NpcNativeEvents.size()>=NpcMutationGate::Capacity) { m_NpcEventOverflow=true; return; }
+    m_NpcNativeEvents.push_back({scope,eventActor,name=="Kill",std::move(contract)});
+}
+void SdkWorld::ProcessPartyNpcEvents() {
+    if(m_NpcNativeEvents.empty()) return;
+    if(!m_InScene) { m_NpcNativeEvents.clear(); return; }
+    // Count all native actors, including ones omitted from the shared stable-ID
+    // catalog. A 32-bit telemetry collision must never select the first match.
+    struct Match { size_t count=0; NpcMutationGate::Ticket ticket; };
+    std::unordered_map<uint32_t,Match> matches;
+    for(const auto& entry:Globals::ActorManager->m_activatedActors) {
+        if(!entry.m_pInterfaceRef || !entry.m_entityRef) continue;
+        ZEntityRef ref; entry.m_pInterfaceRef->GetID(ref);
+        if(!ref) continue;
+        auto& match=matches[NpcLifeReceipts::ActorEventId(reinterpret_cast<uint64_t>(ref.m_pObj))];
+        ++match.count;
+        match.ticket=NpcMutationGate::FindActor(entry.m_pInterfaceRef);
+    }
+    for(size_t processed=0;processed<128 && !m_NpcNativeEvents.empty();++processed) {
+        auto event=std::move(m_NpcNativeEvents.front()); m_NpcNativeEvents.pop_front();
+        if(event.scope!=NpcMutationGate::CurrentScope()) continue;
+        const auto match=matches.find(event.actor);
+        if(match==matches.end() || match->second.count!=1 || !match->second.ticket.scope) continue;
+        m_NpcLifeReceipts.Observe(event.contract,event.actor,event.killed ? NpcLifeReceipts::Life::Dead : NpcLifeReceipts::Life::Unconscious);
+    }
 }
 
 bool SdkWorld::GetPartnerPosition(coop::Vec3& p_Out) const {

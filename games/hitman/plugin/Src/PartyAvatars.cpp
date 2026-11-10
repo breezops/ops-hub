@@ -20,6 +20,8 @@ bool Finite(coop::Quat q) {
 }
 
 std::string SdkWorld::PartyPreviewError() const {
+    if(m_NpcEventOverflow)
+        return "Native NPC event queue overflowed. Reload Freeform Training before starting again.";
     if (!CrashGuards::InteractionGuardActive())
         return "Preview protection could not be installed for this game build. Close HITMAN and send the log.";
     if (m_PartyAvatarDamaged)

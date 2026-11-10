@@ -1,5 +1,6 @@
 #include "CrashGuards.h"
 #include "NpcReasoningFence.h"
+#include "NpcMutationGate.h"
 
 #include <Windows.h>
 
@@ -246,6 +247,22 @@ namespace {
             branches.push_back(out.size());
             Emit32(out, 0);
         }
+        // Additional controlled NPCs. Atomic slots can contain holes; never
+        // terminate at the first null. Only rax/rcx (replayed below) are used.
+        Emit(out,{0x48,0xB8});
+        Emit64(out,reinterpret_cast<uint64_t>(NpcMutationGate::SlotLimit()));
+        Emit(out,{0x8B,0x08,0x85,0xC9,0x0F,0x84}); // mov ecx,[rax]; test ecx,ecx; jz original
+        const size_t noNpcs=out.size(); Emit32(out,0);
+        Emit(out,{0x48,0xB8});
+        Emit64(out,reinterpret_cast<uint64_t>(NpcMutationGate::BlockedSlots()));
+        const size_t loop=out.size();
+        Emit(out,{0x4C,0x3B,0x30,0x0F,0x84}); // cmp r14,[rax]; je reject
+        branches.push_back(out.size()); Emit32(out,0);
+        Emit(out,{0x48,0x83,0xC0,0x08,0xFF,0xC9,0x0F,0x85}); // add rax,8; dec ecx; jnz loop
+        const int32_t back=static_cast<int32_t>(loop)-static_cast<int32_t>(out.size()+4);
+        Emit32(out,static_cast<uint32_t>(back));
+        const int32_t originalOffset=static_cast<int32_t>(out.size()-noNpcs-4);
+        std::memcpy(out.data()+noNpcs,&originalOffset,4);
         out.insert(out.end(), original.begin(), original.end());
         EmitJump(out, resume);
         for (size_t branch : branches) {

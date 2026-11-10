@@ -2,6 +2,7 @@
 #include "CoopText.h"
 #include "CrashTrace.h"
 #include "CrashGuards.h"
+#include "NpcMutationGate.h"
 #include "GamePause.h"
 #include "Log.h"
 #include "PoseHook.h"
@@ -1510,6 +1511,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     ProcessCommands(s_Now);
 
     const bool s_JustEntered = m_World.UpdateSceneState();
+    m_World.ProcessPartyNpcEvents();
     if (m_PartyPreview)
         m_PartyPreview->Tick(s_Now);
 
@@ -2283,6 +2285,16 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, bool, OnActorHit, IBaseCharacter* th, const SHi
         return HookResult<bool>(HookAction::Return(), false);
     }
 
+    if (NpcMutationGate::CurrentScope()) {
+        NpcMutationGate::Hit hit(static_cast<ZActor*>(th));
+        if (hit.Blocked()) return HookResult<bool>(HookAction::Return(), false);
+        // Keep admission stable through the original native operation. Role
+        // changes must retry while a hit is in flight. No active NPC scope
+        // keeps the original detour chain unchanged.
+        const bool result=p_Hook->CallOriginal(th,p_HitInfo);
+        return HookResult<bool>(HookAction::Return(),result);
+    }
+
     return HookResult<bool>(HookAction::Continue());
 }
 
@@ -2344,6 +2356,12 @@ DEFINE_PLUGIN_DETOUR(
     std::lock_guard s_Lock(m_SessionMutex);
 
     // Read in any session (our mission's stats count from the start, even before the partner is in).
+    if(NpcMutationGate::CurrentScope() && m_GameVersion=="3.290.1") {
+        ZString data;
+        Functions::ZDynamicObject_ToString->Call(const_cast<ZDynamicObject*>(&p_Event),data);
+        const std::string json(data.c_str(),data.size());
+        m_World.ObservePartyNpcEvent(EventName(json),json);
+    }
     if (m_Session && m_Session->Active()) {
         const bool s_Connected = m_Session->Status().state == coop::SessionState::Connected;
         ZString s_Data;

@@ -99,6 +99,60 @@ _build-native-fixtures` and run through CTest without an SDK or game. CI execute
 the production pose hook, guard stubs and reasoning-fence/registry code against
 synthetic buffers and executable fixtures; it never patches HITMAN.
 
+Additional native ingress and receipt bindings:
+
+- `NpcMutationGate` binds a local scope, stable NPC ID, native actor birth and
+  owner lease. New bindings start blocked. Old scope/birth/lease grants cannot
+  authorize replacements, and bounded tombstones reject retired births.
+- The existing hit detour uses an admission hold through the original native
+  call while a scope is active. Role changes/retirement retry while a hit is in
+  flight. Exact-actor canonical permits are keyed to the current native stack;
+  they do not enable picking or another thread/fiber stack's damage.
+- The existing picker stub scans bounded atomic NPC slots as well as the player
+  slots. It preserves the original normal-path comparison flags and supports
+  holes. The default movement preview has no NPC scope or bound slots.
+- Only managed native hit/picker paths are covered. Unknown/unadmitted actors,
+  direct script kills, environmental effects and interactions already running
+  still need handling. Active NPC mode owns hit dispatch through CallOriginal;
+  coexistence with additional third-party hit detours has not been validated.
+- Native 3.290.1 ActorId event producers call GetID and hash the returned native
+  entity reference: low32 * 0x13285CD7 - high32 * 0x61C88647, wrapping uint32.
+  This is a local native identity, not the cross-PC stable NPC ID. The event
+  decoder accepts exact integer-valued telemetry decimals and rejects truncation.
+- `NpcLifeReceipts` requires this PC's native ContractSessionId and a verified
+  actor ticket. Hash collisions/recycled event identities cannot select an
+  actor, late Pacify cannot reverse Kill, and same-contract room epoch changes
+  preserve physical life facts only after fresh actor tickets are bound.
+- The native achievement callback queues bounded receipt data under the session
+  lock; the frame resolves native actor identities on the game thread. It counts
+  all activated actors for collision checks, including actors absent from the
+  shared catalog. Overflow interrupts rather than silently discarding facts.
+- Party capture requires an actual down state plus a confirmed receipt, or a
+  native IsPacified result, for ambiguous dead/KO cases. It does not use the
+  legacy optimistic pacify cache as completion proof. The future adapter must
+  obtain the local native contract session before acknowledging readiness.
+
+Read-only inspection also finds a separate action-output loop that schedules
+deferred/fiber work; the synchronous reasoning fence does not cover it. Its
+completion/cancellation boundary must be verified before native NPC preparation
+can succeed. In addition, the current scene-clear hook runs before the engine's
+actual teardown: it is not itself a post-destruction worker fence. Bind scope
+retirement and fault recovery to a proven lifecycle boundary before enabling
+the adapter. Existing animation and client body/ragdoll presentation can remain
+non-authoritative; the required hold covers decision/action and damage authority.
+
+The inspected custom context switch saves/restores the TIB stack base/limit and
+switches rsp. A thread-local override alone can therefore be visible from a
+different execution stack on the same thread. Windows [fiber-local storage](https://learn.microsoft.com/en-us/windows/win32/procthread/fibers)
+is documented for Windows fiber switching; the custom switch does not establish
+that FLS follows it. The ingress gate instead uses a bounded stack-keyed permit
+registry and an atomic reader/writer admission counter. No thread-owned lock
+spans the original hit call. A generated alternate-stack fixture swaps TIB bounds
+and rsp while retaining the same thread-local marker; it verifies permit
+isolation, nested canonical updates and refusal to mutate admission while a
+native call on another stack is still active. Do not apply the synchronous
+reasoning-loop lock unchanged to deferred/fiber action jobs.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.

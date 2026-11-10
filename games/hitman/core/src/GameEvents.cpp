@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 namespace coop::GameEvents {
 
@@ -82,6 +83,27 @@ bool Bool(const std::string& p_Json, const char* p_Key, bool& p_Out) {
     }
 
     return false;
+}
+
+bool UInt32(const std::string& json,const char* key,uint32_t& out) {
+    size_t at=ValueAt(json,key);
+    if(at==std::string::npos || json[at]<'0' || json[at]>'9') return false;
+    const size_t start=at;
+    uint32_t value=0;
+    while(at<json.size() && json[at]>='0' && json[at]<='9') {
+        const uint32_t digit=static_cast<uint32_t>(json[at]-'0');
+        if(value>(std::numeric_limits<uint32_t>::max()-digit)/10) return false;
+        value=value*10+digit; ++at;
+    }
+    if(at-start>1 && json[start]=='0') return false;
+    if(at<json.size() && json[at]=='.') {
+        const size_t fractional=++at;
+        while(at<json.size() && json[at]=='0') ++at;
+        if(at==fractional) return false;
+    }
+    while(at<json.size() && std::isspace(static_cast<unsigned char>(json[at]))) ++at;
+    if(at<json.size() && json[at]!=',' && json[at]!='}' && json[at]!=']') return false;
+    out=value; return true;
 }
 
 std::string PlainText(const std::string& p_Utf8, size_t p_MaxLen) {

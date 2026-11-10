@@ -19,6 +19,7 @@
 #include "PartnerPuppet.h"
 #include "RemoteAvatarState.h"
 #include "PoseHook.h"
+#include "NpcLifeReceipts.h"
 
 #include "Glacier/EntityFactory.h"
 #include "Glacier/Enums.h"
@@ -56,6 +57,12 @@ public:
     // Read-only native NPC binding. Refresh ListNpcs first; no network input
     // can choose an actor pointer. Unknown engagement/interaction is busy.
     bool CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const;
+    // nativeContract is this PC's native ContractSessionId, never a room/peer
+    // value. The future adapter must obtain it before acknowledging readiness.
+    bool BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract);
+    bool BindPartyNpcObservation(const NpcMutationGate::Ticket& ticket);
+    void ObservePartyNpcEvent(const std::string& name,const std::string& json);
+    void ProcessPartyNpcEvents();
     void ShowRemoteAvatar(const coop::Transform& p_Xf) override;
     void HideRemoteAvatar() override;
     void SetRemoteOutfit(const coop::OutfitDesc& p_Outfit) override;
@@ -564,6 +571,10 @@ private:
     std::string OutfitKitToRepositoryId(ZGlobalOutfitKit* p_Kit) const;
 
     bool m_InScene = false;
+    NpcLifeReceipts::Book m_NpcLifeReceipts;
+    struct NpcNativeEvent { uint64_t scope; uint32_t actor; bool killed; std::string contract; };
+    std::deque<NpcNativeEvent> m_NpcNativeEvents;
+    bool m_NpcEventOverflow=false;
     bool m_SceneLoading = false;
     coop::SceneDesc m_Scene;
 
