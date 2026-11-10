@@ -1,0 +1,146 @@
+HITMAN Co-op â€” Premium UI Design Prompt
+
+Redesign the existing application's visual interface with a premium, cinematic aesthetic inspired by HITMAN: World of Assassination, Agent 47, and the ICA.
+
+Focus entirely on visual design. Do not change the application's functionality, invent new features, or add unnecessary pages or categories. Work with the existing project structure and make the current interface look exceptional.
+
+VISUAL DIRECTION
+
+The UI should feel like a classified ICA intelligence terminal mixed with the sleek, luxurious minimalism of the official HITMAN games.
+
+Imagine a professional game studio designed a custom desktop interface specifically for HITMAN.
+
+The design should feel:
+- Cinematic, dark, sophisticated, and mysterious.
+- Minimalist but visually striking.
+- Tactical and professional rather than futuristic sci-fi.
+- Sharp, precise, and architecturally structured.
+- Expensive, polished, and intentionally designed.
+
+COLOR PALETTE
+
+Use a refined monochromatic palette with signature HITMAN red accents.
+
+- Background: #0B0C0E â€” near-black.
+- Panels: #161719 â€” matte charcoal.
+- Elevated surfaces: #212225 â€” graphite.
+- Primary text: #F3F3F1 â€” soft white.
+- Secondary text: #898B90 â€” muted gray.
+- Accent: #C8102E â€” signature crimson red.
+- Borders: #323337 â€” subtle charcoal dividers.
+
+Red should be used selectively for important interactive elements, active navigation, thin accent lines, and visual emphasis.
+
+Avoid colorful gradients, neon effects, and overly bright UI elements.
+
+LAYOUT & COMPOSITION
+
+Create a highly polished desktop interface with a strong visual hierarchy.
+
+Use:
+- Sharp rectangular panels.
+- Thin architectural dividers.
+- Precise alignment and consistent spacing.
+- Beautifully integrated navigation.
+- Large editorial headings.
+- Subtle technical labels and microtypography.
+- Carefully balanced negative space.
+- Dark cinematic image treatments.
+- Elegant contrast between large headlines and tiny technical details.
+
+Avoid generic rounded dashboard cards. The interface should feel purpose-built rather than assembled from a component library.
+
+HITMAN-INSPIRED DESIGN LANGUAGE
+
+Incorporate subtle visual elements associated with the HITMAN universe:
+
+- ICA-inspired geometric symbols.
+- Classified dossier aesthetics.
+- White typography against deep-black backgrounds.
+- Deep red vertical and horizontal accent lines.
+- Minimal crosshair-like geometric details.
+- Small uppercase identification labels.
+- Thin grid patterns and understated technical markings.
+- Cinematic monochrome imagery.
+- Subtle architectural photography.
+- Agent 47-inspired silhouettes and red-tie imagery where suitable.
+
+These elements should be tasteful and understated. Do not overwhelm the interface with decorative clutter.
+
+TYPOGRAPHY
+
+Typography is one of the most important aspects of this redesign.
+
+Use a combination of:
+- Bold, condensed sans-serif typography for prominent headings.
+- Clean modern sans-serif fonts for interface text.
+- Small, widely spaced uppercase lettering for secondary labels.
+
+Suggested fonts include Inter, IBM Plex Sans, Rajdhani, or similarly refined alternatives.
+
+Typography should feel inspired by luxury editorial design, modern espionage, and professional game interfaces.
+
+BUTTONS & INTERACTIVE ELEMENTS
+
+Every interaction should feel carefully crafted.
+
+- Clean, sharp-edged buttons.
+- Solid crimson primary actions.
+- Dark secondary actions with subtle borders.
+- Smooth, restrained hover transitions.
+- Thin red selection indicators.
+- Elegant input fields with understated borders.
+- Consistent iconography using clean line icons.
+- Beautiful active, inactive, disabled, and focus states.
+
+Avoid default Windows controls wherever the existing framework permits custom styling.
+
+MOTION & ANIMATION
+
+Use subtle, premium animations to make the application feel alive.
+
+- Smooth transitions between existing views.
+- Gentle fade and slide animations.
+- Subtle animated red accent lines.
+- Refined hover and click feedback.
+- Smooth panel reveals.
+- Elegant loading indicators.
+- Restrained cinematic transitions.
+
+Animations should be fluid, quick, and sophisticated, never distracting.
+
+Avoid bouncing elements, excessive glow, or unnecessary visual effects.
+
+OVERALL ATMOSPHERE
+
+The finished interface should feel like a combination of:
+
+HITMAN World of Assassination Ã— ICA Mission Briefing Ã— Luxury Minimalism Ã— Modern Tactical Software.
+
+It should feel cold, precise, intimidating, elegant, and professional.
+
+Think black tailored suits, red ties, brutalist architecture, classified documents, minimalist Swiss graphic design, and cinematic espionage.
+
+CRITICAL INSTRUCTIONS
+
+Do NOT make this look like a typical AI-generated application.
+
+Avoid:
+- Generic SaaS dashboards.
+- Excessively rounded corners.
+- Oversized cards.
+- Purple or blue gradients.
+- Glassmorphism everywhere.
+- Random icons and decorations.
+- Excessive glowing effects.
+- Bland, template-like layouts.
+- Unnecessary UI sections.
+- Changing existing functionality.
+
+The existing project already defines what the application does. Your responsibility is to transform its visual identity.
+
+Be creative with the styling, composition, typography, transitions, and presentation while preserving the existing application's features and structure.
+
+The final result should look like a professionally art-directed HITMAN companion application, not a generic desktop utility with a dark theme.
+
+Prioritize visual quality, consistency, refinement, and originality in every detail.

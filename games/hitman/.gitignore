@@ -1,0 +1,13 @@
+_build*/
+_deps/
+_dist/
+bin/
+launcher/bin/
+outputs/
+*.pdb
+*.lib
+*.exp
+*.obj
+*.ilk
+*.user
+*.cache
