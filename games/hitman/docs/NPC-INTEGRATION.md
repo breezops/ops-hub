@@ -288,6 +288,46 @@ contract acquisition, canonical apply and actual scene-retirement confirmation
 remain required before native shared-NPC mode can be enabled. An operation's
 completed result is not by itself a scene preparation or retirement receipt.
 
+### Construction generations and the first identity check
+
+The development mod now observes the SDK's existing `ZActor_ZActor` constructor
+hook on 3.290.1. It records the raw address and a monotonic local generation,
+then returns Continue so the original SDK detour chain and constructor run
+normally. It does not inspect the unfinished actor, call native controls or take
+the session mutex. `NpcActorBirths` has its own short metadata lock, a bounded
+registry and exception containment. Missing observations never invent a birth;
+address reuse invalidates the previous generation, and a capacity/tracking fault
+invalidates identity proof rather than allowing an untracked actor.
+
+Construction entry is not completion or lifetime proof. Fresh SDK validation
+checks the observed game thread, Freeform scene, unique activated-list template
+ID, enabled/activated flags, runtime slot, native entity reference and GetID.
+The action-boundary validator additionally checks the actor-manager list-lock
+flag, current scope/birth/lease and construction generation. Scoped capture and
+life-receipt binding reject mismatched generations. Event collision counting
+still includes unmanaged actors, but a stale construction cannot supply a life
+receipt. The real native lifetime/actor-list contract still needs live validation;
+none of these checks automatically installs the action-phase mutation hook.
+
+The construction registry survives the early scene-clear callback. Its explicit
+pruning operation requires a later verified retirement barrier, retains current
+survivors and all constructions after a watermark, and never resets generation
+numbers. No production retirement callback prunes it yet. Six new fixtures cover
+unknown/reused addresses, surviving and newer constructions during retirement,
+capacity reclamation, latched faults and concurrent constructor events. The full
+suite is now 266 tests: 203 core, 10 pose, 6 guards, 40 native NPC and 7 phase.
+
+A private, separately identified OPS 0.1.4 candidate logs read-only identity
+audits in Freeform Training. It leaves shared NPC control off and needs only one
+PC. It is not the public update channel. See
+[the solo guide](../diagnostics/identity-1/START-HERE.txt) and
+[reproduction instructions](../diagnostics/identity-1/BUILD-CANDIDATE.md).
+The candidate includes a verified copy of the immutable OPS 0.1.3 ZIP and a
+restoration shortcut. Its install/restore path is tested in a synthetic game,
+and the actual archive passes the launcher's staging/checksum checks. A live
+identity audit is still required; modeled tests do not establish constructor
+coverage, runtime-slot relationships or safe control behavior in HITMAN.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.

@@ -31,6 +31,7 @@ class ZAchievementManagerSimple;
 class ZDynamicObject;
 class IBaseCharacter;
 class ZKnowledge;
+class ZComponentCreateInfo;
 class ZApplicationEngineWin32;
 struct SHitInfo;
 
@@ -94,6 +95,7 @@ private:
 
     DECLARE_PLUGIN_DETOUR(HitmanCoop, bool, OnLoadScene, ZEntitySceneContext*, SSceneInitParameters&);
     DECLARE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext*, bool p_FullyUnloadScene);
+    DECLARE_PLUGIN_DETOUR(HitmanCoop, void, OnActorConstructing, ZActor*, ZComponentCreateInfo*);
     // Our mission restarted (or a save of it loaded): the partner's restarts too.
     void OnMissionRestarted(const std::string& p_Scene);
     std::string m_ClearedMission; // the mission a full clear left, until the next scene

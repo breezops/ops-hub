@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -20,6 +21,7 @@
 #include "RemoteAvatarState.h"
 #include "PoseHook.h"
 #include "NpcLifeReceipts.h"
+#include "NpcActorBirths.h"
 
 #include "Glacier/EntityFactory.h"
 #include "Glacier/Enums.h"
@@ -57,6 +59,17 @@ public:
     // Read-only native NPC binding. Refresh ListNpcs first; no network input
     // can choose an actor pointer. Unknown engagement/interaction is busy.
     bool CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const;
+    // Constructor callback may run on workers: pointer-only metadata, no SDK
+    // actor reads and no session lock. Construction entry is not completion.
+    void ObservePartyNpcConstruction(void* actor) noexcept { m_NpcActorBirths.ObserveConstruction(actor); }
+    void ObservePartyGameThread(uint32_t thread) noexcept;
+    uint32_t PartyGameThread() const;
+    uint64_t CurrentPartyNpcBirth(uint64_t id) const;
+    bool PartyNpcBirthsHealthy() const { return m_NpcActorBirths.Healthy(); }
+    // Called only under the action boundary's metadata pin. Checks fresh SDK
+    // lists/slot/identity; actual native lifetime boundary still needs live proof.
+    bool ValidatePartyNpcAtActionBoundary(const NpcMutationGate::Ticket&,int32_t& runtimeId) const;
+    void TracePartyNpcIdentity(); // Diagnostic build only; reads/counts, no NPC controls.
     // nativeContract is this PC's native ContractSessionId, never a room/peer
     // value. The future adapter must obtain it before acknowledging readiness.
     bool BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract);
@@ -572,6 +585,12 @@ private:
 
     bool m_InScene = false;
     NpcLifeReceipts::Book m_NpcLifeReceipts;
+    NpcActorBirths::Book m_NpcActorBirths;
+    std::atomic<uint32_t> m_PartyGameThread=0;
+    std::atomic<bool> m_PartyGameThreadChanged=false;
+    ZActor* FindFreshPartyNpc(uint64_t id) const;
+    double m_NextNpcIdentityAudit=0;
+    unsigned m_NpcIdentityAudits=0;
     struct NpcNativeEvent { uint64_t scope; uint32_t actor; bool killed; std::string contract; };
     std::deque<NpcNativeEvent> m_NpcNativeEvents;
     bool m_NpcEventOverflow=false;

@@ -27,6 +27,18 @@ target_include_directories(HitmanCoop PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/Src
 )
 
+set(COOP_NATIVE_BUILD_OVERRIDE "" CACHE STRING "Explicit native identity for a separately versioned test build")
+if (NOT "${COOP_NATIVE_BUILD_OVERRIDE}" STREQUAL "")
+    if (NOT COOP_NATIVE_BUILD_OVERRIDE MATCHES "^[0-9A-Za-z._+-]+$")
+        message(FATAL_ERROR "Native build identity contains unsupported characters")
+    endif ()
+    target_compile_definitions(HitmanCoop PRIVATE COOP_NATIVE_BUILD_OVERRIDE="${COOP_NATIVE_BUILD_OVERRIDE}")
+endif ()
+option(COOP_NPC_IDENTITY_DIAGNOSTICS "Read-only Freeform actor identity audit logging" OFF)
+if (COOP_NPC_IDENTITY_DIAGNOSTICS)
+    target_compile_definitions(HitmanCoop PRIVATE COOP_NPC_IDENTITY_DIAGNOSTICS=1)
+endif ()
+
 # Which ZHMModSDK (and so which game version) this build is for. The normal build is 4.2.1 (game
 # 3.290.1); separate builds for players who can't update use 4.1.1 (game 3.280.x) or 4.0.0-rc.1
 # (game 3.240.x), each with that SDK's dev package (-DZHMMODSDK_DEVPKG_DIR) and its own package.

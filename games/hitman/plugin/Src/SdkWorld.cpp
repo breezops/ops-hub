@@ -6,8 +6,10 @@
 #include "RigScan.h"
 #include "Hooks.h"
 #include "BoneProbe.h"
+#include <Windows.h>
 
 #include "coop/GameEvents.h"
+#include "coop/LauncherPolicy.h"
 #include "coop/Math.h"
 
 #include <algorithm>
@@ -94,6 +96,7 @@ bool SdkWorld::IsMissionScene(const std::string& p_Scene) {
 }
 
 void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
+    m_NpcIdentityAudits=0; m_NextNpcIdentityAudit=0;
     m_NativeExits.clear();
     m_TeamExitPending = m_TeamExitAttempted = m_MissionComplete = m_ExitsScanned = false;
     m_ExitScanAt = 0.0;
@@ -104,6 +107,9 @@ void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
 }
 
 void SdkWorld::OnSceneCleared() {
+    // This is pre-teardown. Construction generations survive until an actual
+    // native retirement barrier; clearing them here could alias reused actors.
+    m_NpcIdentityAudits=0; m_NextNpcIdentityAudit=0;
     m_NpcLifeReceipts.Clear();
     m_NpcNativeEvents.clear(); m_NpcEventOverflow=false;
     ForgetPlayerAvatarScenes();
@@ -2475,7 +2481,8 @@ void SdkWorld::ListNpcs(std::vector<coop::NpcState>& p_Out) const {
 
 bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
     if (!m_InScene || !id) return false;
-    auto* actor=FindNpc(id);
+    const auto scope=NpcMutationGate::CurrentScope();
+    auto* actor=scope?FindFreshPartyNpc(id):FindNpc(id);
     if (!actor || IsPartnerActor(actor) || !actor->m_bEnabled) return false;
     ZEntityRef ref;
     actor->GetID(ref);
@@ -2485,6 +2492,7 @@ bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
     coop::PartyNpcState state;
     state.xf=ToTransform(spatial->GetObjectToWorldMatrix());
     const auto ticket=NpcMutationGate::FindActor(actor);
+    if (scope && (ticket.scope!=scope || ticket.npc!=id || !ticket.birth || m_NpcActorBirths.Find(actor)!=ticket.birth)) return false;
     NpcLifeReceipts::Life observed;
     if(ticket.npc==id && m_NpcLifeReceipts.Read(ticket,observed)) {
         if(!actor->IsDead() && !actor->IsPacified()) return false; // Event may precede native state.
@@ -2506,11 +2514,94 @@ bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
     return true;
 }
 
+void SdkWorld::ObservePartyGameThread(uint32_t thread) noexcept {
+    if (!thread) { m_PartyGameThreadChanged=true; return; }
+    uint32_t unset=0;
+    if (!m_PartyGameThread.compare_exchange_strong(unset,thread) && unset!=thread) m_PartyGameThreadChanged=true;
+}
+uint32_t SdkWorld::PartyGameThread() const {
+    return m_PartyGameThreadChanged.load()?0:m_PartyGameThread.load();
+}
+ZActor* SdkWorld::FindFreshPartyNpc(uint64_t id) const {
+    const auto thread=PartyGameThread();
+    if (!thread || thread!=GetCurrentThreadId() || !m_InScene || !id ||
+        !coop::IsFreeformTrainingScene(m_Scene.scene) || !Globals::ActorManager) return nullptr;
+    auto* manager=Globals::ActorManager;
+    ZActor* actor=nullptr;
+    void* entity=nullptr;
+    size_t matches=0;
+    // Include disabled/ambiguous entries in the identity check. The old cache
+    // alone cannot prove which physical actor currently owns this template ID.
+    for (const auto& entry:manager->m_activatedActors) {
+        if (!entry.m_entityRef || !entry.m_entityRef->GetType() || entry.m_entityRef->GetType()->m_nEntityID!=id) continue;
+        if (++matches!=1) return nullptr;
+        actor=entry.m_pInterfaceRef; entity=entry.m_entityRef.m_pObj;
+    }
+    if (!actor || IsPartnerActor(actor) || !actor->m_bEnabled || !actor->m_bActorActivated) return nullptr;
+    const auto runtime=actor->m_nActorRuntimeId;
+    if (runtime<0 || runtime>=500) return nullptr;
+    const auto& slot=manager->m_aActors[runtime];
+    if (slot.m_pInterfaceRef!=actor || slot.m_entityRef.m_pObj!=entity) return nullptr;
+    ZEntityRef actual; actor->GetID(actual);
+    if (!actual || actual.m_pObj!=entity || !actual->GetType() || actual->GetType()->m_nEntityID!=id) return nullptr;
+    return actor;
+}
+uint64_t SdkWorld::CurrentPartyNpcBirth(uint64_t id) const {
+    const auto* actor=FindFreshPartyNpc(id);
+    return actor?m_NpcActorBirths.Find(actor):0;
+}
+bool SdkWorld::ValidatePartyNpcAtActionBoundary(const NpcMutationGate::Ticket& ticket,int32_t& runtimeId) const {
+    if (!ticket.scope || NpcMutationGate::CurrentScope()!=ticket.scope ||
+        !PartyGameThread() || GetCurrentThreadId()!=PartyGameThread() ||
+        !Globals::ActorManager || !Globals::ActorManager->m_bLockActorLists) return false;
+    const auto current=NpcMutationGate::Find(ticket.scope,ticket.npc,ticket.birth,ticket.lease);
+    if (!ticket.actor || current.actor!=ticket.actor || m_NpcActorBirths.Find(ticket.actor)!=ticket.birth) return false;
+    const auto* actor=FindFreshPartyNpc(ticket.npc);
+    if (!actor || actor!=ticket.actor) return false;
+    runtimeId=actor->m_nActorRuntimeId;
+    return true;
+}
+void SdkWorld::TracePartyNpcIdentity() {
+    if (!m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) ||
+        !PartyGameThread() || PartyGameThread()!=GetCurrentThreadId() || !Globals::ActorManager ||
+        m_NpcIdentityAudits>=12 || m_Now<m_NextNpcIdentityAudit) return;
+    m_NextNpcIdentityAudit=m_Now+10.; ++m_NpcIdentityAudits;
+    struct Counts { size_t total=0,enabled=0; };
+    std::map<uint64_t,Counts> ids;
+    size_t enabled=0,untracked=0,duplicate=0,uniqueEnabled=0,freshRejected=0,admissible=0;
+    for (const auto& entry:Globals::ActorManager->m_activatedActors) {
+        auto* actor=entry.m_pInterfaceRef;
+        if (!actor || IsPartnerActor(actor) || !entry.m_entityRef || !entry.m_entityRef->GetType()) continue;
+        const auto id=entry.m_entityRef->GetType()->m_nEntityID;
+        if (!id) continue;
+        auto& counts=ids[id]; ++counts.total;
+        if (actor->m_bEnabled && actor->m_bActorActivated) {
+            ++enabled; ++counts.enabled;
+            if (!m_NpcActorBirths.Find(actor)) ++untracked;
+        }
+    }
+    for (const auto& [id,counts]:ids) {
+        if (counts.total!=1) { ++duplicate; continue; }
+        if (!counts.enabled) continue;
+        ++uniqueEnabled;
+        const auto* actor=FindFreshPartyNpc(id);
+        if (!actor) ++freshRejected;
+        else if (m_NpcActorBirths.Find(actor)) ++admissible;
+    }
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-identity",
+        "READ-ONLY audit %u: enabled=%zu unique-enabled=%zu admissible=%zu untracked=%zu fresh-rejected=%zu duplicate-ids=%zu constructor-mark=%llu healthy=%d game-thread=%u; shared NPC control OFF",
+        m_NpcIdentityAudits,enabled,uniqueEnabled,admissible,untracked,freshRejected,duplicate,
+        static_cast<unsigned long long>(m_NpcActorBirths.Mark()),m_NpcActorBirths.Healthy()?1:0,PartyGameThread());
+}
+
 bool SdkWorld::BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract) {
-    return m_InScene && m_NpcLifeReceipts.Begin(scope,nativeContract);
+    return m_InScene && PartyGameThread()==GetCurrentThreadId() && m_NpcActorBirths.Healthy() &&
+        m_NpcLifeReceipts.Begin(scope,nativeContract);
 }
 bool SdkWorld::BindPartyNpcObservation(const NpcMutationGate::Ticket& ticket) {
-    if(!m_InScene || !ticket.actor || ticket.actor!=FindNpc(ticket.npc)) return false;
+    NpcMutationGate::Pin pin(ticket);
+    if(!pin || !m_InScene || !ticket.actor || ticket.actor!=FindFreshPartyNpc(ticket.npc) ||
+        m_NpcActorBirths.Find(ticket.actor)!=ticket.birth) return false;
     auto* actor=static_cast<ZActor*>(ticket.actor);
     if(IsPartnerActor(actor) || !actor->m_bEnabled) return false;
     ZEntityRef ref; actor->GetID(ref);
@@ -2544,6 +2635,7 @@ void SdkWorld::ProcessPartyNpcEvents() {
         auto& match=matches[NpcLifeReceipts::ActorEventId(reinterpret_cast<uint64_t>(ref.m_pObj))];
         ++match.count;
         match.ticket=NpcMutationGate::FindActor(entry.m_pInterfaceRef);
+        if (match.ticket.birth!=m_NpcActorBirths.Find(entry.m_pInterfaceRef)) match.ticket={};
     }
     for(size_t processed=0;processed<128 && !m_NpcNativeEvents.empty();++processed) {
         auto event=std::move(m_NpcNativeEvents.front()); m_NpcNativeEvents.pop_front();

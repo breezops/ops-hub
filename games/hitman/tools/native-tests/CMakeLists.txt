@@ -16,6 +16,7 @@ add_executable(coop_npc_native_tests "${TESTS}/Main.cpp" "${HITMAN_ROOT}/tools/T
 target_compile_definitions(coop_guard_tests PRIVATE COOP_GUARD_TESTS)
 target_compile_definitions(coop_npc_native_tests PRIVATE COOP_GUARD_TESTS)
 target_sources(coop_npc_native_tests PRIVATE "${HITMAN_ROOT}/tools/TestNpcActionProbe.cpp" "${PLUGIN}/NpcActionProbe.cpp")
+target_sources(coop_npc_native_tests PRIVATE "${HITMAN_ROOT}/tools/TestNpcActorBirths.cpp" "${PLUGIN}/NpcActorBirths.cpp")
 add_executable(coop_npc_phase_tests "${TESTS}/Main.cpp" "${HITMAN_ROOT}/tools/TestNpcActionPhase.cpp" "${PLUGIN}/NpcActionPhase.cpp" "${PLUGIN}/NpcActionProbe.cpp" "${PLUGIN}/NpcMutationGate.cpp")
 foreach(target coop_pose_tests coop_guard_tests coop_npc_native_tests coop_npc_phase_tests)
     target_include_directories(${target} PRIVATE "${PLUGIN}" "${TESTS}" "${HITMAN_ROOT}/core/include")

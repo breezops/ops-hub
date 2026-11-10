@@ -235,11 +235,16 @@ void HitmanCoop::Init() {
     m_LanAddress = coop::LocalLanAddress();
     m_TailscaleAddress = coop::LocalTailscaleAddress();
     LoadSettings();
+#ifdef COOP_NPC_IDENTITY_DIAGNOSTICS
+    if (!CoopLog::On(coop::LogLevel::Info)) CoopLog::SetLevel(coop::LogLevel::Info);
+#endif
     const int s_Patches = CrashGuards::Install();
     Logger::Info("[HitmanCoop] Game patches applied: {} of {} ({}).", s_Patches, CrashGuards::Count(), CrashGuards::Report());
 
     Hooks::ZEntitySceneContext_LoadScene->AddDetour(this, &HitmanCoop::OnLoadScene);
     Hooks::ZEntitySceneContext_ClearScene->AddDetour(this, &HitmanCoop::OnClearScene);
+    if (m_GameVersion=="3.290.1" && Hooks::ZActor_ZActor)
+        Hooks::ZActor_ZActor->AddDetour(this,&HitmanCoop::OnActorConstructing);
     Hooks::ZActor_YouGotHit->AddDetour(this, &HitmanCoop::OnActorHit);
     Hooks::ZActor_SetOutfit->AddDetour(this, &HitmanCoop::OnActorSetOutfit);
     if (Hooks::ZClothBundleEntity_CreateClothBundle && Hooks::ZEntityManager_DeleteEntity && Functions::ZEntityManager_DeleteEntity->Exists()) {
@@ -1428,6 +1433,7 @@ void HitmanCoop::ProcessCommands(double p_Now) {
 
 void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     std::lock_guard s_Lock(m_SessionMutex);
+    m_World.ObservePartyGameThread(GetCurrentThreadId());
 
     const double s_Now = Now();
     const double s_FrameGap = m_LastFrame > 0.0 ? s_Now - m_LastFrame : 0.0;
@@ -1511,6 +1517,9 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     ProcessCommands(s_Now);
 
     const bool s_JustEntered = m_World.UpdateSceneState();
+#ifdef COOP_NPC_IDENTITY_DIAGNOSTICS
+    m_World.TracePartyNpcIdentity();
+#endif
     m_World.ProcessPartyNpcEvents();
     if (m_PartyPreview)
         m_PartyPreview->Tick(s_Now);
@@ -2275,6 +2284,14 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bo
     if (m_PartyPreview)
         m_PartyPreview->SceneCleared();
     m_World.OnSceneCleared();
+    return HookResult<void>(HookAction::Continue());
+}
+
+DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnActorConstructing, ZActor* th, ZComponentCreateInfo* info) {
+    (void)info;
+    // Pointer-only construction stamp. Do not take the session mutex or inspect
+    // the unfinished actor: the game thread may be waiting on this worker.
+    m_World.ObservePartyNpcConstruction(th);
     return HookResult<void>(HookAction::Continue());
 }
 
