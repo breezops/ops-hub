@@ -621,3 +621,32 @@ logs every selection rejection stage plus nearest eligible distance. Identity,
 fresh birth, scheduled slot, observed-job and hold-ownership checks are unchanged.
 The existing standing NPC is sufficient; walking visuals are not required to
 verify native job completion/resume. No knockout or further map access is needed.
+
+### Confirmed near-allocation exhaustion and private absolute backend
+
+Hold-2's next startup could not create the job/action hooks (status 9); the
+arbiter was not attempted. Telemetry showed no VirtualAlloc or heap allocation
+attempts. Read-only VirtualQueryEx scans confirmed zero aligned 4K candidates
+within both 1GiB and nearly 2GiB of all three verified entries, despite 1,212,416
+free bytes in holes whose largest extent was 61,440 bytes. The existing native
+inspector resolved all relationships and live prefixes matched. Increasing the
+search range would not have supplied a usable reservation in this process.
+
+Hold-3 opts into the documented generated MinHook derivative described in
+third_party/minhook/PROVENANCE.md. It allocates private executable pages anywhere
+and uses fourteen-byte register-preserving absolute entries. It keeps upstream
+thread suspension/IP mapping and copies complete decoded instructions. Only
+verified relocation-free entry prefixes are admitted; unknown prefixes, relative
+or RIP-dependent stolen instructions and short/hot-patch entries are refused.
+Both original pinned sources and generated patch tooling are included for
+reproduction; the compiled absolute sources are explicitly a local derivative.
+
+Tests reserve a four-GiB arena around an entry, require the trampoline to be
+more than two GiB away, execute the detour/original and verify restoration.
+Existing cancellation, ownership, shutdown and concurrent installation tests
+also pass with this backend. Normal near-relay builds remain the default.
+This removes the near-page dependency in the tested backend; Hold-3 live startup
+and the one-NPC cycle still need their own evidence.
+
+Windows reservation alignment references: [VirtualAlloc](https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc)
+and [VirtualAlloc2](https://learn.microsoft.com/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc2).

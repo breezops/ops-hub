@@ -1,0 +1,35 @@
+HITMAN CO-OP / PRIVATE ONE-NPC HOLD TEST / HOLD-3
+OPS 0.1.12 / native preview.4.hold.3 / HITMAN 3.290.1
+
+SOLO ONLY. No host/join/Ready buttons. Friends do not need this update.
+This build selects guards OR civilians, so the standing NPC at the entrance
+can be used. You do not need to knock him out or reach a walking guard.
+It changes one NPC's native AI hold state only when you press F8.
+
+STARTUP CHECK FIRST:
+1. Close HITMAN and the old launcher. Open this folder's launcher.
+2. Click INSTALL / REPAIR, then LAUNCH HITMAN.
+3. Load Freeform Training alone, wait 15 seconds and reply "in mission".
+4. Leave the game running. Do not press F8 until the developer confirms all
+   three hooks attached.
+
+AFTER ATTACHMENT IS CONFIRMED:
+5. Use HITMAN's Restart Mission once for a fresh actor generation.
+6. Walk close to the standing NPC at the entrance, within about 8 metres.
+   Make sure he is the closest NPC. Do not knock him out or interact with him.
+7. Press F8 ONCE with HITMAN focused. Wait 25 seconds, then quit normally.
+8. Tell the developer you finished. A standing NPC may look unchanged; the
+   log checks native hold, original job completion and a new job after resume.
+
+No attacks, disguises, pause or mission restart during the cycle. One selected
+actor/cycle per process. If nothing happens, do not repeatedly press F8: the
+new selection audit identifies which check blocked the attempt.
+
+Fresh identity/birth/slot, observed job coverage and hold-ownership checks are
+unchanged. Mission targets, downed NPCs and pre-existing holds remain excluded.
+This is not shared NPC gameplay, whole-game pause or physical retirement proof.
+
+Close HITMAN and run RESTORE-0.1.3.cmd to return to tested multiplayer.
+Do not use SDK hot reload. CHECK FOR UPDATES does not fetch this private build.
+No screen capture, game files or saves are included.
+

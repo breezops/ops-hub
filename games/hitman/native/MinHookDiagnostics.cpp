@@ -3,12 +3,29 @@
 #include <MinHook.h>
 #include <algorithm>
 #include <limits>
+#include <array>
+#include <cstring>
 
 namespace {
 // Hook creation is synchronous and does not call the game's yielding jobs.
 // Per-thread capture avoids mixing concurrent hook installations and requires
 // neither a heap allocation nor a lock held inside MinHook.
 thread_local MinHookDiagnostics::Report* g_Report=nullptr;
+#ifdef COOP_MINHOOK_ABSOLUTE_ENTRIES
+bool ApprovedPrefix(void* target) {
+    constexpr uint8_t job[]{0x40,0x53,0x48,0x83,0xec,0x20,0x48,0x8b,0xd9,0x48,0x8b,0x89,0xe0,0,0,0};
+    constexpr uint8_t loop[]{0x40,0x56,0x41,0x54,0x41,0x55,0x41,0x56,0x48,0x83,0xec,0x38,0x4c,0x8b,0x02};
+    constexpr uint8_t actor[]{0x48,0x89,0x5c,0x24,0x08,0x57,0x48,0x83,0xec,0x20,0x44,0x0f,0xb6,0x81,0x7d,0x11,0,0};
+    std::array<uint8_t,20> bytes{}; SIZE_T count=0;
+    if (!target || !ReadProcessMemory(GetCurrentProcess(),target,bytes.data(),bytes.size(),&count) || count!=bytes.size()) return false;
+    if (!std::memcmp(bytes.data(),job,sizeof(job)) || !std::memcmp(bytes.data(),loop,sizeof(loop)) || !std::memcmp(bytes.data(),actor,sizeof(actor))) return true;
+#ifdef COOP_MINHOOK_ALLOC_TESTS
+    // Fixture-only actor thunk replaces the native movzx with an absolute mov.
+    if (!std::memcmp(bytes.data(),actor,10) && bytes[10]==0x48 && bytes[11]==0xb8) return true;
+#endif
+    return false;
+}
+#endif
 void InspectNearRange(void* target,MinHookDiagnostics::Report& report) {
     SYSTEM_INFO system{}; GetSystemInfo(&system);
     const auto origin=reinterpret_cast<uintptr_t>(target);
@@ -90,6 +107,9 @@ extern "C" LPVOID WINAPI CoopMhHeapReAlloc(HANDLE heap,DWORD flags,LPVOID memory
 }
 int MinHookDiagnostics::Create(void* target,void* detour,void** original,Report& report,LayoutTag<sizeof(Report)>) {
     report={};
+#ifdef COOP_MINHOOK_ABSOLUTE_ENTRIES
+    if (!ApprovedPrefix(target)) return MH_ERROR_UNSUPPORTED_FUNCTION;
+#endif
     auto* previous=g_Report; g_Report=&report;
     const auto status=MH_CreateHook(target,detour,original);
     g_Report=previous;
@@ -104,6 +124,13 @@ const char* MinHookDiagnostics::AllocationPath(const Report& report) {
     if (report.queryFailures) return "address-query-failure";
     if (report.queries && !report.virtualAttempts && !report.heapAttempts) return "no-near-code-candidate";
     return "no-allocation-failure-recorded";
+}
+const char* MinHookDiagnostics::EntryMode() {
+#ifdef COOP_MINHOOK_ABSOLUTE_ENTRIES
+    return "absolute-14-verified-prefix";
+#else
+    return "near-relay-5";
+#endif
 }
 #ifdef COOP_MINHOOK_ALLOC_TESTS
 void MinHookDiagnostics::SetFault(Fault fault) { g_Fault=fault; }

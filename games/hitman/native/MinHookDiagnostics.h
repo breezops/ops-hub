@@ -19,6 +19,7 @@ struct Report {
 };
 int Create(void* target,void* detour,void** original,Report& report,LayoutTag<sizeof(Report)> = {});
 const char* AllocationPath(const Report&);
+const char* EntryMode();
 #ifdef COOP_MINHOOK_ALLOC_TESTS
 enum class Fault { None, VirtualAllocation, HeapAllocation, NoFreeRegion };
 // Thread-local fixture injection; omitted from player builds.

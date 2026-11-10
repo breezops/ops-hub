@@ -11,6 +11,32 @@ Action.1 failed in hook creation despite valid live sites, entry bytes, successf
 The source and preserved ZIP/checksum for action.2 are on M:. The user test folder is R:\Hitman COOP test\HITMAN-Coop-Action-2 and includes exact public 0.1.3 rollback. No site release was published. Do not repeat the same identity/read-only test without a regression or new uncertainty.
 
 ## Immediate engineering step — solo remains sufficient
+
+Hold-2 startup failed before selection: job/action creation status 9, hold
+arbiter not attempted. Actual reports showed no VirtualAlloc/heap attempts,
+zero near candidates. Read-only live scans at all three verified entries found
+1,212,416 free bytes but zero aligned 4K candidates within both +/-1GiB and
++/-2GiB-minus64K; largest free extent 61,440 bytes. The already-built inspector
+resolved all site relationships and the live prefixes matched. Saved evidence:
+research/checks/playtest-19-solo-hold-2. User closed the game normally. This is
+an allocation-location failure, not a tested NPC control or selection result.
+
+Hold-3 (OPS 0.1.12 / preview.4.hold.3) adds opt-in verified absolute entries.
+COOP_MINHOOK_ABSOLUTE_ENTRIES generates a documented local MinHook derivative
+without editing pinned originals. It allocates pages anywhere, patches fourteen
+bytes with a register-preserving absolute jump, copies whole instructions and
+keeps upstream thread/IP mapping. Unknown prefixes, relative/RIP-based stolen
+instructions and short/hot-patch entries are refused. Normal backend defaults
+remain unchanged. All 28 absolute-mode and all 28 normal-mode CTest processes
+pass, including a forced far trampoline with the entire nearby 4GiB reserved,
+original execution and exact restoration, concurrent installation and existing
+native cancellation/ownership refusal cases. Check journal for final SDK build,
+package/delivery receipts before prompting. No live absolute-mode claim yet.
+
+Next startup: Hold-3 Install/Repair, solo Freeform, wait 15 seconds, reply in
+mission and leave running. Check backend=absolute-14-verified-prefix plus all
+three attachments/healthy audits before asking for Restart/F8. Then reuse the
+standing entrance NPC, not a walking guard; wait 25 seconds and quit normally.
 Hold-1 live startup attached all three hooks, but two F8 requests selected no
 actor. The user was next to the standing entrance NPC working over oil, and
 could not reach a walking guard without a knockout. Do not require a walking

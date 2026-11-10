@@ -36,6 +36,16 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ctest --test-dir _build-native-fixtures -C Release --output-on-failure
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build and test verified absolute entry backend
+        # Absolute mode is private/opt-in; exercise its control/refusal fixtures
+        # before the independent launcher validation step.
+        run: |
+          cmake -S tools/native-tests -B _build-absolute-fixtures -G "Visual Studio 17 2022" -A x64 -DCOOP_MINHOOK_ABSOLUTE_ENTRIES=ON
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build _build-absolute-fixtures --config Release --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ctest --test-dir _build-absolute-fixtures -C Release --output-on-failure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Test update validation and staging
         run: ./tools/test-launcher.ps1
       - uses: actions/upload-artifact@v4
