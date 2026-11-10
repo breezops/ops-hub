@@ -52,6 +52,30 @@ development tools, not the intended session lifecycle.
   extraction, results and progression need their own verified implementation;
   guest vanilla menus/results alone are not completion proof.
 
+## Shared pause policy
+
+Pause the shared mission only while every connected, admitted player currently
+in that mission has explicitly opened their pause menu. For two players this
+requires both; for four it requires all four. Resume when any one player closes
+their pause menu. Other players can keep their own menus open while play resumes.
+One player's open menu therefore leaves the shared mission running.
+
+Keep each player's native menu under their own control. Do not force a pause
+overlay onto a player because somebody else opened a menu. Focus loss, tutorial
+popups, map/inventory screens and technical loading/recovery states are not
+automatic party-pause votes.
+
+The host coordinates pause from current mission/roster identities. Count guests
+only after admission, remove departed players, and recompute on joins, departures
+or reconnects. Old-epoch, old-incarnation and stale votes cannot pause a new
+mission. The game-update/network path must keep running while shared simulation
+is paused so an unpause can always reach the host and other PCs.
+
+Keep this separate from NPC authority holds, preparation and retirement. A
+player unpausing does not release guest NPC simulation or validate a pending
+world baseline. This policy is a product requirement; it is not implemented by
+the current movement preview or the experimental NPC action primitive.
+
 ## Reuse and implementation order
 
 The legacy backend already has native RestartLevel discovery, deferred restart
