@@ -153,7 +153,7 @@ try {
     [IO.File]::WriteAllText($SdkIni, $SdkText, [Text.UTF8Encoding]::new($false))
     $LauncherHash = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'HITMAN-Coop-Party-Preview.exe')).Hash.ToLowerInvariant()
     @{ mode='preview'; launcher='HITMAN-Coop-Party-Preview.exe'; sha256=$LauncherHash } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'launcher-mode.json') -Encoding UTF8
-    Write-Host 'Open START-HERE.cmd and choose 4 to launch the four-player movement preview.'
+    Write-Host 'Open START-HERE.cmd or HITMAN-Coop-Party-Preview.exe to launch OPS HUB HITMAN co-op.'
     Write-Host 'Load Freeform Training manually on every PC, click Ready on each, then the host clicks Start preview.'
     Write-Host 'You do not need a port forward to join. See START-HERE.txt.'
     exit 0

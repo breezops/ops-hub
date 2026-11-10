@@ -9,7 +9,7 @@ site integration status and player flow.
 - `core`: transport, four-slot party lifecycle and presentation, independent of the SDK.
 - `plugin`: native ZHMModSDK adapter and crash/pose/interaction guards.
 - `launcher`: WPF interface, update client and pinned channel configuration.
-- `distribution`: existing tracked installer, remover and Foundation 4.1 restore scripts.
+- `distribution`: tracked installer/remover and archived restore script source.
 - `tools`: build, updater tests and immutable game-specific release assembly.
 - `docs/research`: development notes, known limits and test strategy.
 - `docs/experimental-npc-foundation.patch`: preserved unfinished NPC authority work
@@ -40,8 +40,8 @@ source/collaboration channel; public ZIPs and manifests belong on the website.
 Foundation 4.1 and Preview 1 are preserved separately in the maintainer's frozen
 archives. Their archive hashes and restoration details are in the research notes.
 Do not check those binaries, personal logs, savegames, credentials, `_deps` or
-build outputs into this repository. The release assembler verifies the frozen
-4.1 rollback and includes corresponding source and third-party licenses.
+build outputs into this repository. The release assembler includes corresponding source and third-party licenses;
+the frozen rollback archives remain separate.
 
 Original co-op: Jordan Rodrigues, GPL-3.0; see LICENSE/CREDITS.md.
 ZHMModSDK: OrfeasZ and contributors. UPSTREAM-README.md retains the original

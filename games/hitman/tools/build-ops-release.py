@@ -1,7 +1,6 @@
 """Build an immutable player ZIP and a HITMAN-only website upload directory.
 
-The verified base package supplies the licensed SDK binaries and frozen 4.1
-rollback. It is an explicit input, never downloaded from another game's latest.
+The verified base package supplies the licensed SDK runtime binaries. It is an explicit input, never downloaded from another game's latest.
 """
 import argparse
 import hashlib
@@ -24,20 +23,17 @@ if stage.exists():
     raise SystemExit('Release output already exists; use a new output folder.')
 digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 base = args.base_package.resolve()
-# Verify the entire base payload and exact known rollback before reusing it.
+# Verify the entire base payload before reusing licensed runtime dependencies.
 for entry in json.loads((base/'payload-hashes.json').read_text()):
     if digest(base/entry['file']) != entry['sha256']:
         raise SystemExit('Base package integrity check failed: '+entry['file'])
-rollback = base/'rollback/HITMAN-Coop-Foundation-4.1.zip'
-if digest(rollback) != '988e9c38819e01a98297fffff34c7df7026aaaa132e2946659e926accf40c24f':
-    raise SystemExit('Frozen Foundation 4.1 rollback hash mismatch.')
 if config['mod_build'].encode() not in args.native_dll.read_bytes():
     raise SystemExit('Native DLL does not identify the configured mod build.')
 stage.mkdir(parents=True)
-for folder in ('files', 'licenses', 'rollback'):
+for folder in ('files', 'licenses'):
     shutil.copytree(base/folder, stage/folder)
 for file in (root/'distribution').iterdir():
-    if file.is_file():
+    if file.is_file() and file.name!='Restore-4.1.ps1':
         shutil.copyfile(file, stage/file.name)
 shutil.copyfile(args.native_dll, stage/'files/mods/HitmanCoop.dll')
 launcher = root/'launcher/bin/HITMAN-Coop-Party-Preview.exe'
@@ -59,11 +55,12 @@ This remains a movement/disguise preview. NPCs/items/objectives/exits are separa
 The host forwards UDP 47047. Guests do not forward ports.
 Keep the launcher open. For a damaged avatar, restart the native mission as instructed.
 
-REMOVE MOD removes tracked files while preserving saves. START-HERE.cmd also
-offers the verified Foundation 4.1 restore. Previous working archives remain safe.
+REMOVE MOD removes tracked files while preserving saves. Previous Foundation
+4.1 and Preview 1 archives remain preserved separately by the maintainer.
 Updater downloads use the canonical OPS HUB host behind opscord.net. The HITMAN
 manifest must first be published by the site owner; a missing channel is reported.
 ''', encoding='utf-8')
+shutil.copyfile(root/'docs/CHANGELOG-OPS.md',stage/'CHANGELOG.md')
 (stage/'BUILD-NOTES.md').write_text((root/'docs/LAUNCHER-AND-UPDATES.md').read_text(), encoding='utf-8')
 payload = [{'file': str(p.relative_to(stage)), 'sha256': digest(p)}
            for p in sorted((stage/'files').rglob('*')) if p.is_file()]
@@ -81,6 +78,7 @@ package=downloads/f'HITMAN-Coop-{version}.zip'
 with zipfile.ZipFile(package,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
     for file in sorted(stage.rglob('*')):
         if file.is_file():archive.write(file,Path('HITMAN-Coop')/file.relative_to(stage))
+(package.with_suffix('.zip.sha256')).write_text(digest(package)+'  '+package.name+'\n')
 manifest={'schema':1,'project':'hitman','version':version,'mod_build':config['mod_build'],
           'game_version':config['game_version'],'runtime':1,'protocol':2,
           'path':'/downloads/hitman/'+package.name,'sha256':digest(package),'bytes':package.stat().st_size}

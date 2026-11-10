@@ -27,9 +27,9 @@ validation or installer exit does not advance that pointer. An installer failure
 can still leave partial game changes: repair with the previous complete package.
 No mod files are replaced while HITMAN runs. Repair/removal preserve game saves.
 
-Release archives include corresponding GPL source, credits/licenses, the SDK
-runtime and the exact hash-verified Foundation 4.1 rollback. Previous archives
-are not overwritten. The site must publish ZIPs before publishing their manifest.
+Release archives include corresponding GPL source, credits/licenses and the SDK
+runtime. Foundation 4.1/Preview 1 backups remain preserved separately; they are
+not bundled into every player download. Previous archives are not overwritten. The site must publish ZIPs before publishing their manifest.
 
 ## Site connection: verified facts and pending work
 
@@ -66,7 +66,7 @@ Preview 2 source/build/tests are described in docs/research/FOUR-PLAYER-PREVIEW-
 `tools/build-ops-release.py --base-package <verified-preview-2-folder>
 --native-dll <built-Preview-2.dll> --output <new-output-folder>` assembles a release.
 The base package is an explicit verified binary/dependency input, never committed.
-It supplies the frozen Foundation 4.1 rollback and SDK redistribution licenses.
+It supplies the SDK runtime and redistribution licenses; rollback archives are not shipped.
 
 The updater rejects other games, wrong runtime/protocol/game, unsafe paths,
 cross-origin redirects, oversized downloads, duplicate/symlink ZIP entries and
