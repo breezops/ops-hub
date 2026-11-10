@@ -9,7 +9,7 @@
 #include "coop/Session.h"
 
 // Stands in for HITMAN: a player, an optional partner stand-in, and NPCs walking circles.
-class FakeWorld final : public coop::IGameWorld {
+class FakeWorld : public coop::IGameWorld {
 public:
     explicit FakeWorld(std::string p_Name) : name(std::move(p_Name)) {}
 
