@@ -495,3 +495,17 @@ constructor mark alone does not establish worker coverage or physical lifetime.
 Outstanding records are never discarded on scene pre-clear. Local hold/resume
 still needs this evidence reconciled with fresh identity, native scheduling,
 script-owned holds, cancellation and actual actor retirement before control.
+
+The first live action.3 attempt did not attach either observer. Both creation
+calls returned MinHook status 9 (`MH_ERROR_MEMORY_ALLOC`), while site resolution
+succeeded and the saved Win32 last-error snapshots were zero. There were no
+job or action audits. The user completed both restarts: fifteen identity audits
+remained healthy for all 83 NPCs, with constructor marks 99 -> 198 -> 297.
+This is an attachment failure, not evidence about native job completion.
+
+At hook creation the pinned MinHook source can report this status from failed
+near-buffer allocation or failed hook-table heap allocation. The current log
+does not distinguish those paths. Diagnose actual allocator failures/usable
+address ranges before changing hook installation or requesting another full
+mission test. One earlier action.2 success does not establish reliable delayed
+attachment; the next live check should confirm attachment before actions.
