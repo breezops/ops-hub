@@ -15,6 +15,7 @@ add_executable(coop_guard_tests "${TESTS}/Main.cpp" "${HITMAN_ROOT}/tools/TestPl
 add_executable(coop_npc_native_tests "${TESTS}/Main.cpp" "${HITMAN_ROOT}/tools/TestNpcReasoningFence.cpp" "${HITMAN_ROOT}/tools/TestNpcMutationGate.cpp" "${HITMAN_ROOT}/tools/TestNpcLifeReceipts.cpp" "${PLUGIN}/CrashGuards.cpp" "${PLUGIN}/NpcReasoningFence.cpp" "${PLUGIN}/NpcMutationGate.cpp" "${PLUGIN}/NpcLifeReceipts.cpp")
 target_compile_definitions(coop_guard_tests PRIVATE COOP_GUARD_TESTS)
 target_compile_definitions(coop_npc_native_tests PRIVATE COOP_GUARD_TESTS)
+target_sources(coop_npc_native_tests PRIVATE "${HITMAN_ROOT}/tools/TestNpcActionProbe.cpp" "${PLUGIN}/NpcActionProbe.cpp")
 foreach(target coop_pose_tests coop_guard_tests coop_npc_native_tests)
     target_include_directories(${target} PRIVATE "${PLUGIN}" "${TESTS}" "${HITMAN_ROOT}/core/include")
     add_test(NAME ${target} COMMAND ${target})

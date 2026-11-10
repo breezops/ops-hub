@@ -41,9 +41,12 @@ install(TARGETS HitmanCoop RUNTIME DESTINATION mods)
 install(TARGETS coop_nettest RUNTIME DESTINATION .)
 
 if (COOP_BUILD_TESTS)
+    # Action completion observation uses the same SDK-free native fixture target.
+    set(COOP_ACTION_PROBE tools/TestNpcActionProbe.cpp plugin/Src/NpcActionProbe.cpp)
     add_executable(coop_npc_native_tests core/tests/Main.cpp tools/TestNpcReasoningFence.cpp tools/TestNpcMutationGate.cpp tools/TestNpcLifeReceipts.cpp plugin/Src/NpcReasoningFence.cpp plugin/Src/CrashGuards.cpp plugin/Src/NpcMutationGate.cpp plugin/Src/NpcLifeReceipts.cpp)
     target_include_directories(coop_npc_native_tests PRIVATE plugin/Src core/tests)
     target_compile_definitions(coop_npc_native_tests PRIVATE COOP_GUARD_TESTS)
+    target_sources(coop_npc_native_tests PRIVATE ${COOP_ACTION_PROBE})
     add_executable(coop_guard_tests core/tests/Main.cpp tools/TestPlayerGuards.cpp plugin/Src/CrashGuards.cpp plugin/Src/NpcReasoningFence.cpp plugin/Src/NpcMutationGate.cpp)
     target_include_directories(coop_guard_tests PRIVATE plugin/Src core/tests)
     target_compile_definitions(coop_guard_tests PRIVATE COOP_GUARD_TESTS)

@@ -383,6 +383,41 @@ void* CrashGuards::VerifiedNpcReasoningLoop() {
     return calls==1 ? reinterpret_cast<void*>(loop) : nullptr;
 }
 
+namespace {
+void* ResolveActionJob(uintptr_t from,uintptr_t to) {
+    if (!from || to<=from) return nullptr;
+    // Bounded relationships verified in 3.290.1, rather than a fixed game RVA.
+    const auto caller=FindUnique(c_UnitsCaller,from,to);
+    if (!caller || to-caller<0x80) return nullptr;
+    const auto actionCaller=FindUnique(
+        "48 8D 0D ?? ?? ?? ?? 48 8D 14 82 48 89 54 24 38 48 8D 54 24 30 E8 ?? ?? ?? ??",
+        caller+22,caller+0x80);
+    if (!actionCaller || RelTarget(actionCaller+3)!=RelTarget(caller+3)) return nullptr;
+    const auto loop=RelTarget(actionCaller+22);
+    if (loop<from || loop>to || to-loop<0x300) return nullptr;
+    if (!FindUnique("4B 63 04 07 49 8D 5D 08 48 69 C8 F8 00 00 00 48 03 D9",loop,loop+0x100)) return nullptr;
+    const auto descriptor=FindUnique(
+        "48 8D 0D ?? ?? ?? ?? 48 89 58 10 48 89 08 48 8D 0D ?? ?? ?? ?? 48 89 48 08 48 89 70 20 89 70 28 48 89 70 30 48 89 70 38",
+        loop,loop+0x300);
+    if (!descriptor) return nullptr;
+    const auto job=RelTarget(descriptor+17);
+    if (job<from || job>to || to-job<25) return nullptr;
+    const auto expected=FindUnique(
+        "40 53 48 83 EC 20 48 8B D9 48 8B 89 E0 00 00 00 48 8B 01 FF 50 08 83 F8 01",
+        from,to);
+    return expected==job ? reinterpret_cast<void*>(job) : nullptr;
+}
+}
+void* CrashGuards::VerifiedNpcActionJob() {
+    uintptr_t from=0,to=0;
+    return TextRange(from,to) ? ResolveActionJob(from,to) : nullptr;
+}
+#ifdef COOP_GUARD_TESTS
+void* CrashGuardsTest::ActionJobInText(uintptr_t from,uintptr_t to) {
+    return ResolveActionJob(from,to);
+}
+#endif
+
 bool CrashGuards::TrySetNpcReasoningHeld(void* actor,bool held) {
     if (!actor || !NpcReasoningFence::Installed()) return false;
     bool guarded=false;

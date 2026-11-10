@@ -25,6 +25,9 @@ namespace CrashGuards {
     // Resolves the synchronous reasoning loop from the existing unique caller,
     // stride and per-unit call target. Does not install a hook or freeze actors.
     void* VerifiedNpcReasoningLoop();
+    // Resolves the deferred action-job entry through the same table caller,
+    // action loop and job descriptor. Observation only; does not install it.
+    void* VerifiedNpcActionJob();
     // Reasoning-only, completed under the optional native loop fence. This is
     // not a full actor/physics freeze acknowledgement for IPartyNpcWorld.
     bool TrySetNpcReasoningHeld(void* actor, bool held);
@@ -76,6 +79,7 @@ namespace CrashGuards {
 #ifdef COOP_GUARD_TESTS
 // Only present in the standalone test executable; never exported by the mod.
 namespace CrashGuardsTest {
+    void* ActionJobInText(uintptr_t from, uintptr_t to);
     void Configure(void* p_Units);
     std::vector<void*> SkippedUnits();
     bool Remembered(void* p_Actor);

@@ -157,6 +157,43 @@ isolation, nested canonical updates and refusal to mutate admission while a
 native call on another stack is still active. Do not apply the synchronous
 reasoning-loop lock unchanged to deferred/fiber action jobs.
 
+### Deferred action observation
+
+`VerifiedNpcActionJob` follows the existing units-table caller to a second call
+using the same table, checks the action loop's unit stride, resolves its job
+descriptor's function pointer and requires a unique matching job body. A
+read-only signature check against the installed 3.290.1 executable confirmed
+those relationships. No fixed executable address is used by the runtime resolver.
+
+`NpcActionProbe` provides an optional observation hook at that job entry. It
+replays four whole instructions (16 bytes), preserves the native unit argument,
+and counts a return only after the original job function returns. A short mutex
+protects fixed-size bookkeeping; no thread-owned lock or TLS spans native code.
+Counts therefore remain outstanding when a custom stack runs other work. If a
+stack is abandoned without returning, its count remains outstanding. Capacity
+or tracking faults latch unhealthy status; the observer never skips native work.
+Removal refuses observed outstanding calls or an unexpectedly modified patch.
+Installation/removal still require external native quiescence, and retained
+trampoline memory is not proof that unloading the plugin is safe.
+
+Eight new fixtures cover the job trampoline and result, an original call still
+in flight, reentrant diagnostics, concurrent independent units, nested work on a
+custom execution stack, tampered hooks and invalid/ambiguous resolver inputs.
+The existing alternate-stack fixture is shared with the damage-admission tests.
+The full suite now contains 245 tests: 199 core, 10 pose, 6 guards and 30 native
+NPC fixtures. These fixtures do not establish real-game cancellation semantics.
+
+The observer is **not installed by the movement preview**. An empty observed
+count alone is not a freeze acknowledgement: new scheduling must also be held,
+other action entrances accounted for, actor lifetime pinned and native teardown
+completed. Read-only inspection finds a separate cancellation path that requests
+job state 2, resumes a suspended job and then cleans up its action/descriptor.
+The scheduler also uses state 3 for terminal cleanup. Do not treat a state-byte
+write as a completed cancellation or call that native path from an arbitrary
+callback. The next binding must run at a verified engine lifecycle point and
+confirm original-call return before replacing native state. This work remains
+independent of the temporary manual preview Ready/Start controls.
+
 1. Bind preparation/freeze to an observed native worker boundary, account for
    actors entering the scene later, and only acknowledge completed operations.
    The old void `SetNpcPuppet` intentionally queues work during scene startup.
