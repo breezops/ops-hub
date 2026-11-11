@@ -1723,6 +1723,22 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     m_World.ProcessPartyNpcEvents();
     if (m_PartyPreview)
         m_PartyPreview->Tick(s_Now);
+#ifdef COOP_PARTY_PAUSE_MENU_TEST
+    const bool playing=m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing;
+    DWORD pauseTestForeground=0;
+    GetWindowThreadProcessId(GetForegroundWindow(),&pauseTestForeground);
+    const bool pauseTestKey=pauseTestForeground==GetCurrentProcessId() && (GetAsyncKeyState(VK_F9)&0x8000);
+    const bool wasPlaying=m_PauseTestPlaying.exchange(playing);
+    if (!playing || !wasPlaying) m_AcceptedPauseMenu=false;
+    if (pauseTestKey && !m_PreviousPauseTestKey && playing) {
+        const bool accepted=m_AcceptedPauseMenu.exchange(false) &&
+            m_LastMenu.load()==static_cast<int>(EGameUIMenu::eUIMenu_PauseMenu);
+        const bool released=accepted && GamePause::ReleaseMenuHoldForTest();
+        CoopLog::Fmt(coop::LogLevel::Info,"party-pause","F9 Escape hold test seat=%u accepted=%d released=%d",
+            static_cast<unsigned>(m_PartyPreview->Status().self),accepted?1:0,released?1:0);
+    }
+    m_PreviousPauseTestKey=pauseTestKey;
+#endif
 #ifdef COOP_NPC_GUEST_HANDOFF_TEST
     if (m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing) {
         const auto& party=m_PartyPreview->Status();
@@ -2821,6 +2837,14 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, bool, OnTryOpenMenu, ZGameUIManagerEntity* th, 
         return HookResult<bool>(HookAction::Return(), false);
     }
     m_LastMenu = static_cast<int>(p_Menu);
+#ifdef COOP_PARTY_PAUSE_MENU_TEST
+    m_AcceptedPauseMenu=false;
+    if (m_PauseTestPlaying && m_WindowActive && p_Menu==EGameUIMenu::eUIMenu_PauseMenu) {
+        const bool accepted=p_Hook->CallOriginal(th,p_Menu,p_Force);
+        m_AcceptedPauseMenu=accepted;
+        return HookResult<bool>(HookAction::Return(),accepted);
+    }
+#endif
     return HookResult<bool>(HookAction::Continue());
 }
 

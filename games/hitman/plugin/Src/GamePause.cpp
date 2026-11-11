@@ -129,6 +129,15 @@ bool GamePause::MenuOpen() {
     return g_Find(g_Requests, &s_Menus) >= 0;
 }
 
+#ifdef COOP_PARTY_PAUSE_MENU_TEST
+bool GamePause::ReleaseMenuHoldForTest() {
+    if (!Globals::GameLoopManager || !Hooks::ZGameLoopManager_ReleasePause || !MenuOpen()) return false;
+    const ZString menu=Name(c_Menus,sizeof(c_Menus)-1);
+    Hooks::ZGameLoopManager_ReleasePause->Call(Globals::GameLoopManager,menu);
+    return !MenuOpen();
+}
+#endif
+
 namespace {
     // A pause request of ours, by its name, pushed once and released once.
     void SetHold(const char* p_Name, size_t p_Length, bool p_Paused, bool& p_Holding) {

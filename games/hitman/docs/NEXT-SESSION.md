@@ -304,7 +304,9 @@ fails. Keep the original tested packages as references for regressions.
 Product target remains4players, host-controlled persistent lobby and native
 mission/restart following, automatic admission rather than manual Ready/Start,
 then shared objectives/extraction. Unanimous explicit pause is optional and
-separate; focus loss/tutorials/map are not votes. Avoid a major pause detour.
+separate. If Escape requires a native simulation hold, use the original
+waiting overlay for Escape and blocking tutorials. See the shared pause
+policies in [SESSION-LOOP.md](SESSION-LOOP.md).
 
 ## Core loop first
 

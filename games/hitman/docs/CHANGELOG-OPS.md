@@ -1,5 +1,14 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.38 — Native Escape menu rehearsal
+
+- Add a one-shot F9 test that releases the native menu pause request
+  after HITMAN accepts Escape in a live party.
+- Keep the player weapon draw and holster checks after mission restart.
+- Keep guard weapon geometry diagnostics for a chase on the guest.
+- F9 tests the local menu only. The unanimous party pause policy
+  remains a separate follow-up.
+
 ## 0.1.37 — Remote player weapon visibility test
 
 - Send the player's held item with avatar movement and attach a visual

@@ -159,6 +159,11 @@ private:
     int m_LevelStateTold = -1;
     std::string m_PartnerHeldTold; // the partner's item in hand, as last given to the stand-in
     std::atomic<int> m_LastMenu { -1 };
+#ifdef COOP_PARTY_PAUSE_MENU_TEST
+    std::atomic<bool> m_AcceptedPauseMenu { false };
+    std::atomic<bool> m_PauseTestPlaying { false };
+    bool m_PreviousPauseTestKey=false;
+#endif
     void UpdateLoadStage(double p_Now);
     // Our game's window in front or not (the game's own notice): the partner sees us as away.
     DECLARE_PLUGIN_DETOUR(HitmanCoop, void, OnWindowActivated, ZApplicationEngineWin32* th, bool p_Activated);

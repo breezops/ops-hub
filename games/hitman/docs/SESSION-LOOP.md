@@ -52,7 +52,7 @@ development tools, not the intended session lifecycle.
   extraction, results and progression need their own verified implementation;
   guest vanilla menus/results alone are not completion proof.
 
-## Shared pause policy
+## Preferred shared pause policy
 
 Pause the shared mission only while every connected, admitted player currently
 in that mission has explicitly opened their pause menu. For two players this
@@ -75,6 +75,22 @@ Keep this separate from NPC authority holds, preparation and retirement. A
 player unpausing does not release guest NPC simulation or validate a pending
 world baseline. This policy is a product requirement; it is not implemented by
 the current movement preview or the experimental NPC action primitive.
+
+### Fallback if the native Escape menu requires a simulation pause
+
+Use the original two-player behavior as the reference. A native Escape
+menu or blocking tutorial on any admitted PC pauses the party. The
+player who opened the menu or received the tutorial keeps their native
+screen. The other players see a waiting overlay and remain in their
+current screen. Resume when all admitted players have dismissed the
+menus or tutorials that caused the pause. Clear a departed player's
+hold and recompute after a restart or reconnect. Keep networking and
+menu input available while the simulation is paused.
+
+Reuse the named game-loop pause request and the original waiting
+overlay. Track the source of each hold so focus loss and non-blocking
+menus do not become party-wide pauses. A tutorial can keep the party
+paused while it is being read, even when nobody opened Escape.
 
 ## Reuse and implementation order
 
@@ -110,6 +126,16 @@ recorded before `TryOpenMenu` succeeds and can be stale, so it is not sufficient
 as the authoritative vote. Identify accepted menu open/close state, preserve
 menu input blocking, and keep unrelated loading/script pause requests intact.
 
+The F9 rehearsal tests one Escape menu at a time. In a playing party,
+open Escape while HITMAN is focused, then press F9 once with that menu
+still visible. The build checks that the native open succeeded and
+releases the existing `UI_Menus` hold once through the SDK. Watch for
+menu closure, NPC motion, and whether menu input still works. Repeat
+with the other PC opening its menu. The probe does not act on tutorial
+popups or replace the game's other pause requests. A successful
+release in the log verifies only the request was removed. The two-PC
+observation verifies whether the menu and simulation can coexist.
+
 If that narrow native binding is verified, route current, admitted-player votes
 through the host and drive one dedicated party pause request. Validate one-menu
 open (world runs), all menus open (world stops), any menu closed (world resumes),
@@ -117,7 +143,7 @@ then departure/reconnect and restart. Do not use the legacy partner-pause path,
 whose rule pauses for any one partner, as the party coordinator.
 
 If keeping menus open requires substantial UI replacement or broad engine
-patches, report that cost before expanding this optional mechanic. The native
+patches, use the fallback above. The native
 NPC hold/resume work below remains necessary for shared world authority and
 must not be presented as work required merely to pause the game.
 

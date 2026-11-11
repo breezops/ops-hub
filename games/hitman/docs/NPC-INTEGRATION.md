@@ -193,6 +193,14 @@ the requested item entity before touching the avatar and disables pickup
 on the visual copy. Test draw, holster, swap, and a mission restart with
 two PCs before expanding this to back-slot equipment or guards.
 
+The 0.1.37 two-PC test passed draw, aim, and holster for both players.
+Each log confirmed attachment of the same pistol to the other player's
+avatar. The testers saw the pistol move between the front and back of
+the character while remaining held. The mod follows the streamed hand
+pose and uses a fixed right-hand attachment. Record this as likely native
+concealment motion. Weapon attachment after a mission restart remains
+unverified.
+
 ### Order for the next playtests
 
 1. Retest the returning guard's pose and keep the successful chase as a
