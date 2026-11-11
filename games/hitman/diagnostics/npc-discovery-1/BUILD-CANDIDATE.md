@@ -55,5 +55,9 @@ Offline inspection of Steam 3.290.1 found the SDK's ClearScene function
 at RVA `0xb1d30`. Its tail jumps through a virtual call at RVA `0xb234b`.
 The image has one matching vtable slot at RVA `0x1d51b08`. Observing the
 return through that slot could preserve SDK dispatch and cover the final
-virtual call. That approach still needs to demonstrate that the relevant
-restart calls pass through the slot and that the old NPC work has retired.
+virtual call. The [scene-clear candidate](../npc-clear-return/CHANGELOG.md)
+implements this observation under `COOP_NPC_CLEAR_RETURN_DIAGNOSTICS=ON`
+with the preceding restart-audit flags and `COOP_MINHOOK_ABSOLUTE_ENTRIES=ON`.
+Look for `virtual-route=1` and `dispatch-returned=1` on the same token
+in a solo restart log, then compare the observed job and actor receipts.
+Retirement still depends on the native lifecycle evidence.

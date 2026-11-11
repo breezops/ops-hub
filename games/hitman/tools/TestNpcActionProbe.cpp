@@ -1,5 +1,6 @@
 #include "NpcActionProbe.h"
 #ifdef COOP_RETAINED_PROBE_TESTS
+#include "NpcSceneClearObserver.h"
 #include "NpcSceneEvidence.h"
 #endif
 #include "CrashGuards.h"
@@ -186,6 +187,56 @@ TEST(RetainedJob_SceneEvidenceDistinctCutsAndUnknownCoverage) {
     const auto exhausted=first.Snapshot();
     CHECK(!exhausted[0].bookHealthy); // No eviction/reuse of old evidence.
     CHECK(exhausted[0].token==before && exhausted[1].token==outer);
+}
+namespace {
+struct ClearFixture {
+    using Clear = void (*)(void*, bool);
+    void* slot = reinterpret_cast<void*>(&Run);
+    NpcSceneEvidence::Book scenes;
+    unsigned calls = 0;
+
+    static void Run(void* context, bool fullUnload) {
+        auto& fixture = *static_cast<ClearFixture*>(context);
+        ++fixture.calls;
+        const auto token = fixture.scenes.Begin(fullUnload);
+        CHECK(!NpcSceneClearObserver::AssociatePreClear(nullptr, fullUnload, token));
+        CHECK(!NpcSceneClearObserver::AssociatePreClear(context, !fullUnload, token));
+        REQUIRE(NpcSceneClearObserver::AssociatePreClear(context, fullUnload, token));
+        CHECK(!NpcSceneClearObserver::AssociatePreClear(context, fullUnload, token));
+        if (fullUnload) {
+            reinterpret_cast<Clear>(fixture.slot)(context, false);
+            const auto samples = fixture.scenes.Snapshot();
+            CHECK(!samples[0].dispatchReturned);
+            CHECK(samples[1].dispatchReturned);
+            NpcSceneClearObserver::Stop();
+        }
+    }
+};
+}
+TEST(RetainedJob_SceneDispatchCorrelatesNestedReturnAndDetachesInFlight) {
+    ClearFixture fixture;
+    const auto entry = fixture.slot;
+    const auto complete = [](void* book, uint64_t token) {
+        static_cast<NpcSceneEvidence::Book*>(book)->ObserveDispatchReturn(token);
+    };
+    CHECK(!NpcSceneClearObserver::AssociatePreClear(&fixture, true, 1));
+    void* wrongSlot = &fixture;
+    CHECK(!NpcSceneClearObserver::InstallFixture(&wrongSlot, entry, &fixture.scenes, complete));
+    CHECK(wrongSlot == &fixture);
+    REQUIRE(NpcSceneClearObserver::InstallFixture(&fixture.slot, entry, &fixture.scenes, complete));
+    const auto wrapped = reinterpret_cast<ClearFixture::Clear>(fixture.slot);
+    wrapped(&fixture, true);
+    CHECK(fixture.calls == 2);
+    CHECK(fixture.slot == entry);
+    auto samples = fixture.scenes.Snapshot();
+    CHECK(!samples[0].dispatchReturned);
+    CHECK(samples[1].dispatchReturned);
+    // A thread that already loaded the replaced slot may enter after Stop.
+    wrapped(&fixture, false);
+    CHECK(fixture.calls == 3);
+    samples = fixture.scenes.Snapshot();
+    CHECK(!samples[2].dispatchReturned);
+    CHECK(!NpcSceneClearObserver::AssociatePreClear(&fixture, true, 1));
 }
 TEST(RetainedJob_SceneActorCutsKeepExactBirthCompletions) {
     NpcActorBirths::Book births,otherBook;NpcSceneEvidence::Book scenes;int first=0,second=0;

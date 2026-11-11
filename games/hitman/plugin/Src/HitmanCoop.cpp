@@ -7,6 +7,7 @@
 #include "NpcActionObserver.h"
 #include "NpcActionProbe.h"
 #include "NpcActorDestructionObserver.h"
+#include "NpcSceneClearObserver.h"
 #include "NpcHoldArbiter.h"
 #include "GamePause.h"
 #include "Log.h"
@@ -232,6 +233,9 @@ void HitmanCoop::SaveBugReport(const std::string& p_Diagnostics) {
 }
 
 HitmanCoop::~HitmanCoop() {
+#ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
+    NpcSceneClearObserver::Stop();
+#endif
     NpcActionObserver::Stop(); // Deactivate/drain native control while birth invalidation still runs.
     NpcActorDestructionObserver::Stop(); // Then detach pointer callbacks before destroying the birth book.
     PoseHook::Uninstall();
@@ -318,6 +322,14 @@ void HitmanCoop::Init() {
     const std::string s_CrashHeader = "HITMAN Co-op " + std::string(c_ModVersion) + " (" + c_BuildMark + "), game " + m_GameVersion;
     CrashTrace::Install(m_Test.Enabled() ? m_Test.Path() + ".crash" : s_Crash, s_CrashHeader);
     WriteLogHeader(s_Patches);
+#ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
+    const bool clearObserver=m_GameVersion=="3.290.1" &&
+        NpcSceneClearObserver::Install(&m_NpcSceneEvidence,[](void* book,uint64_t token) {
+            static_cast<NpcSceneEvidence::Book*>(book)->ObserveDispatchReturn(token);
+        });
+    CoopLog::Info("npc-life",clearObserver ? "Scene-clear dispatch return observer installed" :
+        "Scene-clear dispatch return observer unavailable");
+#endif
 #ifdef COOP_PARTY_CONTRACT_TRACE
     if (m_GameVersion=="3.290.1") ContractLaunchTrace::Install();
 #endif
@@ -2437,6 +2449,11 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bo
 #ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
     // A cut in observed job entries, not a worker fence or physical retirement.
     const auto evidence=m_NpcSceneEvidence.Begin(p_FullyUnloadScene,&m_World.PartyNpcBirthBook());
+#ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
+    const bool observedRoute=NpcSceneClearObserver::AssociatePreClear(th,p_FullyUnloadScene,evidence);
+#else
+    constexpr bool observedRoute=false;
+#endif
 #endif
     std::lock_guard s_Lock(m_SessionMutex);
 
@@ -2465,8 +2482,8 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bo
         m_PartyPreview->SceneCleared();
     m_World.OnSceneCleared();
 #ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
-    CoopLog::Fmt(coop::LogLevel::Info,"npc-life","Pre-clear observed job cut token=%llu; native return and physical retirement UNKNOWN",
-        static_cast<unsigned long long>(evidence));
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-life","Pre-clear observed job cut token=%llu virtual-route=%d",
+        static_cast<unsigned long long>(evidence),observedRoute?1:0);
 #endif
     return HookResult<void>(HookAction::Continue());
 }
@@ -2487,14 +2504,14 @@ void HitmanCoop::AuditNpcSceneEvidence() {
     const auto samples=m_NpcSceneEvidence.Snapshot(&m_World.PartyNpcBirthBook());
     for (size_t i=0;i<samples.size();++i) {
         const auto& s=samples[i]; const auto& last=m_NpcSceneLast[i];
-        if (!s.token || (s.token==last.token &&
+        if (!s.token || (s.token==last.token && s.dispatchReturned==last.dispatchReturned &&
             s.bookHealthy==last.bookHealthy && s.jobs.valid==last.jobs.valid &&
             s.jobs.healthy==last.jobs.healthy && s.jobs.pending==last.jobs.pending &&
             s.actors.valid==last.actors.valid && s.actors.healthy==last.actors.healthy &&
             s.actors.captured==last.actors.captured && s.actors.entered==last.actors.entered &&
             s.actors.returned==last.actors.returned)) continue;
-        CoopLog::Fmt(coop::LogLevel::Info,"npc-life","READ-ONLY clear evidence token=%llu full=%d book-healthy=%d observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u actor-cut-valid=%d actors-healthy=%d captured=%zu destruction-entered=%zu body-returned=%zu; cuts sampled separately; pre-attachment work UNKNOWN; physical retirement UNKNOWN; readiness OFF",
-            static_cast<unsigned long long>(s.token),s.fullUnload?1:0,
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-life","READ-ONLY clear evidence token=%llu full=%d dispatch-returned=%d book-healthy=%d observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u actor-cut-valid=%d actors-healthy=%d captured=%zu destruction-entered=%zu body-returned=%zu; cuts sampled separately; pre-attachment work UNKNOWN; physical retirement UNKNOWN; readiness OFF",
+            static_cast<unsigned long long>(s.token),s.fullUnload?1:0,s.dispatchReturned?1:0,
             s.bookHealthy?1:0,s.jobs.valid?1:0,s.jobs.healthy?1:0,s.jobs.pending,
             s.actors.valid?1:0,s.actors.healthy?1:0,s.actors.captured,s.actors.entered,s.actors.returned);
         m_NpcSceneLast[i]=s;
