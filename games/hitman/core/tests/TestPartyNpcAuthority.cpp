@@ -612,6 +612,24 @@ TEST(PartyNpcRuntime_DefaultMovementModeNeverCallsNativeNpcOperations) {
     }
 }
 
+TEST(PartyNpcRuntime_NearestPlayerUsesAcceptedAvatarPositionsFromTheWholeParty) {
+    auto options=DelegatedOptions();
+    RuntimeNpcLab lab(4,true,options);
+    lab.sources[0].player.pos.x=35.f;
+    lab.sources[1].player.pos.x=20.f;
+    lab.sources[2].player.pos.x=1.f;
+    lab.sources[3].player.pos.x=17.f;
+    REQUIRE(lab.Begin());
+    lab.Step(2.5);
+    CHECK(lab.natives[2].running[55]);
+    CHECK(!lab.natives[0].running[55]);
+    lab.sources[2].player.pos.x=25.f;
+    lab.sources[3].player.pos.x=2.f;
+    lab.Step(3.5);
+    CHECK(lab.natives[3].running[55]);
+    CHECK(!lab.natives[2].running[55]);
+}
+
 TEST(PartyNpcRuntime_AmbiguousCatalogIdsAreExcludedAndPooledCaptureRetries) {
     RuntimeNpcLab lab(2);
     lab.sources[0].duplicate=true;

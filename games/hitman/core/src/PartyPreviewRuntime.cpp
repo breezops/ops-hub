@@ -227,11 +227,21 @@ void PartyPreviewRuntime::Tick(double now) {
     }
     const bool presenting=m_Playback.UpdateRoster(status);
     const bool npcs=UpdateNpcs(now,presenting);
+    const bool observeLocations=npcs && status.host && m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer;
+    if (observeLocations) {
+        Transform local;
+        if (m_Source.GetLocalAvatar(local)) {
+            for (const auto& member:status.members)
+                if (member.id==status.self) m_Npcs->ObservePlayer({member.id,member.incarnation},local.pos,now);
+        }
+    }
     PartyGameEvent event;
     while (m_Room->PopGame(event)) {
         const bool npcChannel=event.channel==PartyChannel::HostWorld || event.channel==PartyChannel::Interaction;
+        std::optional<Vec3> acceptedPosition;
         const bool accepted=presenting && native && (npcChannel ?
-            (npcs && m_Npcs->Receive(event,now)) : m_Playback.Receive(event,now));
+            (npcs && m_Npcs->Receive(event,now)) : m_Playback.Receive(event,now,observeLocations?&acceptedPosition:nullptr));
+        if (acceptedPosition) m_Npcs->ObservePlayer({event.source,event.incarnation},*acceptedPosition,now);
         if (accepted) ++m_Accepted;
         else ++m_Rejected;
     }

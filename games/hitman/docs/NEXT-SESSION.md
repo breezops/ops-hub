@@ -202,6 +202,50 @@ log records the native spelling `Ronnie  Aguilar` with two spaces. Catalog-3.1
 accepts that exact native name and the display spelling in both the room lookup
 and walking marker. The launcher now reports the failed check directly.
 
+### Catalog-3.1 live result
+
+Both PCs matched Ronnie Aguilar (`07ac2b57aa2deb71`) and Terry Norfolk
+(`c174e1bfd2f4a861`), received identical initial positions, and confirmed
+matching 231-bone guest rigs. The host resumed both native jobs. The last
+sampled native audits still showed two held and drained actors on the guest
+and zero held on the host. The pair saw Ronnie walk at nearly the same
+position on both screens and reported a much smoother Terry turn on the guest.
+The logs confirm setup and playback, while the walking agreement comes from
+the players' observation. Both logs are preserved locally in
+`research/checks/playtest-28-two-pc-catalog-3.1`.
+
+Kalvin Ritter was in different places while Ronnie followed him. Catalog-3.1
+synchronizes Ronnie and Terry, and Ritter still runs locally on each PC. Use
+that observation to validate discovery of related actors, including living
+mission targets, when generic admission is ready.
+
+## Mission-wide NPC discovery and attention
+
+Keep Catalog-3.1 as the live reference for root and skeletal playback. General
+support should discover actors from the mission's native actor list. Reuse the
+original beta's template entity IDs, scoped to the current mission and room
+epoch, with the newer per-PC actor birth and table-slot checks. A name or
+position can label a diagnostic, while matching uses an unambiguous ID and
+an exact native binding. Compare eligible IDs across PCs before admitting an
+actor. Treat ambiguous or missing IDs explicitly. Recheck pooled actors when
+they activate and invalidate a binding before retiring its native instance.
+Test that lifecycle in Freeform and then on a different map or mode using the
+same discovery logic. Target damage and objective completion need their own
+authoritative transitions before living target support can cover those actions.
+
+For guest attention, reuse the beta's proximity ownership behavior. The host
+coordinates one owner per NPC and uses the current owner's local Agent 47 for
+native perception. The party runtime now feeds validated avatar positions to
+the existing nearest-player policy. The native Catalog build still uses host
+ownership. Next native work is safe lease transfer and a verified activity
+check so a guard already investigating, fighting or performing an interaction
+can keep its simulation. Same-guard perception of multiple nearby players
+remains a separate check. Use the paired original beta and Catalog logs for
+behavior comparisons and scale detailed pose streaming by player proximity.
+For escorts and shared scripted behaviors, verify that dependent actors remain
+under coherent authority during the behavior. Ronnie and Ritter are the first
+acceptance example for that rule, with identities resolved by the generic path.
+
 Product target remains4players, host-controlled persistent lobby and native
 mission/restart following, automatic admission rather than manual Ready/Start,
 then shared objectives/extraction. Unanimous explicit pause is optional and

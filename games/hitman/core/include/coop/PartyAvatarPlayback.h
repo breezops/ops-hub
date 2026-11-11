@@ -1,6 +1,7 @@
 #pragma once
 #include "PartyPresentationRoster.h"
 #include "Interpolation.h"
+#include <optional>
 
 namespace coop {
 class IPartyAvatarWorld {
@@ -29,7 +30,7 @@ class PartyAvatarPlayback {
 public:
     explicit PartyAvatarPlayback(IPartyAvatarWorld& world) : m_World(world) {}
     bool UpdateRoster(const PartyRoomStatus& status);
-    bool Receive(const PartyGameEvent& event, double now);
+    bool Receive(const PartyGameEvent& event, double now, std::optional<Vec3>* acceptedPosition = nullptr);
     void Tick(double now);
     void Reset();
 private:
