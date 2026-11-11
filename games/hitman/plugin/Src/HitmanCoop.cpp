@@ -2381,6 +2381,9 @@ void HitmanCoop::OnMissionRestarted(const std::string& p_Scene) {
         return;
     }
 
+    if (m_PartyPreview && coop::IsFreeformTrainingScene(p_Scene) && m_PartyPreview->HostMissionRestarted())
+        CoopLog::Info("party", "Host native restart started a new mission epoch.");
+
     if (m_Session) {
         m_Session->OnLocalRestart(p_Scene);
         m_Test.Trace("restart: ours, told to the partner");
@@ -2540,6 +2543,19 @@ DEFINE_PLUGIN_DETOUR(
     HitmanCoop, void, OnEventSent, ZAchievementManagerSimple* th, uint32_t p_EventIndex, const ZDynamicObject& p_Event
 ) {
     std::lock_guard s_Lock(m_SessionMutex);
+
+#ifdef COOP_PARTY_NATIVE_RESTART
+    if (m_PartyPreview && m_PartyPreview->Status().host && m_World.IsInScene() &&
+        coop::IsFreeformTrainingScene(m_World.CurrentScene().scene)) {
+        ZString data;
+        Functions::ZDynamicObject_ToString->Call(const_cast<ZDynamicObject*>(&p_Event),data);
+        const std::string json(data.c_str(),data.size());
+        if (EventName(json)=="ContractFailed" && json.find("OnRestartLevel")!=std::string::npos) {
+            m_RestartTold=true;
+            OnMissionRestarted(m_World.CurrentScene().scene);
+        }
+    }
+#endif
 
     // Read in any session (our mission's stats count from the start, even before the partner is in).
     if(NpcMutationGate::CurrentScope() && m_GameVersion=="3.290.1") {

@@ -285,13 +285,18 @@ TEST(PartyPlayback_NativeSceneRefusalAndRoomClosureDoNotLeaveAnActiveScope) {
 }
 
 namespace {
+struct RestartSource : FakeWorld {
+    using FakeWorld::FakeWorld;
+    unsigned cancelled=0;
+    void CancelRestartMission() override { ++cancelled; }
+};
 struct PreviewRoom {
     std::shared_ptr<SimNetwork> net=SimNetwork::Create(451);
-    std::array<FakeWorld,4> sources {FakeWorld("Host"),FakeWorld("GuestA"),FakeWorld("GuestB"),FakeWorld("GuestC")};
+    std::array<RestartSource,4> sources {RestartSource("Host"),RestartSource("GuestA"),RestartSource("GuestB"),RestartSource("GuestC")};
     std::array<AvatarSink,4> sinks;
     std::array<std::unique_ptr<PartyPreviewRuntime>,4> runtime;
     double now=0;
-    PreviewRoom() {
+    explicit PreviewRoom(bool followHostRestart=false) {
         const Endpoint host {0x0a000001,47047};
         for (size_t i=0;i<4;++i) {
             sources[i].inScene=true;
@@ -304,7 +309,7 @@ struct PreviewRoom {
             PartyRoomConfig config; config.name="Agent"+std::to_string(i);
             auto room=i==0 ? PartyRoom::Host(net->Open(host),config) :
                 PartyRoom::Join(net->Open({uint32_t(0x0a000001+i),uint16_t(50001+i)}),host,config,now);
-            runtime[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i]);
+            runtime[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i],nullptr,PartyNpcOptions{},followHostRestart);
         }
     }
     void Step(double seconds) {
@@ -393,6 +398,58 @@ TEST(PartyPreview_SceneClearInterruptsEveryPeerAndHostCanOpenANewEpoch) {
     REQUIRE(room.runtime[0]->Start());
     room.Step(1.);
     for(auto& peer:room.runtime) CHECK(peer->Status().phase==LobbyRoster::Phase::Playing);
+}
+
+TEST(PartyPreview_HostRestartKeepsFourSeatsAndWaitsForEveryNativeRebuild) {
+    PreviewRoom room(true);
+    REQUIRE(room.Start());
+    const auto before=room.runtime[0]->Status();
+    CHECK(!room.runtime[2]->HostMissionRestarted());
+    REQUIRE(room.runtime[0]->HostMissionRestarted());
+    CHECK(!room.runtime[0]->HostMissionRestarted());
+    room.Step(1.);
+    for(size_t i=0;i<4;++i) {
+        const auto& status=room.runtime[i]->Status();
+        CHECK(status.phase==LobbyRoster::Phase::Restarting);
+        CHECK(status.epoch==before.epoch+1);
+        CHECK(status.session==before.session);
+        CHECK(room.sources[i].restarts==(i==0?0:1));
+        for(const auto& member:status.members) CHECK(!member.loaded);
+    }
+    for(size_t i=0;i<4;++i) {
+        room.sources[i].inScene=false;
+        room.runtime[i]->SceneCleared();
+    }
+    for(size_t i=0;i<3;++i) room.sources[i].inScene=true;
+    room.Step(1.);
+    for(auto& peer:room.runtime) CHECK(peer->Status().phase==LobbyRoster::Phase::Restarting);
+    room.sources[3].inScene=true;
+    room.Step(1.);
+    for(size_t i=0;i<4;++i) {
+        const auto& status=room.runtime[i]->Status();
+        CHECK(status.phase==LobbyRoster::Phase::Playing);
+        CHECK(status.members.size()==before.members.size());
+        CHECK(room.sources[i].restarts==(i==0?0:1));
+        for(size_t seat=0;seat<status.members.size();++seat)
+            CHECK(status.members[seat].incarnation==before.members[seat].incarnation);
+    }
+    REQUIRE(room.runtime[0]->HostMissionRestarted());
+    room.Step(1.);
+    for(size_t i=1;i<4;++i) CHECK(room.sources[i].restarts==2);
+}
+
+TEST(PartyPreview_AbortedRestartCancelsEachGuestsQueuedNativeRequest) {
+    PreviewRoom room(true);
+    REQUIRE(room.Start());
+    REQUIRE(room.runtime[0]->HostMissionRestarted());
+    room.Step(1.);
+    REQUIRE(room.runtime[0]->Lobby());
+    room.Step(1.);
+    for(size_t i=1;i<4;++i) {
+        CHECK(room.sources[i].restarts==1);
+        CHECK(room.sources[i].cancelled==1);
+        CHECK(room.runtime[i]->Status().phase==LobbyRoster::Phase::Lobby);
+    }
 }
 
 TEST(PartyPreview_HostClosureHidesGuestsWithoutFabricatingCompletion) {

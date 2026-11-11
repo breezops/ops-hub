@@ -246,7 +246,69 @@ For escorts and shared scripted behaviors, verify that dependent actors remain
 under coherent authority during the behavior. Ronnie and Ritter are the first
 acceptance example for that rule, with identities resolved by the generic path.
 
+### Gameplay parity and upstream reuse
+
+Use Jordan Rodrigues's original 0.13.94 beta and the paired Foundation tests as
+the gameplay reference. Preserve the native actor, inventory, item, door,
+disguise, body and event paths that those builds exercised. Route changes through
+the party's mission epoch and host validation. Track the initiating player and
+the exact native entity, and apply each accepted world change once. A scene
+restart, stale actor birth or changed owner must invalidate old actions.
+
+- **Attention and disguises.** Reuse proximity ownership, native alert reads,
+  capped alert mirroring, corpse clothing state and the native outfit-bag path.
+  Test each player drawing attention, then subduing a guard, taking the original
+  disguise once and using the discarded outfit bag across PCs.
+- **Items and environment.** Reuse the beta's stable item identity, pickup,
+  placement and door paths. Test both directions for an ordinary pickup, dropped
+  tool and door. Then test a native tool-to-object interaction and an assassination
+  with a scripted or accident result. Confirm that the changed object and NPC
+  state agree across PCs. The generic item pickup path does not establish
+  replication for every scripted interaction.
+- **Kills and challenges.** Preserve the native `Kill`, `Pacify` and
+  `ChallengeCompleted` observations and the original mod's mirror-event
+  suppression. The original beta logs show real local game challenge events.
+  The `Coop_Challenge` message carries a display title to the partner's
+  notification, while HITMAN evaluates actual challenge conditions locally.
+  Verify the proper target, tool, outcome and actor credit through native game
+  events. Check party notification, objective state and profile unlock on each
+  PC as distinct outcomes. Keep method and source attribution through the
+  accepted action so a mirrored death does not manufacture duplicate credit.
+- **Mission loop.** Reuse the native restart and `ContractEnd` observations.
+  Require both games to agree on completed objectives and the shared exit
+  before marking the party complete. Verify restart and a second contract from
+  the same lobby after the native actor lifecycle supports it.
+
+Repeat the same checks on another supported map after Freeform. Record the
+native behavior that needs a mode-specific adapter when one of those checks
+fails. Keep the original tested packages as references for regressions.
+
 Product target remains4players, host-controlled persistent lobby and native
 mission/restart following, automatic admission rather than manual Ready/Start,
 then shared objectives/extraction. Unanimous explicit pause is optional and
 separate; focus loss/tutorials/map are not votes. Avoid a major pause detour.
+
+## Core loop first
+
+1. **Keep the party through a native restart.** The host's in-game restart
+   advances the room's mission epoch and keeps the session and seats. Each
+   guest requests the original mod's deferred native restart once. The room
+   waits for the scene clear and the returning local player on every PC before
+   resuming. A timeout or interruption cancels queued work. `Loop-1` exercises
+   this path in Freeform Training using the movement adapter. Its build flag is
+   `COOP_PARTY_NATIVE_RESTART`, with native version `0.13.94-four-player.preview.4.loop.1`.
+   The catalog NPC adapter still needs confirmed native retirement before it
+   can safely follow this lifecycle. First verify the movement loop on two PCs,
+   then verify simultaneous reloads with four seats.
+2. **Launch or change a mission as host.** Add a host mission choice backed by
+   verified native contract identity and local availability. Carry exact
+   contract and mode through the same load barrier. Guests follow the host's
+   native load, and loaded receipts replace manual readiness. Validate a
+   restart and a switch to a second supported mission in the same room.
+3. **Complete and replay.** Bind shared objectives and native exit events.
+   Collect actual local `ContractEnd` receipts before presenting party success.
+   Return the party to mission choice with the same seats and allow replay.
+4. **Integrate gameplay in groups.** Bring in general NPC discovery and safe
+   authority handoffs, then takedowns, disguises and bodies, then items, doors
+   and scripted interactions. Use the two-PC baseline routinely and four PCs
+   for concurrent actions, ownership transitions and room lifecycle checks.

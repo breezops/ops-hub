@@ -48,6 +48,7 @@ public:
     bool SelectMission(const std::string& contract);
     bool SetReady(bool available, bool ready);
     bool BeginLoad();
+    bool BeginRestart();
     bool ReportLoaded();
     bool ReportNativeCompletion();
     bool ReportSceneLost();

@@ -9,13 +9,14 @@ namespace coop {
 class PartyPreviewRuntime {
 public:
     PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
-                        IPartyNpcWorld* npcWorld = nullptr, PartyNpcOptions npcOptions = {});
+                        IPartyNpcWorld* npcWorld = nullptr, PartyNpcOptions npcOptions = {}, bool followHostRestart = false);
     ~PartyPreviewRuntime();
     void Tick(double now);
     bool Ready();
     bool Start();
     bool Lobby();
     bool Reconnect(double now);
+    bool HostMissionRestarted();
     void Leave(double now);
     void SceneCleared(); // Existing SDK callback is pre-clear; begins retirement.
     const PartyRoomStatus& Status() const { return m_Room->Status(); }
@@ -56,5 +57,10 @@ private:
     std::string m_Message;
     uint64_t m_Accepted = 0, m_Rejected = 0;
     bool m_HadNativeScene = false;
+    bool m_FollowHostRestart=false, m_RestartPending=false, m_RestartFailed=false;
+    uint32_t m_RestartRequested=0, m_RestartCleared=0;
+    double m_RestartSince=-1.;
+    void CancelRestart();
+    void UpdateRestart(double now,bool native);
 };
 }

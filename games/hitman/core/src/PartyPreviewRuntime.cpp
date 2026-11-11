@@ -16,11 +16,12 @@ uint64_t NextRetirement() {
 }
 }
 PartyPreviewRuntime::PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
-                                       IPartyNpcWorld* npcWorld, PartyNpcOptions npcOptions)
+                                       IPartyNpcWorld* npcWorld, PartyNpcOptions npcOptions, bool followHostRestart)
     : m_Room(std::move(room)), m_Source(source), m_Sink(sink), m_Playback(sink),
-      m_NpcWorld(npcWorld), m_NpcOptions(npcOptions) {}
+      m_NpcWorld(npcWorld), m_NpcOptions(npcOptions), m_FollowHostRestart(followHostRestart && !npcWorld) {}
 
 PartyPreviewRuntime::~PartyPreviewRuntime() {
+    CancelRestart();
     if (m_NpcCatalogStarted) StopNpcs();
 }
 
@@ -150,7 +151,7 @@ bool PartyPreviewRuntime::Start() {
 bool PartyPreviewRuntime::Lobby() {
     if (!Status().host) { m_Message="Only the host can stop the preview."; return false; }
     StopNpcs();
-    if (Status().phase == LobbyRoster::Phase::Playing || Status().phase == LobbyRoster::Phase::Loading || Status().phase == LobbyRoster::Phase::Completing)
+    if (Status().phase == LobbyRoster::Phase::Playing || LobbyRoster::AwaitingLoad(Status().phase) || Status().phase == LobbyRoster::Phase::Completing)
         m_Room->ReportSceneLost();
     const bool ok = m_Room->ReturnToLobby() && m_Room->SelectMission(kPartyFreeformContract);
     if (ok) m_Playback.Reset();
@@ -162,13 +163,51 @@ bool PartyPreviewRuntime::Reconnect(double now) {
     m_Message = ok ? "Reconnecting to the host." : "Reconnect is available after a guest loses the host.";
     return ok;
 }
+bool PartyPreviewRuntime::HostMissionRestarted() {
+    if (!m_FollowHostRestart || !Status().host || !NativeReady() || !m_Room->BeginRestart()) return false;
+    m_Message="Host restarted the mission. Waiting for every PC to reload.";
+    return true;
+}
+void PartyPreviewRuntime::CancelRestart() {
+    if (!m_RestartPending) return;
+    m_Source.CancelRestartMission();
+    m_RestartPending=false;
+}
+void PartyPreviewRuntime::UpdateRestart(double now,bool native) {
+    const auto& status=Status();
+    if (status.phase!=LobbyRoster::Phase::Restarting ||
+        (status.state!=PartyRoomStatus::State::Hosting && status.state!=PartyRoomStatus::State::Connected)) {
+        CancelRestart();
+        m_RestartSince=-1.;
+        m_RestartFailed=false;
+        return;
+    }
+    if (m_RestartFailed) return;
+    if (m_RestartSince<0.) m_RestartSince=now;
+    if (!m_FollowHostRestart || now-m_RestartSince>=60.) {
+        CancelRestart();
+        m_RestartFailed=m_Room->ReportSceneLost();
+        if (m_RestartFailed) m_Message="Mission restart did not finish. Return to the lobby to retry.";
+        return;
+    }
+    if (!status.host && native && m_RestartCleared!=status.epoch && m_RestartRequested!=status.epoch) {
+        m_RestartRequested=status.epoch;
+        m_RestartPending=true;
+        m_Source.RestartMission();
+        m_Message="Following the host's restart.";
+    }
+}
 void PartyPreviewRuntime::Leave(double now) {
+    CancelRestart();
     StopNpcs();
     m_Playback.Reset();
     m_Room->Leave(now);
     m_Message="Leaving preview. Reload the mission before creating a new room.";
 }
 void PartyPreviewRuntime::SceneCleared() {
+    const bool restarting=m_FollowHostRestart && Status().phase==LobbyRoster::Phase::Restarting;
+    if (restarting) m_RestartCleared=Status().epoch;
+    CancelRestart();
     const bool retire=m_NpcWorld && (m_NpcOptions.fixedCatalog.empty() || m_NpcCatalogStarted || m_NpcCatalogSpent);
     StopNpcs();
     m_Npcs.reset(); m_NpcCatalog.clear(); m_NextNpcCatalog=0;
@@ -178,7 +217,7 @@ void PartyPreviewRuntime::SceneCleared() {
         if (m_NpcRetirement) m_NpcWorld->BeginNpcSceneRetirement(m_NpcRetirement);
     }
     m_NpcScenePrepared=false;
-    m_Room->ReportSceneLost();
+    if (!restarting) m_Room->ReportSceneLost();
     m_Playback.Reset();
     m_HadNativeScene=false;
     m_Epoch=0;
@@ -215,7 +254,10 @@ void PartyPreviewRuntime::Tick(double now) {
     // Availability must not remain true after leaving the native scene.
     if (status.phase==LobbyRoster::Phase::Lobby && !native && LocalReady())
         m_Room->SetReady(false,false);
-    if (status.phase==LobbyRoster::Phase::Loading && native && now>=m_NextLoaded) {
+    UpdateRestart(now,native);
+    status=m_Room->Status();
+    const bool restarted=status.phase==LobbyRoster::Phase::Restarting && !m_RestartFailed && m_RestartCleared==status.epoch;
+    if ((status.phase==LobbyRoster::Phase::Loading || restarted) && native && now>=m_NextLoaded) {
         m_NextLoaded=now+0.5;
         bool loaded=false;
         for (const auto& member : status.members) if (member.id==status.self) loaded=member.loaded;

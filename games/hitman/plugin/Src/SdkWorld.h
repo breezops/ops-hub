@@ -153,6 +153,7 @@ public:
     bool IsLocallyPaused() const override;
     void SetPartnerPaused(bool p_Paused) override;
     void RestartMission() override;
+    void CancelRestartMission() override { m_RestartAskedAt=-1.0; }
     // A restart we made for the partner: not told back to them (see HitmanCoop's scene load).
     bool TakeRestartForPartner() {
         const bool s_Was = m_RestartForPartner;

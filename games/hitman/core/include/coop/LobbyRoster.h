@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace coop {
@@ -8,7 +9,8 @@ namespace coop {
 // this model before the playable build can advertise four-player support.
 class LobbyRoster {
 public:
-    enum class Phase { Lobby, Loading, Playing, Completing, Complete, Interrupted };
+    enum class Phase { Lobby, Loading, Playing, Completing, Complete, Interrupted, Restarting };
+    static bool AwaitingLoad(Phase value) { return value==Phase::Loading || value==Phase::Restarting; }
     struct Player {
         uint8_t id = 0;
         std::string key;
@@ -37,7 +39,7 @@ public:
         return true;
     }
     bool Select(const std::string& contract) {
-        if (phase != Phase::Lobby || contract.empty() || contract.size() > 64) return false;
+        if (phase != Phase::Lobby || contract.empty() || contract.size() > 64 || epoch==std::numeric_limits<uint32_t>::max()) return false;
         mission = contract; ++epoch;
         for (auto& p : players) p.available = p.ready = p.loaded = p.complete = false;
         return true;
@@ -55,10 +57,17 @@ public:
     }
     bool Loaded(uint8_t id, uint32_t current) {
         auto* p = Find(id);
-        if (!p || current != epoch || phase != Phase::Loading) return false;
+        if (!p || current != epoch || !AwaitingLoad(phase)) return false;
         p->loaded = true;
         for (const auto& member : players) if (member.id && !member.loaded) return true;
         phase = Phase::Playing; return true;
+    }
+    bool Restart() {
+        if (phase!=Phase::Playing || Count()<2 || epoch==std::numeric_limits<uint32_t>::max()) return false;
+        ++epoch;
+        phase=Phase::Restarting;
+        for (auto& member:players) member.loaded=member.complete=false;
+        return true;
     }
     bool Completed(uint8_t id, uint32_t current) {
         auto* p = Find(id);
@@ -75,7 +84,7 @@ public:
     }
     bool SceneLost(uint8_t id, uint32_t current) {
         if (!Find(id) || current != epoch ||
-            (phase != Phase::Loading && phase != Phase::Playing && phase != Phase::Completing))
+            (!AwaitingLoad(phase) && phase != Phase::Playing && phase != Phase::Completing))
             return false;
         phase = Phase::Interrupted;
         return true;

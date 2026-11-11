@@ -8,6 +8,7 @@ const char* Phase(coop::LobbyRoster::Phase phase) {
     using P=coop::LobbyRoster::Phase;
     switch(phase) {
     case P::Lobby:return "Lobby"; case P::Loading:return "Checking loaded missions";
+    case P::Restarting:return "Waiting for mission restart";
     case P::Playing:return "Movement preview running"; case P::Completing:return "Completing";
     case P::Complete:return "Complete"; case P::Interrupted:return "Interrupted";
     }
@@ -78,6 +79,8 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         npcOptions.streamPoses=true;
                         m_World.SetNpcCatalogHost(host);
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,npcOptions);
+#elif defined(COOP_PARTY_NATIVE_RESTART)
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,coop::PartyNpcOptions{},true);
 #else
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World);
 #endif
