@@ -33,3 +33,27 @@ All 83 matched IDs kept their local actor slots, and every construction
 stamp changed on each PC after restart. Retire previous bindings by
 mission epoch and verify the new construction stamp before reusing a
 slot. These logs establish matching and replacement for Freeform.
+
+## Restart audit development build
+
+Use the party discovery profile with native version
+`0.13.94-four-player.preview.4.npc-restart-audit`. Enable
+`COOP_NPC_IDENTITY_DIAGNOSTICS`, `COOP_NPC_ACTION_DIAGNOSTICS`,
+`COOP_NPC_LIFETIME_DIAGNOSTICS`, and `COOP_NPC_DESTRUCTION_DIAGNOSTICS`.
+The NPC roster is submitted again whenever the room, mission epoch, or a
+player's connection incarnation changes.
+
+The pre-clear callback saves the previous scan's matched IDs and local
+construction stamps. On resuming play, `npc-scan` reports replacements
+constructed after the most recent clear marker, retained stamps, changes
+already present before that marker, and previously matched IDs missing
+from the new scan. It covers every matched actor through the same path.
+Compare it with the independent `npc-life` cut and `npc-dtor` receipts.
+These observations leave NPC simulation local.
+
+Offline inspection of Steam 3.290.1 found the SDK's ClearScene function
+at RVA `0xb1d30`. Its tail jumps through a virtual call at RVA `0xb234b`.
+The image has one matching vtable slot at RVA `0x1d51b08`. Observing the
+return through that slot could preserve SDK dispatch and cover the final
+virtual call. That approach still needs to demonstrate that the relevant
+restart calls pass through the slot and that the old NPC work has retired.

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <deque>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <span>
 #include <string>
@@ -667,10 +668,12 @@ private:
     double m_NextNpcIdentityAudit=0;
     unsigned m_NpcIdentityAudits=0;
 #ifdef COOP_PARTY_NPC_DISCOVERY
-    uint64_t m_NpcDiscoverySession=0;
-    uint32_t m_NpcDiscoveryEpoch=0;
+    coop::PartyNpcScope m_NpcDiscoveryScope;
     double m_NextNpcDiscovery=0;
     std::vector<std::string> m_LastNpcDiscovery;
+    uint64_t m_NpcDiscoveryClearMark=0;
+    std::optional<std::map<uint64_t,uint64_t>> m_NpcDiscoveryBirths;
+    std::map<uint64_t,uint64_t> m_NpcDiscoveryBeforeClear;
 #endif
     double m_NextNpcActionAudit=0;
     unsigned m_NpcActionAudits=0;

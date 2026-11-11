@@ -113,6 +113,14 @@ void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
 }
 
 void SdkWorld::OnSceneCleared() {
+#ifdef COOP_PARTY_NPC_DISCOVERY
+    m_NpcDiscoveryClearMark=m_NpcActorBirths.Mark();
+    // Retain the last Playing sample across additional loading clears.
+    if (m_NpcDiscoveryBirths)
+        m_NpcDiscoveryBeforeClear=std::move(*m_NpcDiscoveryBirths);
+    m_NpcDiscoveryBirths.reset();
+    m_NpcDiscoveryScope={};
+#endif
     m_SoloHoldRequested=false;
 #ifdef COOP_NPC_HOLD_DIAGNOSTICS
     m_InScene=false; // Invalidate diagnostic control before any teardown callback can reenter.
@@ -2566,15 +2574,14 @@ bool SdkWorld::MatchesFreshPartyNpc(uint64_t id, ZActor* actor, const void* enti
 }
 #ifdef COOP_PARTY_NPC_DISCOVERY
 std::optional<std::vector<uint64_t>> SdkWorld::TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now) {
-    using State=coop::PartyRoomStatus::State;
-    if (!status || (status->state!=State::Hosting && status->state!=State::Connected) ||
-        status->phase!=coop::LobbyRoster::Phase::Playing || !status->session || !status->epoch || !status->self ||
+    coop::PartyNpcScope scope;
+    if (!status || !coop::PartyNpcScope::FromRoom(*status,scope) ||
         !m_InScene || PartyGameThread()!=GetCurrentThreadId() || !Globals::ActorManager) {
-        m_NpcDiscoverySession=0;
+        m_NpcDiscoveryScope={};
         return std::nullopt;
     }
-    const bool newEpoch=status->session!=m_NpcDiscoverySession || status->epoch!=m_NpcDiscoveryEpoch;
-    if (!newEpoch && now<m_NextNpcDiscovery) return std::nullopt;
+    const bool newScope=scope!=m_NpcDiscoveryScope;
+    if (!newScope && now<m_NextNpcDiscovery) return std::nullopt;
     m_NextNpcDiscovery=now+2.;
 
     struct Candidate {
@@ -2606,6 +2613,8 @@ std::optional<std::vector<uint64_t>> SdkWorld::TracePartyNpcDiscovery(const coop
     std::vector<std::string> rows;
     const bool birthsHealthy=m_NpcActorBirths.Healthy();
     std::vector<uint64_t> matched;
+    std::map<uint64_t,uint64_t> births;
+    size_t replaced=0,retained=0,preClear=0;
     for (const auto& [id,candidate]:candidates) {
         if (!candidate.hasMissionActor) continue;
         std::ostringstream row;
@@ -2622,21 +2631,39 @@ std::optional<std::vector<uint64_t>> SdkWorld::TracePartyNpcDiscovery(const coop
             } else if (const auto birth=birthsHealthy ? m_NpcActorBirths.Find(actor) : 0) {
                 row<<" state=matched birth="<<birth<<" slot="<<actor->m_nActorRuntimeId;
                 matched.push_back(id);
+                births.emplace(id,birth);
+                if (const auto old=m_NpcDiscoveryBeforeClear.find(id); old!=m_NpcDiscoveryBeforeClear.end()) {
+                    if (birth==old->second) {
+                        ++retained;
+                        row<<" after-clear=retained";
+                    } else if (birth>m_NpcDiscoveryClearMark) {
+                        ++replaced;
+                        row<<" after-clear=replaced";
+                    } else {
+                        ++preClear;
+                        row<<" after-clear=changed-before-mark";
+                    }
+                }
             } else {
                 row<<" state=untracked";
             }
         }
         rows.push_back(row.str());
     }
+    const auto missing=m_NpcDiscoveryBeforeClear.size()-replaced-retained-preClear;
     std::ostringstream summary;
     summary<<"room="<<std::hex<<status->session<<std::dec<<" epoch="<<status->epoch
            <<" seat="<<unsigned(status->self)<<" scene="<<m_Scene.scene
            <<" ids="<<rows.size()<<" matched="<<matched.size()<<" missing-id="<<missingId
            <<" birth-book="<<(birthsHealthy?"healthy":"unavailable");
+    if (!m_NpcDiscoveryBeforeClear.empty())
+        summary<<" clear-mark="<<m_NpcDiscoveryClearMark<<" previously-matched="<<m_NpcDiscoveryBeforeClear.size()
+               <<" replaced="<<replaced<<" retained="<<retained<<" changed-before-mark="<<preClear
+               <<" missing-after-clear="<<missing;
     rows.insert(rows.begin(),summary.str());
-    if (!newEpoch && rows==m_LastNpcDiscovery) return std::nullopt;
-    m_NpcDiscoverySession=status->session;
-    m_NpcDiscoveryEpoch=status->epoch;
+    m_NpcDiscoveryBirths=std::move(births);
+    if (!newScope && rows==m_LastNpcDiscovery) return std::nullopt;
+    m_NpcDiscoveryScope=scope;
     m_LastNpcDiscovery=std::move(rows);
     for (const auto& row:m_LastNpcDiscovery) CoopLog::Info("npc-scan",row);
     return matched;
