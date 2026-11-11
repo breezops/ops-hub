@@ -27,12 +27,29 @@ uint64_t NpcSceneEvidence::Book::Begin(bool fullUnload,const NpcActorBirths::Boo
     m_Healthy=false; // Bounded diagnostic: do not overwrite unresolved evidence.
     return 0;
 }
-void NpcSceneEvidence::Book::ObserveDispatchReturn(uint64_t token) {
+void NpcSceneEvidence::Book::ObserveDispatchReturn(uint64_t token,const NpcActorBirths::Book* births) {
     if (!token) return;
+    const Entry* captured=nullptr;
+    {
+        std::lock_guard lock(m_Mutex);
+        for (const auto& entry:m_Entries) if (entry.token==token && !entry.dispatchReturned) {
+            captured=&entry;
+            break;
+        }
+    }
+    if (!captured) return;
+    // Sample the original cuts in the return callback before the next SDK
+    // frame. These are separate metadata observations, with no native reads.
+    // Entries occupy fixed slots and their cuts remain immutable for the
+    // book's lifetime. Observer Stop drains callbacks before its destruction.
+    const auto jobs=NpcActionProbe::InspectFence(captured->jobs);
+    const auto actors=births?births->Inspect(captured->actors):NpcActorBirths::Book::CutState{};
     std::lock_guard lock(m_Mutex);
-    for (auto& entry:m_Entries) if (entry.token==token) {
+    for (auto& entry:m_Entries) if (entry.token==token && !entry.dispatchReturned) {
+        entry.jobsAtReturn=jobs;
+        entry.actorsAtReturn=actors;
         entry.dispatchReturned=true;
-        return;
+        break;
     }
 }
 std::array<NpcSceneEvidence::Sample,NpcSceneEvidence::Book::Capacity> NpcSceneEvidence::Book::Snapshot(const NpcActorBirths::Book* births) const {
@@ -43,7 +60,8 @@ std::array<NpcSceneEvidence::Sample,NpcSceneEvidence::Book::Capacity> NpcSceneEv
     for (size_t i=0;i<entries.size();++i) {
         const auto& entry=entries[i];
         if (entry.token) samples[i]={entry.token,entry.fullUnload,healthy,entry.dispatchReturned,
-            NpcActionProbe::InspectFence(entry.jobs),births?births->Inspect(entry.actors):NpcActorBirths::Book::CutState{}};
+            NpcActionProbe::InspectFence(entry.jobs),births?births->Inspect(entry.actors):NpcActorBirths::Book::CutState{},
+            entry.jobsAtReturn,entry.actorsAtReturn};
     }
     return samples;
 }

@@ -324,8 +324,9 @@ void HitmanCoop::Init() {
     WriteLogHeader(s_Patches);
 #ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
     const bool clearObserver=m_GameVersion=="3.290.1" &&
-        NpcSceneClearObserver::Install(&m_NpcSceneEvidence,[](void* book,uint64_t token) {
-            static_cast<NpcSceneEvidence::Book*>(book)->ObserveDispatchReturn(token);
+        NpcSceneClearObserver::Install(this,[](void* context,uint64_t token) {
+            auto& self=*static_cast<HitmanCoop*>(context);
+            self.m_NpcSceneEvidence.ObserveDispatchReturn(token,&self.m_World.PartyNpcBirthBook());
         });
     CoopLog::Info("npc-life",clearObserver ? "Scene-clear dispatch return observer installed" :
         "Scene-clear dispatch return observer unavailable");
@@ -2514,6 +2515,11 @@ void HitmanCoop::AuditNpcSceneEvidence() {
             static_cast<unsigned long long>(s.token),s.fullUnload?1:0,s.dispatchReturned?1:0,
             s.bookHealthy?1:0,s.jobs.valid?1:0,s.jobs.healthy?1:0,s.jobs.pending,
             s.actors.valid?1:0,s.actors.healthy?1:0,s.actors.captured,s.actors.entered,s.actors.returned);
+        if (s.dispatchReturned && !last.dispatchReturned)
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-life","Return-callback evidence token=%llu observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u actor-cut-valid=%d actors-healthy=%d captured=%zu destruction-entered=%zu body-returned=%zu; metadata cuts sampled separately before the next SDK frame",
+                static_cast<unsigned long long>(s.token),s.jobsAtReturn.valid?1:0,s.jobsAtReturn.healthy?1:0,
+                s.jobsAtReturn.pending,s.actorsAtReturn.valid?1:0,s.actorsAtReturn.healthy?1:0,
+                s.actorsAtReturn.captured,s.actorsAtReturn.entered,s.actorsAtReturn.returned);
         m_NpcSceneLast[i]=s;
     }
 }
