@@ -73,6 +73,9 @@ private:
     NpcSceneEvidence::Book m_NpcSceneEvidence;
     std::array<NpcSceneEvidence::Sample,NpcSceneEvidence::Book::Capacity> m_NpcSceneLast{};
     void AuditNpcSceneEvidence(); // Session mutex held; pointer-only job evidence.
+#ifdef COOP_NPC_AGREED_CATALOG
+    bool m_NpcClearObserverInstalled=false;
+#endif
 #ifdef COOP_NPC_DESTRUCTION_DIAGNOSTICS
     uint64_t m_NpcDtorLastEntered=0,m_NpcDtorLastReturned=0;
 #endif

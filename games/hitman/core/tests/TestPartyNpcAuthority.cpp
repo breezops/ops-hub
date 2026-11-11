@@ -433,6 +433,30 @@ TEST(PartyNpcSync_HostWaitsForEveryGuestsInitialBaselineReceipt) {
     }
 }
 
+TEST(PartyNpcSync_FourPlayersPrepareTheFullFreeformSizedCatalog) {
+    PartyNpcOptions options;
+    options.confirmInitialGuestBaselines=true;
+    NetworkNpc room(4,881,options);
+    REQUIRE(room.Begin());
+    constexpr uint64_t activeNpcs=83;
+    for (uint64_t id=1;id<=activeNpcs;++id) {
+        PartyNpcState state;
+        state.xf.pos.x=static_cast<float>(id);
+        REQUIRE(room.sync[0]->Register(id,state,room.now));
+    }
+    CHECK(room.worlds[0].resumes==0);
+    room.Step(3.);
+    CHECK(room.worlds[0].resumes==activeNpcs);
+    for (uint64_t id=1;id<=activeNpcs;++id) {
+        CHECK(room.sync[0]->Authority()->InitialGuestsPrepared(id));
+        CHECK(room.worlds[0].running[id]);
+        for (size_t seat=1;seat<room.count;++seat) {
+            CHECK(!room.worlds[seat].running[id]);
+            CHECK(room.worlds[seat].states[id].xf.pos.x==static_cast<float>(id));
+        }
+    }
+}
+
 TEST(PartyNpcSync_FixedNpcPosesFanOutAndClearAfterSilenceOrStop) {
     PartyNpcOptions options; options.fixedCatalog={55}; options.streamPoses=true;
     NetworkNpc n(4,774,options);

@@ -1,6 +1,9 @@
 #include "HitmanCoop.h"
 #include "CoopText.h"
 #include "CrashGuards.h"
+#ifdef COOP_NPC_AGREED_CATALOG
+#include "NpcHoldArbiter.h"
+#endif
 #include <sstream>
 
 namespace {
@@ -51,7 +54,7 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
             ok=false; message="Leave the current session first.";
         } else if (!m_World.CanOpenPartyPreview()) {
             ok=false; message="Reload Freeform Training to clear the previous session, then try again.";
-#ifdef COOP_NPC_CATALOG
+#if defined(COOP_NPC_CATALOG) && !defined(COOP_NPC_AGREED_CATALOG)
         } else if (message=m_World.ResolveNpcCatalog(npcOptions.fixedCatalog); !message.empty()) {
             ok=false;
 #endif
@@ -68,7 +71,7 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                 else {
                     coop::PartyRoomConfig config;
                     config.build=c_ModVersion; config.game=m_GameVersion; config.name=m_NameBuffer;
-#ifdef COOP_NPC_CATALOG
+#if defined(COOP_NPC_CATALOG) && !defined(COOP_NPC_AGREED_CATALOG)
                     std::ostringstream key;
                     key<<COOP_NPC_CATALOG_ROOM_BUILD<<std::hex;
                     for (const auto id:npcOptions.fixedCatalog) key<<'/'<<id;
@@ -84,7 +87,12 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         CrashGuards::SetKnowledge(nullptr);
                         CrashGuards::SetActor(nullptr);
                         m_Session.reset(); m_LastJoin.reset(); m_Reconnecting=false; m_Relay.reset(); m_FrameStatus={};
-#ifdef COOP_NPC_CATALOG
+#ifdef COOP_NPC_AGREED_CATALOG
+                        npcOptions.capacity=NpcHoldArbiter::Capacity;
+                        m_World.SetNpcCatalogHost(host);
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,
+                            npcOptions,true,true,static_cast<coop::IPartyFreeformLaunch*>(this),true,true);
+#elif defined(COOP_NPC_CATALOG)
                         npcOptions.capacity=npcOptions.fixedCatalog.size();
                         npcOptions.streamPoses=true;
                         npcOptions.confirmInitialGuestBaselines=true;

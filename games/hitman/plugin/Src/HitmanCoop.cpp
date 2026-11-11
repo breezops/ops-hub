@@ -330,6 +330,9 @@ void HitmanCoop::Init() {
         });
     CoopLog::Info("npc-life",clearObserver ? "Scene-clear dispatch return observer installed" :
         "Scene-clear dispatch return observer unavailable");
+#ifdef COOP_NPC_AGREED_CATALOG
+    m_NpcClearObserverInstalled=clearObserver;
+#endif
 #endif
 #ifdef COOP_PARTY_CONTRACT_TRACE
     if (m_GameVersion=="3.290.1") ContractLaunchTrace::Install();
@@ -1482,7 +1485,11 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     m_LastFrame = s_Now;
     m_World.SetClock(s_Now);
 #ifdef COOP_NPC_ACTION_DIAGNOSTICS
-    if (!m_NpcActionObserverAttempted && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene)) {
+    if (!m_NpcActionObserverAttempted
+#ifndef COOP_NPC_AGREED_CATALOG
+        && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene)
+#endif
+    ) {
         m_NpcActionObserverAttempted=true;
         const auto sites=m_GameVersion=="3.290.1" && m_Unsupported.empty()
             ? CrashGuards::VerifiedNpcBehaviorSites() : CrashGuards::NpcBehaviorSites{};
@@ -1538,13 +1545,19 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
                 }
             },m_World.PartyGameThread()};
 #if defined(COOP_NPC_HOLD_DIAGNOSTICS) || defined(COOP_NPC_RESTART_BINDING_DIAGNOSTICS)
-        const bool arbiter=jobsInstalled && NpcHoldArbiter::Install(sites);
+        const bool arbiter=jobsInstalled
+#ifdef COOP_NPC_AGREED_CATALOG
+            && destruction && m_NpcClearObserverInstalled
+#endif
+            && NpcHoldArbiter::Install(sites);
         const auto holdReport=NpcHoldArbiter::Installation();
         traceAllocation("hold-arbiter",holdReport.allocations,holdReport.status);
         CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Native hold arbiter installed=%d stage=%s status=%d",arbiter?1:0,holdReport.stage,holdReport.status);
 #endif
 #ifdef COOP_NPC_HOLD_DIAGNOSTICS
-#ifdef COOP_NPC_CATALOG
+#ifdef COOP_NPC_AGREED_CATALOG
+        CoopLog::Info("npc-catalog","Native control profile uses the agreed Freeform roster and host baseline receipts");
+#elif defined(COOP_NPC_CATALOG)
         CoopLog::Info("npc-catalog","Private Freeform catalog enabled for two living NPC transforms under host authority");
 #elif defined(COOP_NPC_POOL_DIAGNOSTICS)
         CoopLog::Info("npc-pool","Private two-NPC prototype enabled; F8 selects two nearest eligible NPCs after native restart; one cycle per process");
@@ -1574,8 +1587,14 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
             observerConfig.arbitrateHolds=true;
         }
 #endif
-        const bool installed=sites && NpcActionObserver::Install(sites,observerConfig);
-#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+        const bool installed=sites
+#ifdef COOP_NPC_AGREED_CATALOG
+            && arbiter
+#endif
+            && NpcActionObserver::Install(sites,observerConfig);
+#ifdef COOP_NPC_AGREED_CATALOG
+        CoopLog::Info("npc-act",installed ? "Native NPC adapter installed before mission load" : "Native NPC adapter unavailable");
+#elif defined(COOP_NPC_RESTART_BINDING_DIAGNOSTICS)
         CoopLog::Info("npc-act",installed
             ? "Action observer installed for mission binding observations; NPC simulation remains local"
             : "Action observer unavailable");
@@ -1587,7 +1606,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         const auto report=NpcActionObserver::Installation();
         traceAllocation("action",report.allocations,report.hookStatus);
         CoopLog::Fmt(coop::LogLevel::Info,"npc-act",
-            "Observer installation after Freeform load: sites-found=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; NPC control OFF",
+            "Observer installation: sites-found=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u",
             sites?1:0,NpcActionObserver::StageName(report.stage),report.hookStatus,report.lastError);
     }
 #ifdef COOP_NPC_HOLD_DIAGNOSTICS
@@ -2498,6 +2517,9 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bo
         m_BusyToldAt = Now();
     }
 
+#ifdef COOP_NPC_AGREED_CATALOG
+    m_World.SetNpcClearEvidenceToken(observedRoute ? evidence : 0);
+#endif
     if (m_PartyPreview)
         m_PartyPreview->SceneCleared();
     m_World.OnSceneCleared();
@@ -2524,6 +2546,9 @@ void HitmanCoop::AuditNpcSceneEvidence() {
     const auto samples=m_NpcSceneEvidence.Snapshot(&m_World.PartyNpcBirthBook());
     for (size_t i=0;i<samples.size();++i) {
         const auto& s=samples[i]; const auto& last=m_NpcSceneLast[i];
+#ifdef COOP_NPC_AGREED_CATALOG
+        m_World.ObserveNpcRetirementEvidence(s);
+#endif
         if (!s.token || (s.token==last.token && s.dispatchReturned==last.dispatchReturned &&
             s.bookHealthy==last.bookHealthy && s.jobs.valid==last.jobs.valid &&
             s.jobs.healthy==last.jobs.healthy && s.jobs.pending==last.jobs.pending &&

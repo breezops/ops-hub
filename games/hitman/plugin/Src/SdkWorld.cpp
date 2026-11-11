@@ -113,6 +113,13 @@ void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
 }
 
 void SdkWorld::OnSceneCleared() {
+#ifdef COOP_NPC_AGREED_CATALOG
+    if (m_CatalogPhase!=CatalogPhase::Idle) {
+        if (m_CatalogPhase!=CatalogPhase::Stopped) StopNpcCatalog();
+        m_CatalogCleared=true;
+        m_CatalogPendingEvidence.insert(m_CatalogClearEvidence);
+    }
+#endif
 #ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
     m_NpcRestartBindingAttempted=false;
 #endif
@@ -2833,8 +2840,10 @@ void SdkWorld::StepSoloNpcHold(NpcActionPhase::Boundary& boundary) {
 bool SdkWorld::CanBeginPartyNpcHold(NpcActionPhase::Boundary& boundary, ZActor* actor, uint64_t id, uint64_t birth) const {
     if (!birth || birth<=m_NpcJobAttachmentMark) return false;
     const auto sample=boundary.Observe(actor,id,birth);
-    if (!sample.valid || !sample.native.coherent() || sample.native.held() || !sample.native.job ||
-        ActorDown(actor) || actor->m_bContractTarget) return false;
+    if (!sample.valid || !sample.native.coherent() || sample.native.held() || !sample.native.job || ActorDown(actor)) return false;
+#ifndef COOP_NPC_AGREED_CATALOG
+    if (actor->m_bContractTarget) return false;
+#endif
     const auto jobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(sample.native.unit));
     return jobs.healthy && jobs.observed && jobs.outstanding==1;
 }
@@ -2911,11 +2920,19 @@ std::string SdkWorld::ResolveNpcCatalog(std::set<uint64_t>& ids) const {
 }
 
 SdkWorld::CatalogPreparation SdkWorld::PrepareNpcCatalog(const std::set<uint64_t>& ids) {
-    if (ids.size()!=m_CatalogIds.size() || !NpcCatalogError().empty()) return CatalogPreparation::Refused;
+#ifdef COOP_NPC_AGREED_CATALOG
+    if (ids.empty() || ids.size()>NpcHoldArbiter::Capacity || ids.contains(0)) return CatalogPreparation::Refused;
+#else
+    if (ids.size()!=2) return CatalogPreparation::Refused;
+#endif
+    if (!NpcCatalogError().empty()) return CatalogPreparation::Refused;
     if (m_CatalogPhase==CatalogPhase::Idle) {
-        std::copy(ids.begin(),ids.end(),m_CatalogIds.begin());
+        m_CatalogIds.assign(ids.begin(),ids.end());
+        m_CatalogActors.resize(ids.size());
         m_CatalogPhase=CatalogPhase::Binding;
         m_CatalogStartedAt=GetTickCount64();
+    } else if (!std::equal(ids.begin(),ids.end(),m_CatalogIds.begin(),m_CatalogIds.end())) {
+        return CatalogPreparation::Refused;
     }
     return m_CatalogPhase==CatalogPhase::Active ? CatalogPreparation::Ready : CatalogPreparation::Pending;
 }
@@ -2933,6 +2950,26 @@ void SdkWorld::StopNpcCatalog() {
     for (auto& actor:m_CatalogActors) actor={};
     if (m_CatalogScope && NpcMutationGate::Clear(m_CatalogScope)) m_CatalogScope=0;
 }
+
+#ifdef COOP_NPC_AGREED_CATALOG
+void SdkWorld::BeginNpcSceneRetirement(uint64_t token) {
+    m_CatalogRetirementToken=token;
+}
+
+void SdkWorld::ObserveNpcRetirementEvidence(const NpcSceneEvidence::Sample& sample) {
+    if (sample.token && sample.dispatchReturned && sample.bookHealthy &&
+        sample.jobs.valid && sample.jobs.healthy && !sample.jobs.pending)
+        m_CatalogPendingEvidence.erase(sample.token);
+}
+
+bool SdkWorld::ConfirmNpcSceneRetired(uint64_t token) {
+    if (!token || token!=m_CatalogRetirementToken || m_CatalogPhase!=CatalogPhase::Idle) return false;
+    m_CatalogRetirementToken=0;
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","Retired previous scene bindings token=%llu",
+        static_cast<unsigned long long>(token));
+    return true;
+}
+#endif
 
 void SdkWorld::RefuseNpcCatalog(const char* reason) {
     CoopLog::Fmt(coop::LogLevel::Warn,"npc-catalog","Catalog interrupted: %s",reason);
@@ -3034,7 +3071,9 @@ SdkWorld::CatalogPoseBinding* SdkWorld::BindCatalogAnimator(const NpcMutationGat
     auto* animator=AnimatorOf(actor);
     const auto slot=std::find(m_CatalogIds.begin(),m_CatalogIds.end(),ticket.npc);
     if (slot==m_CatalogIds.end()) return nullptr;
-    auto& binding=m_CatalogPoseBindings[slot-m_CatalogIds.begin()];
+    const auto index=static_cast<size_t>(slot-m_CatalogIds.begin());
+    if (index>=m_CatalogPoseBindings.size()) return nullptr;
+    auto& binding=m_CatalogPoseBindings[index];
     if (binding.animator==animator && binding.ticket.birth==ticket.birth && binding.source==source) return &binding;
     if (binding.animator && !binding.source) PoseHook::ClearPoseFor(binding.animator);
     binding={ticket,animator,source};
@@ -3141,7 +3180,7 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             auto* actor=FindFreshPartyNpc(id);
             if (!actor || !CanBeginPartyNpcHold(boundary,actor,id,m_NpcActorBirths.Find(actor))) return;
         }
-        std::array<NpcMutationGate::Ticket,2> tickets;
+        std::vector<NpcMutationGate::Ticket> tickets(m_CatalogIds.size());
         if (!BindPartyNpcHoldCatalog(boundary,m_CatalogIds,tickets)) { RefuseNpcCatalog("could not bind catalog tickets"); return; }
         m_CatalogScope=tickets.front().scope;
         for (size_t i=0;i<tickets.size();++i) {
@@ -3155,6 +3194,10 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
     }
 
     using Phase=CatalogActorPhase;
+#ifdef COOP_NPC_AGREED_CATALOG
+    unsigned controlCalls=0;
+    constexpr unsigned maxControlCalls=8;
+#endif
     for (auto& actor:m_CatalogActors) {
         const auto ticket=actor.ticket;
         int32_t runtime=-1;
@@ -3170,12 +3213,18 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
         switch (actor.phase) {
         case Phase::Hold: {
             if (drained) { actor.phase=Phase::Held; actor.deadline=0; break; }
+#ifdef COOP_NPC_AGREED_CATALOG
+            if (controlCalls>=maxControlCalls) break;
+#endif
             if (sample.native.held() || !jobs.observed || jobs.outstanding!=1 || !sample.native.job) {
                 RefuseNpcCatalog("actor cannot begin owned hold"); return;
             }
             if (!NpcMutationGate::SetLocalOwner(ticket.scope,ticket.npc,ticket.birth,ticket.lease,false)) break;
+#ifdef COOP_NPC_AGREED_CATALOG
+            ++controlCalls;
+#endif
             const auto result=boundary.SetHeld(ticket,true);
-            if (m_CatalogPhase==CatalogPhase::Stopped) return;
+            if (m_CatalogPhase==CatalogPhase::Stopped || m_CatalogScope!=ticket.scope) return;
             if (result.state==NpcActionPhase::State::Refused || !result.changed || result.previouslyHeld || !NpcHoldArbiter::OwnsHold(ticket)) {
                 RefuseNpcCatalog("native hold refused"); return;
             }
@@ -3192,7 +3241,7 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             const auto transform=baseline ? std::optional{baseline->xf} : actor.presentation;
             if (transform) {
                 const bool applied=WriteCatalogTransform(ticket,*transform,!baseline);
-                if (m_CatalogPhase==CatalogPhase::Stopped) return;
+                if (m_CatalogPhase==CatalogPhase::Stopped || m_CatalogScope!=ticket.scope) return;
                 const auto after=boundary.Observe(ticket.actor,ticket.npc,ticket.birth);
                 const auto afterJobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(after.native.unit));
                 if (!applied || !after.valid || !after.native.held() || !after.native.drained() || !afterJobs.healthy ||
@@ -3210,9 +3259,15 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
         }
         case Phase::Resume: {
             if (!drained || !actor.receipt || !m_CatalogHost) { RefuseNpcCatalog("owner resume prerequisites lost"); return; }
+#ifdef COOP_NPC_AGREED_CATALOG
+            if (controlCalls>=maxControlCalls) break;
+#endif
             if (!NpcMutationGate::SetLocalOwner(ticket.scope,ticket.npc,ticket.birth,ticket.lease,true)) break;
+#ifdef COOP_NPC_AGREED_CATALOG
+            ++controlCalls;
+#endif
             const auto result=boundary.SetHeld(ticket,false);
-            if (m_CatalogPhase==CatalogPhase::Stopped) return;
+            if (m_CatalogPhase==CatalogPhase::Stopped || m_CatalogScope!=ticket.scope) return;
             if (result.state!=NpcActionPhase::State::Complete) { RefuseNpcCatalog("owner resume refused"); return; }
             actor.phase=Phase::StartJob;
             break;
@@ -3234,7 +3289,7 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
     if (m_CatalogPhase==CatalogPhase::Preparing && std::all_of(m_CatalogActors.begin(),m_CatalogActors.end(),
         [](const auto& actor) { return actor.phase==Phase::Held; })) {
         m_CatalogPhase=CatalogPhase::Active;
-        CoopLog::Info("npc-catalog","Both catalog actors held and drained before room start");
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","Held and drained %zu catalog actors",m_CatalogActors.size());
     }
 }
 #endif
@@ -3423,6 +3478,14 @@ void SdkWorld::ProcessPartyNpcEvents() {
     if (const auto scope=NpcHoldArbiter::PoolScope(); scope && NpcHoldArbiter::ReleaseRetiredScope(scope))
         CoopLog::Fmt(coop::LogLevel::Info,"npc-pool","Released retired binding metadata scope=%llu after exact watched destructor returns",
             static_cast<unsigned long long>(scope));
+#ifdef COOP_NPC_AGREED_CATALOG
+    if (m_CatalogCleared && m_CatalogPendingEvidence.empty() &&
+        !NpcMutationGate::CurrentScope() && !NpcHoldArbiter::PoolScope()) {
+        m_CatalogScope=0;
+        m_CatalogCleared=false;
+        m_CatalogPhase=CatalogPhase::Idle;
+    }
+#endif
     if(m_NpcNativeEvents.empty()) return;
     if(!m_InScene) { m_NpcNativeEvents.clear(); return; }
     // Count all native actors, including ones omitted from the shared stable-ID
@@ -6625,7 +6688,7 @@ SdkWorld::Overlay SdkWorld::BuildOverlay() const {
         s_Out.signalAge = static_cast<float>(m_Now - m_PartnerSignalAt);
     }
 
-#ifdef COOP_NPC_CATALOG
+#if defined(COOP_NPC_CATALOG) && !defined(COOP_NPC_AGREED_CATALOG)
     if (m_CatalogPhase==CatalogPhase::Active) {
         for (const auto& entry:m_CatalogActors) {
             auto* actor=FindFreshPartyNpc(entry.ticket.npc);

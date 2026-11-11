@@ -24,6 +24,9 @@
 #include "PoseHook.h"
 #include "NpcLifeReceipts.h"
 #include "NpcActorBirths.h"
+#ifdef COOP_NPC_AGREED_CATALOG
+#include "NpcSceneEvidence.h"
+#endif
 #include "NpcActionObserver.h"
 
 #include "Glacier/EntityFactory.h"
@@ -101,6 +104,12 @@ public:
     std::string ResolveNpcCatalog(std::set<uint64_t>& ids) const;
     CatalogPreparation PrepareNpcCatalog(const std::set<uint64_t>& ids) override;
     void StopNpcCatalog() override;
+#ifdef COOP_NPC_AGREED_CATALOG
+    void SetNpcClearEvidenceToken(uint64_t token) { m_CatalogClearEvidence=token; }
+    void ObserveNpcRetirementEvidence(const NpcSceneEvidence::Sample&);
+    void BeginNpcSceneRetirement(uint64_t token) override;
+    bool ConfirmNpcSceneRetired(uint64_t token) override;
+#endif
     bool FreezeNpc(uint64_t id) override;
     bool ApplyNpcBaseline(uint64_t id,const coop::PartyNpcState&) override;
     bool ApplyNpcUpdate(uint64_t id,const coop::PartyNpcState&) override;
@@ -659,12 +668,18 @@ private:
     bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&,bool presentation);
     void RefuseNpcCatalog(const char* reason);
     std::string NpcCatalogError() const;
-    std::array<CatalogActor,2> m_CatalogActors;
-    std::array<uint64_t,2> m_CatalogIds{};
+    std::vector<CatalogActor> m_CatalogActors;
+    std::vector<uint64_t> m_CatalogIds;
     NpcMutationGate::Scope m_CatalogScope=0;
     CatalogPhase m_CatalogPhase=CatalogPhase::Idle;
     uint64_t m_CatalogStartedAt=0;
     bool m_CatalogHost=false;
+#ifdef COOP_NPC_AGREED_CATALOG
+    uint64_t m_CatalogClearEvidence=0;
+    uint64_t m_CatalogRetirementToken=0;
+    std::set<uint64_t> m_CatalogPendingEvidence;
+    bool m_CatalogCleared=false;
+#endif
 #endif
 #ifdef COOP_NPC_POOL_DIAGNOSTICS
     bool CanBeginPartyNpcHold(NpcActionPhase::Boundary&, ZActor*, uint64_t id, uint64_t birth) const;
