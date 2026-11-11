@@ -38,10 +38,10 @@ struct PartyNpcDelivery {
     PartyNpcMessage message;
 };
 struct PartyNpcLocation { PartyIdentity peer; Vec3 position; double observed = 0; };
-enum class PartyNpcPolicy : uint8_t { HostOnly, NearestPlayer };
+enum class PartyNpcPolicy : uint8_t { HostOnly, NearestPlayer, Explicit };
 struct PartyNpcOptions {
-    // Initial native integration keeps simulation on the host. Lease transfer
-    // remains available explicitly for development and a later native adapter.
+    // The native adapter uses HostOnly. Explicit allows a controlled handoff
+    // without running the proximity policy.
     PartyNpcPolicy policy = PartyNpcPolicy::HostOnly;
     size_t capacity = 1024, queueLimit = 4096;
     double retry = 0.25, transferTimeout = 3., minimumHold = 2., locationMaxAge = 1., baselineInterval=1.;
@@ -53,9 +53,11 @@ struct PartyNpcOptions {
     bool nearbyNpcPoses = false;
     bool confirmInitialGuestBaselines = false;
     bool ValidCatalog() const {
-        if (confirmInitialGuestBaselines && policy!=PartyNpcPolicy::HostOnly) return false;
+        if (confirmInitialGuestBaselines && policy==PartyNpcPolicy::NearestPlayer) return false;
         if (nearbyNpcPoses && !streamPoses) return false;
-        return fixedCatalog.empty() ? !streamPoses : (policy==PartyNpcPolicy::HostOnly &&
+        // Pose packets currently identify the host stream, not its lease.
+        if (streamPoses && policy!=PartyNpcPolicy::HostOnly) return false;
+        return fixedCatalog.empty() ? !streamPoses : (policy!=PartyNpcPolicy::NearestPlayer &&
             fixedCatalog.size()<=capacity && !fixedCatalog.contains(0));
     }
     bool AcceptsNpc(uint64_t npc) const {
@@ -137,6 +139,8 @@ public:
     virtual bool ApplyNpcUpdate(uint64_t id,const PartyNpcState& state) { return ApplyNpcBaseline(id,state); }
     virtual bool ResumeNpc(uint64_t) = 0;
     virtual bool CaptureNpc(uint64_t, PartyNpcState&) = 0;
+    // The release snapshot comes from the old owner after its worker drains.
+    virtual bool CaptureNpcForRelease(uint64_t id, PartyNpcState& state) { return CaptureNpc(id,state); }
     virtual bool CaptureNpcPose(uint64_t, Pose&) { return false; }
     virtual void SetNpcPoseSources(std::span<const uint64_t>) {}
     virtual bool PresentNpcPose(uint64_t, const Transform&, const Pose&) { return false; }
@@ -166,6 +170,7 @@ private:
     struct Local {
         PartyIdentity owner;
         uint64_t generation=0, revision=0, sequence=0, prepared=0, fence=0, attempt=0;
+        uint64_t prepareFrozen=0;
         PartyNpcState state;
         bool running=false, frozen=true, suspended=false;
         bool initialGuestsPrepared=false;

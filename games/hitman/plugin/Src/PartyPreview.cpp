@@ -1,6 +1,7 @@
 #include "HitmanCoop.h"
 #include "CoopText.h"
 #include "CrashGuards.h"
+#include "Log.h"
 #ifdef COOP_NPC_AGREED_CATALOG
 #include "NpcHoldArbiter.h"
 #endif
@@ -90,8 +91,14 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         m_Session.reset(); m_LastJoin.reset(); m_Reconnecting=false; m_Relay.reset(); m_FrameStatus={};
 #ifdef COOP_NPC_AGREED_CATALOG
                         npcOptions.capacity=NpcHoldArbiter::Capacity;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+                        npcOptions.policy=coop::PartyNpcPolicy::Explicit;
+                        m_NpcHandoffEpoch=0;
+                        m_NpcHandoffGuard=0;
+#else
                         npcOptions.streamPoses=true;
                         npcOptions.nearbyNpcPoses=true;
+#endif
                         m_World.SetNpcCatalogHost(host);
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,
                             npcOptions,true,true,static_cast<coop::IPartyFreeformLaunch*>(this),true,true);
@@ -173,3 +180,35 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
     out<<"],\"shared_npcs\":false,\"shared_items\":false,\"shared_extraction\":false}";
     return out.str();
 }
+
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+void HitmanCoop::RunNpcHandoffTest(double now) {
+    const auto& party=m_PartyPreview->Status();
+    if (!party.host || party.members.size()!=2 || !m_PartyPreview->SharedNpcsActive()) {
+        CoopLog::Info("npc-handoff","F8 requires the host of a running two-player mission");
+        return;
+    }
+    if (m_NpcHandoffEpoch!=party.epoch) {
+        m_NpcHandoffEpoch=party.epoch;
+        m_NpcHandoffGuard=0;
+    }
+    const auto guard=m_NpcHandoffGuard ? m_NpcHandoffGuard : m_World.SelectNpcHandoffGuard();
+    if (!guard) {
+        CoopLog::Info("npc-handoff","F8 found no ambient guard within eight metres");
+        return;
+    }
+    const auto owner=m_PartyPreview->ConfirmedNpcOwner(guard);
+    if (!owner) {
+        CoopLog::Info("npc-handoff","F8 is waiting for the guard's current owner to confirm");
+        return;
+    }
+    for (const auto& member:party.members) {
+        if (member.id==owner) continue;
+        const bool requested=m_PartyPreview->RequestNpcHandoff(guard,{member.id,member.incarnation},now);
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-handoff","F8 entity=%016llx to=%u requested=%d",
+            static_cast<unsigned long long>(guard),static_cast<unsigned>(member.id),requested?1:0);
+        if (requested) m_NpcHandoffGuard=guard;
+        return;
+    }
+}
+#endif

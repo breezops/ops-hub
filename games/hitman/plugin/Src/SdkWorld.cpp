@@ -2521,6 +2521,14 @@ void SdkWorld::ListNpcs(std::vector<coop::NpcState>& p_Out) const {
     }
 }
 
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+static bool IsHandoffGuard(const ZActor& actor) {
+    const auto* outfit=actor.m_rOutfit.m_pInterfaceRef;
+    return outfit && outfit->m_eActorType==EActorType::eAT_Guard &&
+        !actor.m_bContractTarget && !actor.m_bIsBeingDragged && !actor.m_bIsBeingDumped && !actor.m_bNude;
+}
+#endif
+
 bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
     if (!m_InScene || !id) return false;
     const auto scope=NpcMutationGate::CurrentScope();
@@ -2551,6 +2559,10 @@ bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
     // not prove a native actor idle. Stay conservative until the behavior
     // transition reader is verified. HostOnly does not need idle delegation.
     state.interacting=true;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    // Rehearsal only. Both players leave the selected guard untouched.
+    state.interacting=!IsHandoffGuard(*actor) || actor==m_LocalVictim;
+#endif
     if (!coop::ValidPartyNpcState(state)) return false;
     out=state;
     return true;
@@ -3007,6 +3019,27 @@ SdkWorld::CatalogActor* SdkWorld::FindCatalogActor(uint64_t id) {
     return nullptr;
 }
 
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+uint64_t SdkWorld::SelectNpcHandoffGuard() {
+    if (!m_CatalogHost || m_CatalogPhase!=CatalogPhase::Active || PartyGameThread()!=GetCurrentThreadId()) return 0;
+    coop::Transform player;
+    if (!GetLocalAvatar(player)) return 0;
+    uint64_t selected=0;
+    float closest=8.f;
+    for (const auto& actor:m_CatalogActors) {
+        if (actor.phase!=CatalogActorPhase::Running) continue;
+        coop::PartyNpcState state;
+        if (!CapturePartyNpc(actor.ticket.npc,state) || state.life!=coop::PartyNpcLife::Alive ||
+            state.engaged || state.interacting || state.stripped) continue;
+        const auto distance=coop::Distance(player.pos,state.xf.pos);
+        if (distance>=closest) continue;
+        closest=distance;
+        selected=actor.ticket.npc;
+    }
+    return selected;
+}
+#endif
+
 bool SdkWorld::FreezeNpc(uint64_t id) {
     auto* actor=FindCatalogActor(id);
     if (!actor) return false;
@@ -3018,6 +3051,8 @@ bool SdkWorld::FreezeNpc(uint64_t id) {
 #endif
     if (actor->phase==CatalogActorPhase::Held) return true;
     if (actor->phase!=CatalogActorPhase::Drain && actor->phase!=CatalogActorPhase::Hold) {
+        actor->released.reset();
+        actor->captureRelease=false;
         actor->phase=CatalogActorPhase::Hold;
         actor->deadline=GetTickCount64()+5000;
     }
@@ -3061,8 +3096,13 @@ bool SdkWorld::ApplyNpcUpdate(uint64_t id,const coop::PartyNpcState& state) {
 
 bool SdkWorld::ResumeNpc(uint64_t id) {
     auto* actor=FindCatalogActor(id);
-    if (!actor || !m_CatalogHost || !actor->receipt) return false;
+    if (!actor || !actor->receipt) return false;
+#ifndef COOP_NPC_GUEST_HANDOFF_TEST
+    if (!m_CatalogHost) return false;
+#endif
     if (actor->phase==CatalogActorPhase::Held) {
+        actor->released.reset();
+        actor->captureRelease=false;
         actor->phase=CatalogActorPhase::Resume;
         actor->deadline=GetTickCount64()+5000;
     }
@@ -3070,10 +3110,29 @@ bool SdkWorld::ResumeNpc(uint64_t id) {
 }
 
 bool SdkWorld::CaptureNpc(uint64_t id,coop::PartyNpcState& state) {
-    if (!m_CatalogHost || !FindCatalogActor(id) || !CapturePartyNpc(id,state)) return false;
+    const auto* actor=FindCatalogActor(id);
+    if (!actor || !CapturePartyNpc(id,state)) return false;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    if (!m_CatalogHost && actor->phase!=CatalogActorPhase::Running) return false;
+#else
+    if (!m_CatalogHost) return false;
+#endif
     if (state.life==coop::PartyNpcLife::Alive && !state.stripped) return true;
     RefuseNpcCatalog("host NPC left living transform scope");
     return false;
+}
+
+bool SdkWorld::CaptureNpcForRelease(uint64_t id,coop::PartyNpcState& state) {
+    auto* actor=FindCatalogActor(id);
+    if (!actor || actor->phase!=CatalogActorPhase::Held ||
+        actor->ticket.scope!=NpcMutationGate::CurrentScope() || !NpcHoldArbiter::OwnsHold(actor->ticket))
+        return false;
+    if (!actor->released) {
+        actor->captureRelease=true;
+        return false;
+    }
+    state=*actor->released;
+    return true;
 }
 
 void SdkWorld::RefreshCatalogPoseSources() {
@@ -3263,7 +3322,7 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
         const bool owns=NpcHoldArbiter::OwnsHold(ticket);
         const bool drained=sample.native.held() && sample.native.drained() && !jobs.outstanding && owns;
 #ifdef COOP_NPC_AGREED_CATALOG
-        if (sampleTension && (m_CatalogHost ? actor.phase==Phase::Running : actor.phase==Phase::Held && drained)) {
+        if (sampleTension && (actor.phase==Phase::Running || (!m_CatalogHost && actor.phase==Phase::Held && drained))) {
             ++sampledTension;
             const auto tension=CrashGuards::TensionOf(static_cast<ZActor*>(ticket.actor)->m_pKnowledge);
             constexpr auto ambient=static_cast<int32_t>(EGameTension::EGT_Ambient);
@@ -3306,6 +3365,14 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             break;
         case Phase::Held: {
             if (!drained) { RefuseNpcCatalog("held actor is no longer drained"); return; }
+            if (actor.captureRelease) {
+                const NpcMutationGate::Pin pin(ticket);
+                coop::PartyNpcState finalState;
+                if (pin && CapturePartyNpc(ticket.npc,finalState)) {
+                    actor.released=finalState;
+                    actor.captureRelease=false;
+                }
+            }
             const auto baseline=actor.baseline;
             auto transform=baseline ? std::optional{baseline->xf} : actor.presentation;
 #ifdef COOP_NPC_AGREED_CATALOG
@@ -3337,7 +3404,14 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             break;
         }
         case Phase::Resume: {
-            if (!drained || !actor.receipt || !m_CatalogHost) { RefuseNpcCatalog("owner resume prerequisites lost"); return; }
+            if (!drained || !actor.receipt) { RefuseNpcCatalog("owner resume prerequisites lost"); return; }
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+            if (!m_CatalogHost && !IsHandoffGuard(*static_cast<ZActor*>(ticket.actor))) {
+                RefuseNpcCatalog("guest resume requires a rehearsal guard"); return;
+            }
+#else
+            if (!m_CatalogHost) { RefuseNpcCatalog("owner resume requires host"); return; }
+#endif
 #ifdef COOP_NPC_AGREED_CATALOG
             if (controlCalls>=maxControlCalls) break;
 #endif
@@ -3356,8 +3430,8 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             if (sample.native.job && jobs.observed && jobs.outstanding==1) {
                 actor.phase=Phase::Running;
                 actor.deadline=0;
-                CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","Host simulation confirmed entity=%016llx",
-                    static_cast<unsigned long long>(ticket.npc));
+                CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","Native simulation confirmed role=%s entity=%016llx",
+                    m_CatalogHost?"host":"guest",static_cast<unsigned long long>(ticket.npc));
             }
             break;
         case Phase::Running:

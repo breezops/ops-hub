@@ -245,6 +245,11 @@ private:
     SdkWorld m_World;
     std::unique_ptr<coop::PartyPreviewRuntime> m_PartyPreview;
     std::string HandlePartyPreview(const coop::LauncherRequest& request, double now);
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    void RunNpcHandoffTest(double now);
+    uint32_t m_NpcHandoffEpoch=0;
+    uint64_t m_NpcHandoffGuard=0;
+#endif
     std::unique_ptr<coop::Session> m_Session;
     std::string m_GameVersion;
     std::string m_LanAddress;

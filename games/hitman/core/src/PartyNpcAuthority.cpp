@@ -82,7 +82,8 @@ bool DecodePartyNpc(const std::vector<uint8_t>& bytes, PartyNpcMessage& result) 
 }
 
 PartyNpcAuthority::PartyNpcAuthority(PartyNpcScope scope, PartyNpcOptions options):m_Scope(scope),m_Options(options) {
-    if (!options.ValidCatalog() || (options.policy!=PartyNpcPolicy::HostOnly && options.policy!=PartyNpcPolicy::NearestPlayer) ||
+    if (!options.ValidCatalog() || (options.policy!=PartyNpcPolicy::HostOnly && options.policy!=PartyNpcPolicy::NearestPlayer &&
+        options.policy!=PartyNpcPolicy::Explicit) ||
         !ScopeValid(scope) || !options.capacity || options.capacity>4096 || !options.queueLimit || options.queueLimit>16384 ||
         !Time(options.retry) || options.retry<0.05 || !Time(options.transferTimeout) || options.transferTimeout<=options.retry ||
         !Time(options.minimumHold) || !Time(options.locationMaxAge) || options.locationMaxAge<=0 ||
@@ -121,12 +122,14 @@ bool PartyNpcAuthority::Propose(uint64_t npc,PartyIdentity next,double now) {
     auto& record=it->second;
     if (record.phase!=Phase::Active || Same(record.owner,next) || record.state.life!=PartyNpcLife::Alive || record.state.engaged || record.state.interacting)
         return false;
+    if (m_Options.policy==PartyNpcPolicy::Explicit && !record.confirmed) return false;
     if (record.issuedGeneration==std::numeric_limits<uint64_t>::max()) { Stop(); m_Failed=true; return false; }
     record.phase=Phase::Releasing; record.next=next; record.nextGeneration=++record.issuedGeneration;
     record.deadline=now+m_Options.transferTimeout; record.retryAt=now+m_Options.retry;
     return Emit(record.owner.id,npc,PartyNpcKind::Quiesce,record);
 }
 bool PartyNpcAuthority::ConsiderNearest(uint64_t npc,const std::vector<PartyNpcLocation>& locations,double now) {
+    if (m_Options.policy!=PartyNpcPolicy::NearestPlayer) return false;
     const auto* record=Find(npc);
     if (!record || !Time(now) || locations.size()>4 || now-record->changed<m_Options.minimumHold) return false;
     const PartyNpcLocation* best=nullptr; float bestDistance=m_Options.delegationRadius, currentDistance=std::numeric_limits<float>::infinity();
@@ -286,11 +289,11 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
             local.cachedRelease=MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Declined,message.generation,local.revision,m_Self,before,++local.sequence);
             return Emit(local.cachedRelease);
         }
-        if(!m_World.FreezeNpc(message.npc)) return defer();
+        if(!local.frozen && !m_World.FreezeNpc(message.npc)) return defer();
         local.fence=message.generation;
         local.running=false; local.frozen=true;
         PartyNpcState state;
-        if(!m_World.CaptureNpc(message.npc,state)) return defer();
+        if(!m_World.CaptureNpcForRelease(message.npc,state)) return defer();
         if(!Progress(local.state,state) || local.sequence==std::numeric_limits<uint64_t>::max()) return false;
         local.state=state;
         local.cachedRelease=MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Released,message.generation,local.revision,m_Self,state,++local.sequence);
@@ -302,8 +305,11 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
         if(local.prepared==message.generation && local.revision==message.revision)
             return Emit(MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Prepared,message.generation,message.revision,m_Self,message.state));
         local.fence=message.generation;
-        if(!m_World.FreezeNpc(message.npc)) return defer();
-        local.running=false; local.frozen=true;
+        if(local.prepareFrozen!=message.generation) {
+            if(!m_World.FreezeNpc(message.npc)) return defer();
+            local.running=false; local.frozen=true;
+            local.prepareFrozen=message.generation;
+        }
         if(!m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
         local.state=message.state; local.prepared=message.generation; local.revision=message.revision;
         local.pending.reset();

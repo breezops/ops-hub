@@ -46,6 +46,7 @@ private:
         bool applied=false;
     };
     std::map<uint64_t,PoseStream> m_Poses;
+    std::vector<uint64_t> m_PoseSources;
     double m_NextPose=0;
     double m_NextReport=0, m_NextPolicy=0, m_NextRefresh=0;
     bool m_Active=false, m_Failed=false;

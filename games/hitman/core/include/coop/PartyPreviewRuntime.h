@@ -43,6 +43,14 @@ public:
         return m_NpcStopFault ? "NPC simulation did not confirm it stopped. Reload Freeform Training on this PC." : m_Message;
     }
     bool SharedNpcsActive() const { return m_Npcs && m_Npcs->Active(); }
+    bool RequestNpcHandoff(uint64_t npc, PartyIdentity next, double now) {
+        return m_NpcOptions.policy==PartyNpcPolicy::Explicit && m_Npcs && m_Npcs->Propose(npc,next,now);
+    }
+    uint8_t ConfirmedNpcOwner(uint64_t npc) const {
+        const auto* authority=m_Npcs && m_Npcs->Active() ? m_Npcs->Authority() : nullptr;
+        const auto* record=authority ? authority->Find(npc) : nullptr;
+        return record && record->confirmed && record->phase==PartyNpcAuthority::Phase::Active ? record->owner.id : 0;
+    }
     void ObserveNpcRoster(std::span<const uint64_t> ids);
     const PartyNpcRoster* NpcRoster() const { return m_NpcRoster.get(); }
     uint64_t Accepted() const { return m_Accepted; }

@@ -1616,6 +1616,10 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     DWORD foregroundProcess=0; GetWindowThreadProcessId(GetForegroundWindow(),&foregroundProcess);
     const bool holdKey=foregroundProcess==GetCurrentProcessId() && (GetAsyncKeyState(VK_F8)&0x8000);
     if (holdKey && !previousHoldKey) {
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+        if (m_PartyPreview) RunNpcHandoffTest(s_Now);
+        else
+#endif
         if (m_World.IsInScene() && NpcActionObserver::Diagnostics().active && !m_PartyPreview && (!m_Session || !m_Session->Active())) m_World.ArmSoloNpcHold();
         else CoopLog::Warn("npc-hold","F8 refused: this diagnostic requires a loaded, attached solo game");
     }

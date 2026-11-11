@@ -70,6 +70,57 @@ game simulations. Two real PCs remain sufficient for most incremental engine
 tests; later four-PC passes still need to cover simultaneous interactions,
 perception and independent remote contexts.
 
+### NPC animation across maps and modes
+
+Apply pose selection and playback to the NPC roster discovered and agreed
+for the current mission. Use stable entity IDs for binding. Rank streams
+using motion, guest distance and recent stream membership, regardless of
+the NPC's name, story role or mission. Ritter and Ronnie are Freeform
+regression cases for intermittent pose streams. The cause of their visible
+stutter still needs an in-game check.
+
+The native party adapter currently admits Freeform Training. As each new
+map or mode is enabled, verify roster agreement and animator binding,
+including actors that spawn during play. Compare patrol and crowded
+alerts, with guests together and in separate areas, then verify clean
+rebindings after restart. Use pose capture and guest animator-write logs
+to distinguish slot contention from an animator that fails to apply a
+received pose. Fix those paths in the shared adapter so new missions
+inherit the correction.
+
+### Controlled guest handoff
+
+The original two-player session could let the guest's game run a pursuing
+NPC. The party core now also supports an explicit host-requested handoff
+with the agreed catalog and initial baseline receipts. The old owner
+stops first, the new owner acknowledges its applied baseline, and the
+host commits the new owner. Baseline retries retain the completed hold.
+Busy actors remain with their current owner. This path lets a development
+test request one handoff without enabling automatic proximity delegation.
+
+The native adapter can now capture the release snapshot at the action
+boundary after confirming the actor is held and its job has drained.
+The core waits for that snapshot before preparing the receiving PC.
+The standard build still selects host-only. A live handoff needs a verified
+guest resume, a new running-job receipt, and a return to host control
+after the NPC settles. The adapter marks native interactions busy when
+it cannot prove the NPC is free. Keep that check until the native
+interaction reader or a controlled test condition is verified.
+The current NPC pose packets have no lease generation. The explicit
+handoff configuration leaves those packets off while the ownership path
+is validated.
+
+The separate `COOP_NPC_GUEST_HANDOFF_TEST` build runs the agreed Freeform
+catalog and waits for an explicit F8 press from the host of a two-PC
+session. It selects an ambient non-target guard within eight metres and
+uses the same actor for subsequent requests in that epoch. Wait for the
+guest's running-job receipt before approaching the guard. After the
+guard returns to ambient tension, F8 requests return to the host. Avoid
+physical interactions, knockouts and kills throughout this rehearsal.
+The diagnostic guard filter is scoped to this build because absence of
+drag, dump or victim flags is insufficient to prove a guard is generally
+free for transfer.
+
 ## Next native milestones
 
 Native bridge progress on this branch:

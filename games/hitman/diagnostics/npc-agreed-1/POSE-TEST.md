@@ -80,6 +80,34 @@ the actual player being pursued requires a separate perception or
 interaction readback. The probe performs no alert writes or ownership
 transfers.
 
+## 0.1.33 two-PC result
+
+Both PCs agreed on 83 NPC IDs across three mission epochs. The host
+recorded spotting, arrest, and combat in the first epoch. The logs show
+75 distinct host NPCs reached combat tension. The players saw guards
+pursue the host, the target run with guards, and NPCs return to their
+positions after the alert. The guest recorded six trespass events
+across the next two epochs without a spotting event or a recorded
+NPC tension transition. This separates restricted-area feedback from
+NPC detection in the current host-only adapter.
+
+Ritter and Ronnie were the only NPCs the testers saw stutter. The guest
+confirmed animator writes for both, repeatedly
+restarting their pose streams every few seconds during normal patrol.
+The next candidate applies the original two-player selection buffer to
+all NPCs. Already-streaming actors can stay five metres past the entry
+radius and get a three-metre ranking advantage within their movement
+tier. The 12-slot cap and moving-first order still apply. Rebinding
+frequency is a lead for the reported stutter and needs another visual
+check.
+
+For guest pursuit, validate a native perception or ownership path that
+can identify the triggering player. The original two-player alert floor
+can mirror a reaction after it exists. In this test the guest's held
+NPCs produced no native reaction to mirror. Reusing the original
+per-NPC handoff requires validating the guest's resume and subsequent
+return to host control with the existing worker fences.
+
 ## Patrol retest
 
 Compare a walking NPC from a distance and again after moving closer.

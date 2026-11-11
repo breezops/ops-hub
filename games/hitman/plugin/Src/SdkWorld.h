@@ -115,6 +115,7 @@ public:
     bool ApplyNpcUpdate(uint64_t id,const coop::PartyNpcState&) override;
     bool ResumeNpc(uint64_t id) override;
     bool CaptureNpc(uint64_t id,coop::PartyNpcState&) override;
+    bool CaptureNpcForRelease(uint64_t id,coop::PartyNpcState&) override;
     bool CaptureNpcPose(uint64_t id,coop::Pose&) override;
     void SetNpcPoseSources(std::span<const uint64_t> ids) override;
     bool PresentNpcPose(uint64_t id,const coop::Transform&,const coop::Pose&) override;
@@ -122,6 +123,9 @@ public:
     void InvalidateCatalogNpcPose(const void* actor,uint64_t birth) noexcept;
     void StepPartyNpcCatalog(NpcActionPhase::Boundary&);
     void SetNpcCatalogHost(bool host) { m_CatalogHost=host; }
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    uint64_t SelectNpcHandoffGuard();
+#endif
 #endif
     // nativeContract is this PC's native ContractSessionId, never a room/peer
     // value. The future adapter must obtain it before acknowledging readiness.
@@ -653,6 +657,8 @@ private:
         CatalogActorPhase phase=CatalogActorPhase::Hold;
         uint64_t observedAt=0, deadline=0;
         std::optional<coop::PartyNpcState> baseline, receipt;
+        std::optional<coop::PartyNpcState> released;
+        bool captureRelease=false;
         std::optional<coop::PartyNpcState> canonical;
         std::optional<coop::Transform> presentation;
 #ifdef COOP_NPC_AGREED_CATALOG

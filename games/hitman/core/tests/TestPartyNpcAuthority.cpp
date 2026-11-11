@@ -23,7 +23,7 @@ struct World:IPartyNpcWorld {
     std::map<uint64_t,Pose> sourcePoses, presentedPoses;
     std::vector<uint64_t> poseSources;
     std::map<uint64_t,Transform> presentedTransforms;
-    bool freeze=true,apply=true,resume=true,capture=true,prepare=true;
+    bool freeze=true,apply=true,resume=true,capture=true,prepare=true,release=true;
     unsigned preparations=0;
     unsigned resumes=0, applies=0;
     unsigned catalogPreparations=0, catalogStops=0;
@@ -68,6 +68,10 @@ struct World:IPartyNpcWorld {
     bool CaptureNpc(uint64_t npc,PartyNpcState& state) override {
         if(!capture || !states.contains(npc)) return false;
         state=states[npc]; return true;
+    }
+    bool CaptureNpcForRelease(uint64_t npc,PartyNpcState& state) override {
+        CHECK(!running[npc]);
+        return release && CaptureNpc(npc,state);
     }
     bool CaptureNpcPose(uint64_t npc,Pose& pose) override {
         const auto it=sourcePoses.find(npc);
@@ -437,6 +441,68 @@ TEST(PartyNpcSync_HostWaitsForEveryGuestsInitialBaselineReceipt) {
     }
 }
 
+TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost) {
+    for (size_t count:{size_t(2),size_t(4)}) {
+        constexpr uint64_t npc=55;
+        PartyNpcOptions options;
+        options.policy=PartyNpcPolicy::Explicit;
+        options.confirmInitialGuestBaselines=true;
+        options.fixedCatalog={npc};
+        unsigned hostHolds=0, guestHolds=0;
+        NetworkNpc room(count,881,options);
+        REQUIRE(room.Begin());
+        const size_t guest=count-1;
+        const auto hostId=room.Identity(0);
+        const auto guestId=room.Identity(guest);
+        room.worlds[guest].apply=false;
+        REQUIRE(room.sync[0]->Register(npc,PartyNpcState{},room.now));
+        room.Step(.5);
+        CHECK(!room.sync[0]->Propose(npc,guestId,room.now));
+        CHECK(!room.worlds[0].running[npc]);
+        room.worlds[guest].apply=true;
+        room.Step(.5);
+        REQUIRE(room.worlds[0].running[npc]);
+
+        room.Step(options.minimumHold);
+        REQUIRE(room.sync[0]->ObservePlayer(hostId,{30,0,0},room.now));
+        REQUIRE(room.sync[0]->ObservePlayer(guestId,{0,0,0},room.now));
+        room.Step(.6);
+        CHECK(room.worlds[0].running[npc] && !room.worlds[guest].running[npc]);
+        CHECK(!room.sync[guest]->Propose(npc,guestId,room.now));
+
+        room.worlds[guest].onFreeze=[&](uint64_t) { ++guestHolds; };
+        room.worlds[guest].apply=false;
+        room.worlds[0].onFreeze=[&](uint64_t id) {
+            ++hostHolds;
+            room.worlds[0].states[id].xf.pos.x=4.f;
+        };
+        room.worlds[0].release=false;
+        REQUIRE(room.sync[0]->Propose(npc,guestId,room.now));
+        room.Step(.3);
+        CHECK(!room.worlds[0].running[npc] && !room.worlds[guest].running[npc]);
+        CHECK(hostHolds==1 && guestHolds==0);
+        room.worlds[0].onFreeze={};
+        room.worlds[0].release=true;
+        room.Step(.3);
+        CHECK(guestHolds==1);
+        room.worlds[guest].apply=true;
+        room.Step(.7);
+        REQUIRE(room.worlds[guest].running[npc] && !room.worlds[0].running[npc]);
+        auto& guestState=room.worlds[guest].states[npc];
+        CHECK(guestState.xf.pos.x==4.f);
+        guestState.xf.pos.x=9.f;
+        guestState.engaged=true;
+        room.Step(.3);
+        CHECK(!room.sync[0]->Propose(npc,hostId,room.now));
+        guestState.engaged=false;
+        room.Step(.3);
+        REQUIRE(room.sync[0]->Propose(npc,hostId,room.now));
+        room.Step(.7);
+        CHECK(room.worlds[0].running[npc] && !room.worlds[guest].running[npc]);
+        for (size_t i=0;i<count;++i) CHECK(room.worlds[i].states[npc].xf.pos.x==9.f);
+    }
+}
+
 TEST(PartyNpcSync_FourPlayersPrepareTheFullFreeformSizedCatalog) {
     PartyNpcOptions options;
     options.confirmInitialGuestBaselines=true;
@@ -541,6 +607,15 @@ TEST(PartyNpcSync_NearbyPoseBudgetUsesGuestLocationsAndClearsDistantPoses) {
     CHECK(room.worlds[0].poseSources.size()==12);
     CHECK(room.worlds[0].poseSources.front()==15);
     CHECK(room.worlds[1].presentedPoses.contains(15));
+
+    // Keep the current walker past the entry radius while a new one
+    // at the same distance waits until it is close enough to enter.
+    room.worlds[0].states[15].xf.pos.x=42.f;
+    room.worlds[0].states[14].xf.pos.x=42.f;
+    REQUIRE(room.sync[0]->ObservePlayer(room.Identity(1),{0,0,0},room.now));
+    room.Step(.25);
+    CHECK(room.worlds[0].poseSources.front()==15);
+    CHECK(!room.worlds[1].presentedPoses.contains(14));
 
     REQUIRE(room.sync[0]->ObservePlayer(room.Identity(1),{200,0,0},room.now));
     REQUIRE(room.sync[0]->ObservePlayer(room.Identity(3),{200,0,0},room.now));

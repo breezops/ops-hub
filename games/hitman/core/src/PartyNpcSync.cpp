@@ -13,6 +13,8 @@ constexpr double kPoseTimeout=0.75;
 constexpr double kPoseInterval=1./24.;
 constexpr float kNearbyPoseRadius=25.f;
 constexpr float kMovingPoseRadius=40.f;
+constexpr float kPoseRetentionRadius=5.f;
+constexpr float kPoseRetentionBias=3.f;
 constexpr double kRecentMotionSeconds=0.75;
 constexpr size_t kNearbyPoseLimit=12;
 struct NpcPresentationPacket {
@@ -62,6 +64,7 @@ void PartyNpcSync::Stop() {
     if(m_Host && m_Options.streamPoses && m_Options.nearbyNpcPoses) m_World.SetNpcPoseSources({});
     for(const auto& [npc,stream]:m_Poses) if(stream.applied) m_World.ClearNpcPresentationPose(npc);
     m_Poses.clear();
+    m_PoseSources.clear();
     if(m_Host) m_Host->Stop();
     if(m_Replica) m_Replica->Stop();
     m_Known.clear(); m_Locations.clear();
@@ -144,13 +147,16 @@ void PartyNpcSync::TickPoses(double now) {
             bool moving=false;
             if (m_Options.nearbyNpcPoses) {
                 moving=record->lastMovement>=0. && now-record->lastMovement<=kRecentMotionSeconds;
-                const float radius=moving ? kMovingPoseRadius : kNearbyPoseRadius;
+                const bool wasStreaming=std::find(m_PoseSources.begin(),m_PoseSources.end(),npc)!=m_PoseSources.end();
+                const float radius=(moving ? kMovingPoseRadius : kNearbyPoseRadius) +
+                    (wasStreaming ? kPoseRetentionRadius : 0.f);
                 nearest=radius;
                 for (const auto& [seat,player]:m_Locations) {
                     if (seat!=1 && now-player.observed<=m_Options.locationMaxAge)
                         nearest=std::min(nearest,Distance(player.position,record->state.xf.pos));
                 }
                 if (nearest>=radius) continue;
+                if (wasStreaming) nearest=std::max(0.f,nearest-kPoseRetentionBias);
             }
             candidates.emplace_back(!moving,nearest,npc);
         }
@@ -161,6 +167,7 @@ void PartyNpcSync::TickPoses(double now) {
             ids.reserve(candidates.size());
             for (const auto& candidate:candidates) ids.push_back(std::get<2>(candidate));
             m_World.SetNpcPoseSources(ids);
+            m_PoseSources=std::move(ids);
         }
         for (const auto& candidate:candidates) {
             const auto npc=std::get<2>(candidate);
