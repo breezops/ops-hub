@@ -1,5 +1,14 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.40 — Automatic guard handoff test
+
+- Automatically assign one calm nearby guard to the guest when they
+  approach ahead of the host in a two-PC party.
+- Keep that guard with the guest through an alert and allow return
+  to the host after recovery and separation.
+- Preserve shared pause and suppress new handoffs while paused.
+- The Freeform Training rehearsal uses no F8 step.
+
 ## 0.1.39 — Shared pause and waiting overlay
 
 - Pause the party when an admitted player opens Escape or a blocking

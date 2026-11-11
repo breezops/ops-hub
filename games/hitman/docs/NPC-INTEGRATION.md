@@ -160,6 +160,24 @@ In the 0.1.36 retest the host resumed Reeves in 167 ms and captured the
 first host pose 259 ms after F8. The tester saw an immediate head
 direction reset without the previous snap.
 
+### Automatic guard assignment
+
+The first automatic build uses the existing explicit lease handoff in
+a two-PC session. The host selects at most one calm, eligible guard
+from the agreed roster when the guest is within 14 metres and is
+at least three metres closer than the host. The guard remains with
+the guest during warning, pursuit and recovery. After the guard has
+been calm for two seconds, the host can take it back if the guest
+moves outside 18 metres or the host becomes clearly closer.
+
+The initial test uses the public side of the boat stairs. Keep the
+host back and have the guest approach and trespass without F8. Move
+the guest away after the guard recovers and compare the paired
+native running-job logs. The automatic selection is map-independent,
+while the private native rehearsal still runs in Freeform Training.
+Keep the one-guard limit until native detection and recovery are
+verified before testing simultaneous encounters with four real PCs.
+
 ### Drawn weapon visibility
 
 The same test reported invisible drawn weapons on remote players and

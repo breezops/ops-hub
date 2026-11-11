@@ -52,7 +52,9 @@ struct PartyNpcOptions {
     bool streamPoses = false;
     bool nearbyNpcPoses = false;
     bool confirmInitialGuestBaselines = false;
+    bool automaticSingleGuard = false;
     bool ValidCatalog() const {
+        if (automaticSingleGuard && policy!=PartyNpcPolicy::Explicit) return false;
         if (confirmInitialGuestBaselines && policy==PartyNpcPolicy::NearestPlayer) return false;
         if (nearbyNpcPoses && !streamPoses) return false;
         return fixedCatalog.empty() ? !streamPoses : (policy!=PartyNpcPolicy::NearestPlayer &&
@@ -79,6 +81,7 @@ public:
         uint64_t nextGeneration=0;
         double changed=0, deadline=0, retryAt=0, snapshotAt=0;
         double lastMovement=-1.;
+        double lastBusy=-1.;
         bool confirmed=false;
         uint8_t preparedGuests=0;
     };

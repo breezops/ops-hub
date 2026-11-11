@@ -313,6 +313,7 @@ struct NetworkNpc {
     std::array<std::unique_ptr<PartyNpcSync>,4> sync;
     size_t count;
     double now=0;
+    bool allowOwnershipChanges=true;
     explicit NetworkNpc(size_t players=4,uint32_t seed=881,PartyNpcOptions options=DelegatedOptions()):net(SimNetwork::Create(seed)),count(players),options(options) {
         const Endpoint endpoint{0x0a000001,47047};
         for(size_t i=0;i<count;++i) {
@@ -341,7 +342,7 @@ struct NetworkNpc {
             for(size_t i=0;i<count;++i) if(sync[i]) {
                 PartyGameEvent event;
                 while(rooms[i]->PopGame(event)) sync[i]->Receive(event,now);
-                sync[i]->Tick(now);
+                sync[i]->Tick(now,allowOwnershipChanges);
             }
             Check();
         }
@@ -539,6 +540,53 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         event={guestId.id,guestId.incarnation,stale.epoch,PartyChannel::Interaction,guestWriter.Data(),false};
         CHECK(!room.sync[0]->Receive(event,room.now));
     }
+}
+
+TEST(PartyNpcSync_AutomaticGuardFollowsGuestProximityAndStaysThroughRecovery) {
+    PartyNpcOptions options;
+    options.policy=PartyNpcPolicy::Explicit;
+    options.confirmInitialGuestBaselines=true;
+    options.automaticSingleGuard=true;
+    options.fixedCatalog={55,77};
+    NetworkNpc room(2,982,options);
+    REQUIRE(room.Begin());
+    REQUIRE(room.Add(55));
+    PartyNpcState nearbyGuard;
+    nearbyGuard.xf.pos.x=3.f;
+    REQUIRE(room.sync[0]->Register(77,nearbyGuard,room.now));
+    room.Step(options.minimumHold+.5);
+
+    const auto locations=[&](float guestX) {
+        REQUIRE(room.sync[0]->ObservePlayer(room.Identity(0),{30,0,0},room.now));
+        REQUIRE(room.sync[0]->ObservePlayer(room.Identity(1),{guestX,0,0},room.now));
+    };
+    locations(18.f);
+    room.Step(.5);
+    CHECK(room.worlds[0].running[55] && room.worlds[0].running[77]);
+
+    room.allowOwnershipChanges=false;
+    locations(4.f);
+    room.Step(.5);
+    CHECK(room.worlds[0].running[77]);
+    room.allowOwnershipChanges=true;
+    locations(4.f);
+    room.Step(.7);
+    REQUIRE(room.worlds[1].running[77] && !room.worlds[0].running[77]);
+    CHECK(room.worlds[0].running[55] && !room.worlds[1].running[55]);
+
+    room.worlds[1].states[77].engaged=true;
+    room.Step(.3);
+    locations(40.f);
+    room.Step(.6);
+    CHECK(room.worlds[1].running[77]);
+    room.worlds[1].states[77].engaged=false;
+    room.Step(.8);
+    CHECK(room.worlds[1].running[77]);
+    for (unsigned i=0;i<3;++i) {
+        locations(40.f);
+        room.Step(.7);
+    }
+    CHECK(room.worlds[0].running[77] && !room.worlds[1].running[77]);
 }
 
 TEST(PartyNpcSync_FourPlayersPrepareTheFullFreeformSizedCatalog) {

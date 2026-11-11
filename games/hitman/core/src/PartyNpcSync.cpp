@@ -18,6 +18,9 @@ constexpr float kPoseRetentionBias=3.f;
 constexpr double kRecentMotionSeconds=0.75;
 constexpr double kHandoffPoseSeconds=1.5;
 constexpr size_t kNearbyPoseLimit=12;
+constexpr float kGuardApproachRadius=14.f;
+constexpr float kGuardReleaseRadius=18.f;
+constexpr float kGuardDistanceMargin=3.f;
 struct NpcPresentationPacket {
     uint64_t generation=0;
     Transform transform;
@@ -53,6 +56,7 @@ bool PartyNpcSync::Start() {
     if(m_Room.Status().host) m_Host=std::make_unique<PartyNpcAuthority>(m_Scope,m_Options);
     if(m_Replica->Stopped() || (m_Host && m_Host->Failed())) { Fail(); return false; }
     m_Known.clear(); m_Locations.clear(); m_NextReport=m_NextPolicy=m_NextRefresh=m_NextPose=0; m_Active=true;
+    m_AutomaticGuard=0;
     return true;
 }
 void PartyNpcSync::Fail() {
@@ -261,7 +265,51 @@ void PartyNpcSync::Flush(double now) {
     // A malformed callback cannot produce an unbounded game-thread message loop.
     Fail();
 }
-void PartyNpcSync::Tick(double now) {
+void PartyNpcSync::ConsiderAutomaticGuard(double now) {
+    const auto& status=m_Room.Status();
+    if (status.members.size()!=2) return;
+    const auto guest=std::find_if(status.members.begin(),status.members.end(),[](const auto& member) { return member.id!=1; });
+    if (guest==status.members.end()) return;
+    const auto hostLocation=m_Locations.find(1), guestLocation=m_Locations.find(guest->id);
+    if (hostLocation==m_Locations.end() || guestLocation==m_Locations.end() ||
+        now-hostLocation->second.observed>m_Options.locationMaxAge ||
+        now-guestLocation->second.observed>m_Options.locationMaxAge) return;
+    const auto& host=hostLocation->second;
+    const auto& player=guestLocation->second;
+    const auto canTransfer=[&](const PartyNpcAuthority::Record& record) {
+        return record.phase==PartyNpcAuthority::Phase::Active && record.confirmed &&
+            record.state.life==PartyNpcLife::Alive && !record.state.engaged && !record.state.interacting &&
+            now-record.changed>=m_Options.minimumHold &&
+            (record.lastBusy<0. || now-record.lastBusy>=m_Options.minimumHold);
+    };
+    if (m_AutomaticGuard) {
+        const auto* record=m_Host->Find(m_AutomaticGuard);
+        if (!record || record->phase!=PartyNpcAuthority::Phase::Active || !record->confirmed) return;
+        if (record->owner.id==1) {
+            m_AutomaticGuard=0;
+        } else {
+            const float fromGuest=Distance(player.position,record->state.xf.pos);
+            const float fromHost=Distance(host.position,record->state.xf.pos);
+            if (canTransfer(*record) && (fromGuest>kGuardReleaseRadius || fromHost+kGuardDistanceMargin<fromGuest))
+                m_Host->Propose(m_AutomaticGuard,host.peer,now);
+            return;
+        }
+    }
+    uint64_t selected=0;
+    float closest=kGuardApproachRadius;
+    for (const auto npc:m_Known) {
+        const auto* record=m_Host->Find(npc);
+        if (!record || record->owner.id!=1 || !canTransfer(*record)) continue;
+        const float fromGuest=Distance(player.position,record->state.xf.pos);
+        const float fromHost=Distance(host.position,record->state.xf.pos);
+        if (fromGuest>=closest || fromGuest+kGuardDistanceMargin>=fromHost) continue;
+        closest=fromGuest;
+        selected=npc;
+    }
+    if (selected && m_Host->Propose(selected,player.peer,now)) m_AutomaticGuard=selected;
+}
+
+void PartyNpcSync::Tick(double now,bool allowOwnershipChanges) {
     if(!m_Active || !std::isfinite(now) || now<0) return;
     if(!Current()) { Stop(); return; }
     m_Replica->RetryPending();
@@ -273,7 +321,10 @@ void PartyNpcSync::Tick(double now) {
     }
     if(m_Host) {
         m_Host->Tick(now);
-        if(now>=m_NextPolicy) {
+        if(allowOwnershipChanges && now>=m_NextPolicy && m_Options.automaticSingleGuard) {
+            m_NextPolicy=now+0.2;
+            ConsiderAutomaticGuard(now);
+        } else if(allowOwnershipChanges && now>=m_NextPolicy && m_Options.policy==PartyNpcPolicy::NearestPlayer) {
             m_NextPolicy=now+0.5;
             std::vector<PartyNpcLocation> locations;
             for(const auto& [id,location]:m_Locations) locations.push_back(location);

@@ -106,6 +106,14 @@ than the previous five-second timeout. Test Alt-Tab while both PCs
 are in gameplay. Follow with a native restart and confirm that the
 party and NPCs recover normally.
 
+The 0.1.39 two-PC test passed Escape on both PCs, overlapping menus,
+and Alt-Tab. The first host hold lasted about 19 seconds and both logs
+recorded the release in the same mission epoch. With overlapping
+menus, the PC that closed its menu first kept the remote hold until the
+last menu closed. The host log recorded blocked focus-loss pause
+requests, and both players saw gameplay stay unpaused during Alt-Tab.
+The test did not exercise a blocking tutorial.
+
 The legacy backend already has native RestartLevel discovery, deferred restart
 execution, restart-event observation and echo suppression. Reuse those helpers
 with host-only party commands rather than creating one legacy Session per guest.

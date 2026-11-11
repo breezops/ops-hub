@@ -16,7 +16,7 @@ public:
     bool ObservePlayer(PartyIdentity, Vec3, double now);
     bool Propose(uint64_t npc, PartyIdentity next, double now);
     bool Receive(const PartyGameEvent&, double now);
-    void Tick(double now);
+    void Tick(double now, bool allowOwnershipChanges=true);
     void Stop();
     bool Active() const { return m_Active; }
     bool Failed() const { return m_Failed; }
@@ -51,12 +51,14 @@ private:
     std::vector<uint64_t> m_PoseSources;
     double m_NextPose=0;
     double m_NextReport=0, m_NextPolicy=0, m_NextRefresh=0;
+    uint64_t m_AutomaticGuard=0;
     bool m_Active=false, m_Failed=false;
     bool Current() const;
     bool ApplyHost(const PartyNpcMessage&);
     bool ReceivePose(const PartyGameEvent&,double now);
     void SendPoses(double now);
     void TickPoses(double now);
+    void ConsiderAutomaticGuard(double now);
     void Flush(double now);
     void Fail();
 };

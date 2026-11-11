@@ -444,7 +444,7 @@ void PartyPreviewRuntime::Tick(double now,bool localMenuPause) {
     const bool presenting=m_Playback.UpdateRoster(status);
     const bool npcs=UpdateNpcs(npcNow,presenting);
     const bool observeLocations=npcs && status.host &&
-        (m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer || m_NpcOptions.nearbyNpcPoses);
+        (m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer || m_NpcOptions.nearbyNpcPoses || m_NpcOptions.automaticSingleGuard);
     if (observeLocations) {
         Transform local;
         if (m_Source.GetLocalAvatar(local)) {
@@ -479,7 +479,7 @@ void PartyPreviewRuntime::Tick(double now,bool localMenuPause) {
         }
     }
     if (npcs && m_Npcs) {
-        m_Npcs->Tick(npcNow);
+        m_Npcs->Tick(npcNow,!m_PartyPaused);
         if (!m_Npcs->Active()) InterruptNpcs("Shared NPC synchronization stopped.");
     }
     status=m_Room->Status();
