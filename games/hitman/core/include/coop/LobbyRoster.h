@@ -50,9 +50,10 @@ public:
         p->available = available; p->ready = available && ready;
         return true;
     }
-    bool BeginLoad() {
+    bool BeginLoad(bool requireReady = true) {
         if (phase != Phase::Lobby || mission.empty() || Count() < 2) return false;
-        for (const auto& p : players) if (p.id && (!p.available || !p.ready)) return false;
+        if (requireReady)
+            for (const auto& p : players) if (p.id && (!p.available || !p.ready)) return false;
         phase = Phase::Loading; return true;
     }
     bool Loaded(uint8_t id, uint32_t current) {

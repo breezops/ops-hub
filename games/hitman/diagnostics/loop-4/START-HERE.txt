@@ -1,0 +1,14 @@
+HITMAN CO-OP / LOOP-4 SOLO NATIVE LAUNCH TEST
+Local candidate 0.1.24 / HITMAN 3.290.1
+
+1. Close HITMAN. Open HITMAN-Coop-Party-Preview.exe from this folder.
+2. Click Install / Repair, confirm 0.1.24 and click Launch HITMAN.
+3. Wait for the full main menu. With HITMAN focused, press F8 once. Leave
+   the game there while the mod requests Freeform. Use the same connection
+   mode as the previous Freeform test.
+4. If Freeform loads, move Agent 47, then quit normally. If still at the
+   menu after 30 seconds, quit normally. Report what happened and keep
+   Retail\mods\HitmanCoop.log.
+
+This build exercises the native contract-start entity in a solo game. It
+does not connect the request to the party yet.

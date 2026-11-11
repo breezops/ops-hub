@@ -4,6 +4,16 @@
 #include <sstream>
 
 namespace {
+#ifdef COOP_PARTY_INITIAL_LOAD
+constexpr bool kAutoInitialLoad=true;
+#else
+constexpr bool kAutoInitialLoad=false;
+#endif
+#ifdef COOP_PARTY_GUEST_START
+constexpr bool kGuestLaunch=true;
+#else
+constexpr bool kGuestLaunch=false;
+#endif
 const char* Phase(coop::LobbyRoster::Phase phase) {
     using P=coop::LobbyRoster::Phase;
     switch(phase) {
@@ -79,8 +89,11 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         npcOptions.streamPoses=true;
                         m_World.SetNpcCatalogHost(host);
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,npcOptions);
+#elif defined(COOP_PARTY_GUEST_START)
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,
+                            coop::PartyNpcOptions{},true,true,static_cast<coop::IPartyFreeformLaunch*>(this));
 #elif defined(COOP_PARTY_NATIVE_RESTART)
-                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,coop::PartyNpcOptions{},true);
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,coop::PartyNpcOptions{},true,kAutoInitialLoad);
 #else
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World);
 #endif
@@ -106,7 +119,8 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
     const auto quote=[](const std::string& value) { return "\""+TestChannel::Escape(value)+"\""; };
     const auto status=m_PartyPreview ? m_PartyPreview->Status() : coop::PartyRoomStatus{};
     const bool active=m_PartyPreview && Live(status);
-    const bool native=m_World.PartyPreviewError().empty() && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene);
+    const bool native=m_PartyPreview ? m_PartyPreview->NativeReady() :
+        m_World.PartyPreviewError().empty() && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene);
     bool allReady=status.members.size()>=2;
     for (const auto& member:status.members) allReady=allReady && member.available && member.ready;
     const bool legacy=m_Session && m_Session->Active();
@@ -118,12 +132,15 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
        <<",\"role\":"<<quote(m_PartyPreview?(status.host?"Host":"Guest"):"None")
        <<",\"room_message\":"<<quote(status.message)<<",\"message\":"<<quote(message)
        <<",\"presentation_error\":"<<quote(m_World.PartyPreviewError())
+       <<",\"auto_initial_load\":"<<(kAutoInitialLoad?"true":"false")
+       <<",\"guest_launch\":"<<(kGuestLaunch?"true":"false")
+       <<",\"lifecycle_message\":"<<quote(m_PartyPreview?m_PartyPreview->Message():"")
        <<",\"native_ready\":"<<(native?"true":"false")<<",\"capacity\":4,\"epoch\":"<<status.epoch
        <<",\"can_connect\":"<<(!legacy && !active && m_World.PartyPreviewError().empty() && m_World.CanOpenPartyPreview()?"true":"false")
        <<",\"can_leave\":"<<(active?"true":"false")
-       <<",\"can_ready\":"<<(active && native && status.epoch && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
+       <<",\"can_ready\":"<<(!kAutoInitialLoad && active && native && status.epoch && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
        <<",\"local_ready\":"<<(m_PartyPreview && m_PartyPreview->LocalReady()?"true":"false")
-       <<",\"can_start\":"<<(active && native && status.host && allReady && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
+       <<",\"can_start\":"<<(!kAutoInitialLoad && active && native && status.host && allReady && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
        <<",\"can_stop\":"<<(active && status.host && status.phase!=coop::LobbyRoster::Phase::Lobby?"true":"false")
        <<",\"can_reconnect\":"<<(m_PartyPreview && !status.host && status.state==coop::PartyRoomStatus::State::Failed?"true":"false")
        <<",\"accepted\":"<<(m_PartyPreview?m_PartyPreview->Accepted():0)

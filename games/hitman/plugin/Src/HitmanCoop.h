@@ -41,7 +41,11 @@ struct SHitInfo;
 // Two-player co-op for HITMAN World of Assassination. One player hosts from the in-game SDK
 // menu and gets a join code from the co-op relay server (server/relay.py); the other joins with
 // the code, or directly by address. No IOI, Peacock or store servers are involved.
-class HitmanCoop : public IPluginInterface {
+class HitmanCoop : public IPluginInterface
+#ifdef COOP_PARTY_GUEST_START
+    , private coop::IPartyFreeformLaunch
+#endif
+{
 public:
     HitmanCoop();
     ~HitmanCoop() override;
@@ -52,6 +56,19 @@ public:
     void OnDrawUI(bool p_HasFocus) override;
 
 private:
+#if defined(COOP_PARTY_FREEFORM_PROBE) || defined(COOP_PARTY_GUEST_START)
+    coop::IPartyFreeformLaunch::Result PollFreeformLaunch(double now);
+    void CancelFreeformLaunch() { m_FreeformLaunchDeadline=-1.; }
+    TResourcePtr<ZTemplateEntityFactory> m_FreeformStartFactory;
+    double m_FreeformLaunchDeadline=-1.;
+#endif
+#ifdef COOP_PARTY_GUEST_START
+    bool NativeFreeformContract() const override;
+#endif
+#ifdef COOP_PARTY_FREEFORM_PROBE
+    void UpdateFreeformLaunchProbe(double now);
+    bool m_FreeformProbeKey=false, m_FreeformProbeUsed=false;
+#endif
 #ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
     NpcSceneEvidence::Book m_NpcSceneEvidence;
     std::array<NpcSceneEvidence::Sample,NpcSceneEvidence::Book::Capacity> m_NpcSceneLast{};

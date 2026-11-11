@@ -2,6 +2,7 @@
 #include "CoopText.h"
 #include "CrashTrace.h"
 #include "CrashGuards.h"
+#include "ContractLaunchTrace.h"
 #include "NpcMutationGate.h"
 #include "NpcActionObserver.h"
 #include "NpcActionProbe.h"
@@ -47,6 +48,9 @@ struct HoldFrameScope {
 #include <Glacier/ZApplicationEngineWin32.h>
 #include <Glacier/ZGameLoopManager.h>
 #include <Glacier/ZScene.h>
+#ifdef COOP_PARTY_INITIAL_LOAD
+#include <Glacier/ZContract.h>
+#endif
 
 #ifndef COOP_DEFAULT_RELAY
 #define COOP_DEFAULT_RELAY ""
@@ -314,6 +318,9 @@ void HitmanCoop::Init() {
     const std::string s_CrashHeader = "HITMAN Co-op " + std::string(c_ModVersion) + " (" + c_BuildMark + "), game " + m_GameVersion;
     CrashTrace::Install(m_Test.Enabled() ? m_Test.Path() + ".crash" : s_Crash, s_CrashHeader);
     WriteLogHeader(s_Patches);
+#ifdef COOP_PARTY_CONTRACT_TRACE
+    if (m_GameVersion=="3.290.1") ContractLaunchTrace::Install();
+#endif
 }
 
 // The first lines of every log: everything about this PC and install a bug report needs, so nobody
@@ -1647,12 +1654,24 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     ProcessCommands(s_Now);
 
     const bool s_JustEntered = m_World.UpdateSceneState();
+#ifdef COOP_PARTY_CONTRACT_TRACE
+    ContractLaunchTrace::Drain();
+#endif
+#ifdef COOP_PARTY_INITIAL_LOAD
+    if (s_JustEntered && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene) && Globals::ContractsManager) {
+        const auto& contract=Globals::ContractsManager->m_contractContext.m_sContractId;
+        CoopLog::Info("party-load","Native Freeform contract ID: "+std::string(contract.c_str(),contract.size()));
+    }
+#endif
 #ifdef COOP_NPC_IDENTITY_DIAGNOSTICS
     m_World.TracePartyNpcIdentity();
 #endif
     m_World.ProcessPartyNpcEvents();
     if (m_PartyPreview)
         m_PartyPreview->Tick(s_Now);
+#ifdef COOP_PARTY_FREEFORM_PROBE
+    UpdateFreeformLaunchProbe(s_Now);
+#endif
 
     // A new mission (or the same one again): its stats start afresh, and we may wait for the partner.
     if (s_JustEntered) {
@@ -2298,6 +2317,26 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, bool, OnLoadScene, ZEntitySceneContext* th, SSc
 
     for (const auto& s_Brick : p_Parameters.m_aAdditionalBrickResources)
         s_Scene.bricks.emplace_back(s_Brick.c_str(), s_Brick.size());
+
+#ifdef COOP_PARTY_INITIAL_LOAD
+    if (coop::IsFreeformTrainingScene(s_Scene.scene)) {
+        void* frames[32]{};
+        const auto count=RtlCaptureStackBackTrace(0,32,frames,nullptr);
+        const auto image=GetModuleHandleW(nullptr);
+        std::ostringstream trace;
+        trace<<"Freeform scene requested, start="<<p_Parameters.m_bStartGame
+             <<" type="<<p_Parameters.m_Type.c_str()<<" codename="<<s_Scene.codename
+             <<" bricks="<<s_Scene.bricks.size()<<" HITMAN3.exe return RVAs:";
+        for (USHORT i=0;i<count;++i) {
+            HMODULE module=nullptr;
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCWSTR>(frames[i]),&module) && module==image) {
+                trace<<" 0x"<<std::hex<<(reinterpret_cast<uintptr_t>(frames[i])-reinterpret_cast<uintptr_t>(image));
+            }
+        }
+        CoopLog::Info("party-load",trace.str());
+    }
+#endif
 
     // A client starting any mission at the host's location is taken to the host's exact mission
     // there. Never to another location: the client only plays locations it started itself.

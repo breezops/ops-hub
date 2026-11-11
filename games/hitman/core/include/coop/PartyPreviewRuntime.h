@@ -5,11 +5,22 @@
 #include <set>
 
 namespace coop {
+class IPartyFreeformLaunch {
+public:
+    enum class Result { Waiting, Submitted, Failed };
+    virtual ~IPartyFreeformLaunch() = default;
+    virtual bool NativeFreeformContract() const = 0;
+    virtual Result PollFreeformLaunch(double now) = 0;
+    virtual void CancelFreeformLaunch() = 0;
+};
+
 // Movement/disguise by default. NPC development requires an explicit adapter.
 class PartyPreviewRuntime {
 public:
     PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
-                        IPartyNpcWorld* npcWorld = nullptr, PartyNpcOptions npcOptions = {}, bool followHostRestart = false);
+                        IPartyNpcWorld* npcWorld = nullptr, PartyNpcOptions npcOptions = {},
+                        bool followHostRestart = false, bool autoInitialLoad = false,
+                        IPartyFreeformLaunch* launcher = nullptr);
     ~PartyPreviewRuntime();
     void Tick(double now);
     bool Ready();
@@ -57,6 +68,15 @@ private:
     std::string m_Message;
     uint64_t m_Accepted = 0, m_Rejected = 0;
     bool m_HadNativeScene = false;
+    bool m_AutoInitialLoad = false, m_AutoLoadArmed = true;
+    double m_InitialLoadDeadline = -1.;
+    void UpdateInitialLoad(double now, bool native);
+    IPartyFreeformLaunch* m_Launcher=nullptr;
+    uint64_t m_LaunchSession=0;
+    uint32_t m_LaunchEpoch=0;
+    bool m_LaunchPending=false, m_LaunchFinished=false;
+    void CancelGuestLaunch();
+    void UpdateGuestLaunch(double now,bool native);
     bool m_FollowHostRestart=false, m_RestartPending=false, m_RestartFailed=false;
     uint32_t m_RestartRequested=0, m_RestartCleared=0;
     double m_RestartSince=-1.;

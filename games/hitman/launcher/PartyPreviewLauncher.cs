@@ -85,7 +85,7 @@ public sealed class PartyPreviewLauncher : Window {
             try {
                 if (Process.GetProcessesByName("HITMAN3").Length==0)
                     Process.Start(new ProcessStartInfo("steam://rungameid/1659040"){UseShellExecute=true});
-                feedback.Text="Load Freeform Training in HITMAN, then return here.";
+                feedback.Text="Wait for HITMAN's main menu and the launcher connection.";
             } catch { feedback.Text="Start HITMAN from your Steam library."; }
         };
         Find<Button>("Host").Click+=async(s,e)=>await Send("preview_host");
@@ -226,7 +226,26 @@ public sealed class PartyPreviewLauncher : Window {
             }
             state.Text=Text(data,"connection")+" / "+Text(data,"phase");
             detail.Text="You: "+Text(data,"role")+" | "+Build+" | "+Text(data,"room_message");
-            mission.Text=Text(data,"presentation_error").Length>0 ? Text(data,"presentation_error") : Flag(data,"native_ready") ? "Freeform Training is loaded on this PC.":"Load Freeform Training on this PC before clicking Ready.";
+            bool automatic=Flag(data,"auto_initial_load");
+            bool followsHost=Flag(data,"guest_launch");
+            string role=Text(data,"role"),phase=Text(data,"phase"),error=Text(data,"presentation_error");
+            if (error.Length>0) mission.Text=error;
+            else if (phase=="Interrupted" && automatic) {
+                string lifecycle=Text(data,"lifecycle_message");
+                mission.Text=role=="Host" ? "Stop the session, then reload Freeform Training from HITMAN's menu." :
+                    lifecycle.StartsWith("HITMAN could not",StringComparison.Ordinal) ? lifecycle : "Wait for the host to retry.";
+            }
+            else if (Flag(data,"native_ready")) mission.Text="Freeform Training is loaded on this PC.";
+            else if (!automatic) mission.Text="Load Freeform Training on this PC before clicking Ready.";
+            else if (role=="Host") mission.Text="Once everyone has joined, start Freeform Training in HITMAN.";
+            else if (role=="Guest")
+                mission.Text=phase=="Lobby" ? "Stay in HITMAN's main menu while the host starts Freeform Training." :
+                    followsHost ? "HITMAN will follow the host into Freeform Training." : "Load Freeform Training from HITMAN's menu.";
+            else mission.Text="Host or join from HITMAN's main menu.";
+            Find<TextBlock>("MissionHint").Text=automatic ? "Play starts when each PC has loaded. Keep the launcher open while playing." :
+                "Everyone readies. The host starts. Keep the launcher open while playing.";
+            Find<Button>("Ready").Visibility=Find<Button>("Start").Visibility=automatic ? Visibility.Collapsed : Visibility.Visible;
+            Find<Button>("Stop").Content=automatic ? "STOP SESSION" : "STOP PREVIEW";
             StringBuilder players=new StringBuilder(); int count=0;
             object raw;
             if (data.TryGetValue("players",out raw)) {
@@ -237,7 +256,7 @@ public sealed class PartyPreviewLauncher : Window {
                     ++count;
                     players.Append("Player ").Append(Text(member,"id")).Append("   ").Append(Text(member,"name"));
                     if (Flag(member,"local")) players.Append(" (you)");
-                    players.Append("   /   ").Append(Flag(member,"loaded")?"In preview":Flag(member,"ready")?"Ready":"Not ready").AppendLine().AppendLine();
+                    players.Append("   /   ").Append(Flag(member,"loaded")?"In mission":automatic?"In room":Flag(member,"ready")?"Ready":"Not ready").AppendLine().AppendLine();
                 }
             }
             roster.Text=count+" / 4 players\n\n"+players.ToString();

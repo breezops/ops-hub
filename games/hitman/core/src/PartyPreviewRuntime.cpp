@@ -16,11 +16,14 @@ uint64_t NextRetirement() {
 }
 }
 PartyPreviewRuntime::PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
-                                       IPartyNpcWorld* npcWorld, PartyNpcOptions npcOptions, bool followHostRestart)
+                                       IPartyNpcWorld* npcWorld, PartyNpcOptions npcOptions,
+                                       bool followHostRestart, bool autoInitialLoad, IPartyFreeformLaunch* launcher)
     : m_Room(std::move(room)), m_Source(source), m_Sink(sink), m_Playback(sink),
-      m_NpcWorld(npcWorld), m_NpcOptions(npcOptions), m_FollowHostRestart(followHostRestart && !npcWorld) {}
+      m_NpcWorld(npcWorld), m_NpcOptions(npcOptions), m_AutoInitialLoad(autoInitialLoad && !npcWorld),
+      m_Launcher(m_AutoInitialLoad ? launcher : nullptr), m_FollowHostRestart(followHostRestart && !npcWorld) {}
 
 PartyPreviewRuntime::~PartyPreviewRuntime() {
+    CancelGuestLaunch();
     CancelRestart();
     if (m_NpcCatalogStarted) StopNpcs();
 }
@@ -129,7 +132,9 @@ bool PartyPreviewRuntime::UpdateNpcs(double now, bool presenting) {
 
 bool PartyPreviewRuntime::NativeReady() const {
     Transform transform;
-    return !m_NpcStopFault && !m_NpcCatalogSpent && !m_NpcRetirementPending && m_Sink.PartyPreviewError().empty() && m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) && m_Source.GetLocalAvatar(transform);
+    return !m_NpcStopFault && !m_NpcCatalogSpent && !m_NpcRetirementPending && m_Sink.PartyPreviewError().empty() &&
+        m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) &&
+        (!m_Launcher || m_Launcher->NativeFreeformContract()) && m_Source.GetLocalAvatar(transform);
 }
 bool PartyPreviewRuntime::LocalReady() const {
     for (const auto& member : Status().members)
@@ -138,12 +143,14 @@ bool PartyPreviewRuntime::LocalReady() const {
     return false;
 }
 bool PartyPreviewRuntime::Ready() {
+    if (m_AutoInitialLoad) return false;
     if (!NativeReady()) { m_Message="Load Freeform Training first, then click Ready."; return false; }
     const bool ok = m_Room->SetReady(true, !LocalReady());
     m_Message = ok ? "Ready state sent." : "Ready is available in the preview lobby.";
     return ok;
 }
 bool PartyPreviewRuntime::Start() {
+    if (m_AutoInitialLoad) return false;
     const bool ok = NativeReady() && m_Room->BeginLoad();
     m_Message = ok ? "Checking that every player has Freeform Training loaded." : "The host can start after every player is ready.";
     return ok;
@@ -154,8 +161,13 @@ bool PartyPreviewRuntime::Lobby() {
     if (Status().phase == LobbyRoster::Phase::Playing || LobbyRoster::AwaitingLoad(Status().phase) || Status().phase == LobbyRoster::Phase::Completing)
         m_Room->ReportSceneLost();
     const bool ok = m_Room->ReturnToLobby() && m_Room->SelectMission(kPartyFreeformContract);
-    if (ok) m_Playback.Reset();
-    m_Message = ok ? "Preview stopped. Everyone must ready again." : "There is no running or interrupted preview to stop.";
+    if (ok) {
+        m_Playback.Reset();
+        m_InitialLoadDeadline=-1.;
+    }
+    if (!ok) m_Message="There is no running or interrupted preview to stop.";
+    else if (m_AutoInitialLoad) m_Message="Session stopped. Return to HITMAN's menu and load Freeform Training to try again.";
+    else m_Message="Preview stopped. Everyone must ready again.";
     return ok;
 }
 bool PartyPreviewRuntime::Reconnect(double now) {
@@ -203,6 +215,7 @@ void PartyPreviewRuntime::UpdateRestart(double now,bool native) {
     }
 }
 void PartyPreviewRuntime::Leave(double now) {
+    CancelGuestLaunch();
     CancelRestart();
     StopNpcs();
     m_Playback.Reset();
@@ -225,11 +238,70 @@ void PartyPreviewRuntime::SceneCleared() {
         if (m_NpcRetirement) m_NpcWorld->BeginNpcSceneRetirement(m_NpcRetirement);
     }
     m_NpcScenePrepared=false;
-    if (!restarting) m_Room->ReportSceneLost();
+    // Clearing the front end is part of loading the mission. Losing a
+    // reported native scene still interrupts the room.
+    const bool entering=m_AutoInitialLoad && Status().phase==LobbyRoster::Phase::Loading && !m_HadNativeScene;
+    if (!restarting && !entering) m_Room->ReportSceneLost();
     m_Playback.Reset();
     m_HadNativeScene=false;
     m_Epoch=0;
     m_NextSend=m_NextMetadata=m_NextLoaded=0;
+}
+void PartyPreviewRuntime::UpdateInitialLoad(double now, bool native) {
+    if (!m_AutoInitialLoad || !Status().host) return;
+    if (Status().phase==LobbyRoster::Phase::Lobby) {
+        if (!native) m_AutoLoadArmed=true;
+        if (native && m_AutoLoadArmed && m_Room->BeginLoad(false)) {
+            m_AutoLoadArmed=false;
+            m_InitialLoadDeadline=now+90.;
+            m_Message="Host loaded Freeform Training. Waiting for each guest's game to load.";
+            m_Source.Log(LogLevel::Info,"party-load",m_Message);
+        }
+        return;
+    }
+    if (m_InitialLoadDeadline<0.) return;
+    if (Status().phase==LobbyRoster::Phase::Loading) {
+        if (now<m_InitialLoadDeadline) return;
+        if (m_Room->ReportSceneLost()) m_Message="A guest did not load Freeform Training in time. Stop the session to retry.";
+    } else if (Status().phase==LobbyRoster::Phase::Playing) {
+        m_Message="Every player loaded Freeform Training.";
+        m_Source.Log(LogLevel::Info,"party-load",m_Message);
+    }
+    m_InitialLoadDeadline=-1.;
+}
+void PartyPreviewRuntime::CancelGuestLaunch() {
+    if (!m_LaunchPending) return;
+    m_Launcher->CancelFreeformLaunch();
+    m_LaunchPending=false;
+}
+void PartyPreviewRuntime::UpdateGuestLaunch(double now,bool native) {
+    if (!m_Launcher) return;
+    const auto& status=Status();
+    if (status.host || status.state!=PartyRoomStatus::State::Connected ||
+        status.phase!=LobbyRoster::Phase::Loading || !status.session || !status.epoch ||
+        status.mission!=kPartyFreeformContract || native) {
+        CancelGuestLaunch();
+        return;
+    }
+    if (m_LaunchSession!=status.session || m_LaunchEpoch!=status.epoch) {
+        CancelGuestLaunch();
+        m_LaunchSession=status.session;
+        m_LaunchEpoch=status.epoch;
+        m_LaunchFinished=false;
+    }
+    if (m_LaunchFinished) return;
+    m_LaunchPending=true;
+    const auto result=m_Launcher->PollFreeformLaunch(now);
+    if (result==IPartyFreeformLaunch::Result::Waiting) return;
+    m_LaunchPending=false;
+    m_LaunchFinished=true;
+    if (result==IPartyFreeformLaunch::Result::Submitted) {
+        m_Message="Following the host into Freeform Training.";
+        m_Source.Log(LogLevel::Info,"launch","Submitted guest Freeform launch for epoch "+std::to_string(m_LaunchEpoch)+".");
+    } else {
+        m_Message="HITMAN could not start Freeform automatically. See HitmanCoop.log.";
+        m_Room->ReportSceneLost();
+    }
 }
 void PartyPreviewRuntime::Tick(double now) {
     if (!std::isfinite(now)) return;
@@ -241,7 +313,7 @@ void PartyPreviewRuntime::Tick(double now) {
         m_NpcCatalogSpent=false;
     }
     const bool native=NativeReady();
-    if (m_HadNativeScene && !native) {
+    if (m_HadNativeScene && !native && !(m_FollowHostRestart && Status().phase==LobbyRoster::Phase::Restarting)) {
         StopNpcs();
         m_Room->ReportSceneLost();
         m_Playback.Reset();
@@ -262,6 +334,8 @@ void PartyPreviewRuntime::Tick(double now) {
     // Availability must not remain true after leaving the native scene.
     if (status.phase==LobbyRoster::Phase::Lobby && !native && LocalReady())
         m_Room->SetReady(false,false);
+    UpdateInitialLoad(now,native);
+    UpdateGuestLaunch(now,native);
     UpdateRestart(now,native);
     status=m_Room->Status();
     const bool restarted=status.phase==LobbyRoster::Phase::Restarting && !m_RestartFailed && m_RestartCleared==status.epoch;

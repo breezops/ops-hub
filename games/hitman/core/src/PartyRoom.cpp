@@ -408,9 +408,9 @@ bool PartyRoom::SetReady(bool available,bool ready) {
     ByteWriter writer; writer.U8(uint8_t(Control::Ready)); writer.U32(self.status.epoch); writer.Bool(available); writer.Bool(ready);
     return self.client->Send(PartyChannel::Lifecycle,writer.Data(),true);
 }
-bool PartyRoom::BeginLoad() {
+bool PartyRoom::BeginLoad(bool requireReady) {
     auto& self=*m_Impl;
-    if(!self.LiveRoom() || !self.host || std::any_of(self.members.begin(),self.members.end(),[](const auto& member){return member.pending;}) || !self.lobby.BeginLoad()) return false;
+    if(!self.LiveRoom() || !self.host || std::any_of(self.members.begin(),self.members.end(),[](const auto& member){return member.pending;}) || !self.lobby.BeginLoad(requireReady)) return false;
     self.Publish(); return true;
 }
 bool PartyRoom::BeginRestart() {

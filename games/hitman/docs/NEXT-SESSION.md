@@ -298,13 +298,40 @@ separate; focus loss/tutorials/map are not votes. Avoid a major pause detour.
    this path in Freeform Training using the movement adapter. Its build flag is
    `COOP_PARTY_NATIVE_RESTART`, with native version `0.13.94-four-player.preview.4.loop.1`.
    The catalog NPC adapter still needs confirmed native retirement before it
-   can safely follow this lifecycle. First verify the movement loop on two PCs,
-   then verify simultaneous reloads with four seats.
+   can safely follow this lifecycle. Loop-1 passed two consecutive native
+   restarts in the same room on two PCs. Both logs recorded scene clear and
+   matching mission epochs. A live check with four seats remains.
 2. **Launch or change a mission as host.** Add a host mission choice backed by
    verified native contract identity and local availability. Carry exact
    contract and mode through the same load barrier. Guests follow the host's
    native load, and loaded receipts replace manual readiness. Validate a
    restart and a switch to a second supported mission in the same room.
+   The local Loop-2 diagnostic starts this barrier when the host enters
+   Freeform from a main-menu room. Guests still select Freeform manually.
+   The solo trace records the contract ID and the caller of the normal
+   native scene load so the guest launcher can be implemented against the
+   actual contract startup path.
+   The solo run confirmed the Freeform contract ID and tutorial mode.
+   Its scene trace starts downstream of the suspected native contract
+   entry. Verify the contract caller and its callback lifetime before
+   invoking it from a guest. See the Loop-2 diagnostic build notes.
+   Loop-3 confirmed that the native Freeform menu action uses
+   `ZPlanningPageControllerEntity` and supplies two callbacks. Resolve how
+   the main menu creates and populates that controller before invoking the
+   action from a guest. See the Loop-3 diagnostic build notes.
+   Loop-4 tests a second native entry through the contract-start entity used
+   by the shipped tutorial. Verify it from the main menu in a solo run before
+   binding it to a guest's room load request.
+   Loop-4 dispatched the entity input and showed a loading indicator, but
+   stayed in the main menu. Native scene and contract fields were still
+   empty. Compare with the shipped prologue menu's ID-based
+   `start-contract` action before wiring guest launch.
+   The entity's public input waits for a contract-end event before it
+   calls the launch routine. Loop-5 tests that same native continuation
+   in a fresh main menu with an empty contract context.
+   Loop-5 loaded the exact Freeform contract and reached playable state in
+   about three seconds. Loop-6 uses that path for guests and checks the
+   exact native contract and local avatar at the room's load barrier.
 3. **Complete and replay.** Bind shared objectives and native exit events.
    Collect actual local `ContractEnd` receipts before presenting party success.
    Return the party to mission choice with the same seats and allow replay.

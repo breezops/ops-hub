@@ -1,0 +1,19 @@
+HITMAN CO-OP / LOOP-6 HOST-FOLLOW TEST
+OPS 0.1.26 / HITMAN 3.290.1
+
+1. Close HITMAN on both PCs. In the OPS HUB launcher, choose Check for
+   updates and Update & Restart. Confirm 0.1.26 on both PCs.
+2. Launch HITMAN on both PCs and wait for the full main menu. Host and join
+   from the launcher. Confirm both players appear in the room.
+3. The host starts Freeform Training using HITMAN's normal menus. The guest
+   returns focus to HITMAN and stays on the main menu. When the host spawns,
+   the guest should load Freeform automatically.
+4. Confirm both players spawn and see each other move. The room should start
+   automatically when both PCs load. The host then uses Restart Mission in
+   HITMAN's pause menu. Confirm both reload and resume in the same room.
+5. Quit normally and keep both Retail\mods\HitmanCoop.log files. If launch
+   stalls, report the guest's screen and include both logs.
+
+This test covers a fresh main-menu launch into Freeform and a same-room
+restart. The build syncs player movement and disguises. Each PC runs its
+own NPCs, items, objectives, and exits.
