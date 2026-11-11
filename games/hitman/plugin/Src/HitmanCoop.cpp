@@ -1527,13 +1527,20 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
             [](void* context,const NpcActionObserver::View& view) {
                 auto& self=*static_cast<HitmanCoop*>(context);
                 std::unique_lock lock(self.m_SessionMutex,std::try_to_lock);
-                if (lock.owns_lock()) self.m_World.TracePartyNpcAction(view);
+                if (lock.owns_lock()) {
+                    self.m_World.TracePartyNpcAction(view);
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+                    self.m_World.ObservePartyNpcRestartBindings(view);
+#endif
+                }
             },m_World.PartyGameThread()};
-#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+#if defined(COOP_NPC_HOLD_DIAGNOSTICS) || defined(COOP_NPC_RESTART_BINDING_DIAGNOSTICS)
         const bool arbiter=jobsInstalled && NpcHoldArbiter::Install(sites);
         const auto holdReport=NpcHoldArbiter::Installation();
         traceAllocation("hold-arbiter",holdReport.allocations,holdReport.status);
         CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Native hold arbiter installed=%d stage=%s status=%d",arbiter?1:0,holdReport.stage,holdReport.status);
+#endif
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
 #ifdef COOP_NPC_CATALOG
         CoopLog::Info("npc-catalog","Private Freeform catalog enabled for two living NPC transforms under host authority");
 #elif defined(COOP_NPC_POOL_DIAGNOSTICS)
@@ -1565,9 +1572,15 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
         }
 #endif
         const bool installed=sites && NpcActionObserver::Install(sites,observerConfig);
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+        CoopLog::Info("npc-act",installed
+            ? "Action observer installed for mission binding observations; NPC simulation remains local"
+            : "Action observer unavailable");
+#else
         CoopLog::Info("npc-act",installed
             ? "Read-only action observer installed; native controls and mutation scopes OFF; game restart required to reload this diagnostic"
             : "Read-only action observer unavailable; no NPC controls enabled");
+#endif
         const auto report=NpcActionObserver::Installation();
         traceAllocation("action",report.allocations,report.hookStatus);
         CoopLog::Fmt(coop::LogLevel::Info,"npc-act",

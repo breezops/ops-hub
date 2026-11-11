@@ -784,3 +784,30 @@ retired/reused/stale bindings, capacity, owner-grant resume and recursive same-
 actor interference; a retained native fiber case validates ticket-bound cancel/
 resume. Existing legacy/control/lifetime cases remain passing. SDK live batch
 behavior is a separately versioned Pool-1 test; see its recipe and journal.
+## Retiring native binding scopes
+
+The development hold arbiter can now release a pool's metadata after the
+mutation scope is revoked, every watched actor has a matching constructor
+birth/destructor entry/body-return receipt, and controller calls have finished.
+All metadata lookups use a short mutex. A controller call pins its selected
+record with the existing busy flag until its final read, including across
+native continuations. The mutex is released before native execution.
+
+Scope release clears only the mod's records. A new scope can watch new
+constructor births at the same actor addresses. Late receipts for a previous
+birth cannot retire its replacement. Game/script hold calls continue through
+the original function. The legacy single-actor mode keeps its existing behavior.
+
+The native world forwards verified destructor returns to the arbiter and
+retries pre-clear scope revocation on later frames when pinned calls prevent
+the first attempt. The private [NPC rebind diagnostic](../diagnostics/npc-rebind-1/BUILD-CANDIDATE.md)
+watches the entire active catalog from the original mod's `ListNpcs` on each
+Freeform load. It validates fresh identity and action-boundary membership,
+grants local interaction ownership, and issues no native hold/resume calls.
+It also carries the return-callback sampling refinement from the preceding
+solo test.
+
+Native fixtures cover exact receipt requirements, stale receipts at reused
+addresses, three reloads of 500 bindings, and a controller continuation
+overlapping teardown. Multiplayer NPC startup still requires its native
+scene preparation, baseline application, and simulation-ownership wiring.

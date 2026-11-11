@@ -1,0 +1,17 @@
+HITMAN CO-OP / PRIVATE NPC BINDING RESTART TEST
+OPS 0.1.29 / HITMAN 3.290.1
+
+1. Close HITMAN and the old launcher. Open this folder's launcher and
+   click Install / Repair, then Launch HITMAN.
+2. Load Freeform Training through HITMAN's menu. Walk for 15 seconds.
+3. Use Restart Mission in HITMAN's pause menu. Walk for 15 seconds
+   after loading. Repeat the restart once.
+4. Quit normally and tell the developer the test is finished.
+
+Play solo. Leave Host, Join, and Ready alone. Use the in-game menu for
+both restarts. No F8, knockouts, or disguises are needed.
+
+This build watches the original mod's full active NPC catalog. After a
+restart, it releases the old bindings using exact destruction receipts
+and admits the freshly constructed replacements in a new scope.
+NPC behavior stays local throughout this test.

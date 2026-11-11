@@ -2,12 +2,22 @@
 #include "TestFramework.h"
 #include <Windows.h>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstring>
+#include <thread>
 
 namespace {
-struct Actor { unsigned calls=0; bool held=false,reenter=false; void* entry=nullptr; Actor* recursiveTarget=nullptr; };
+struct Actor {
+    unsigned calls=0;
+    bool held=false,reenter=false;
+    void* entry=nullptr;
+    Actor* recursiveTarget=nullptr;
+    void (*onCall)(Actor&)=nullptr;
+};
 void Body(void* opaque,bool held) {
     auto& a=*static_cast<Actor*>(opaque); ++a.calls; a.held=held;
+    if (a.onCall) a.onCall(a);
     if (a.reenter) { a.reenter=false; reinterpret_cast<void(*)(void*,bool)>(a.entry)(a.recursiveTarget?a.recursiveTarget:&a,true); }
 }
 void* Entry() {
@@ -114,4 +124,111 @@ TEST(HoldArbiter_PoolRecursiveCollisionRefusesOwnershipAndResume) {
     CHECK(!NpcHoldArbiter::Invoke(f.first,true));CHECK(f.actor.held && f.actor.calls==2);
     CHECK(NpcHoldArbiter::ExternalCalls(f.first)==1);CHECK(!NpcHoldArbiter::OwnsHold(f.first));
     CHECK(!NpcHoldArbiter::Invoke(f.first,false));CHECK(f.actor.held && f.actor.calls==2);
+}
+TEST(HoldArbiter_PoolRetirementRequiresEveryExactDestructorReturn) {
+    Fixture f; REQUIRE(f.InstallPool());
+    REQUIRE(NpcHoldArbiter::Invoke(f.first,true));
+    const auto first=f.first,second=f.second;
+    CHECK(NpcHoldArbiter::PoolScope()==f.scope);
+    CHECK(!NpcHoldArbiter::ReleaseRetiredScope(0));
+    CHECK(!NpcHoldArbiter::ReleaseRetiredScope(f.scope+1));
+    NpcHoldArbiter::ObserveDestructionReturn(first.actor,first.birth); // No matching entry yet.
+    NpcHoldArbiter::Invalidate(first.actor,first.birth);
+    NpcHoldArbiter::Invalidate(second.actor,second.birth);
+    REQUIRE(NpcMutationGate::Clear(f.scope));
+    CHECK(!NpcHoldArbiter::ReleaseRetiredScope(f.scope));
+    NpcHoldArbiter::ObserveDestructionReturn(first.actor,first.birth);
+    NpcHoldArbiter::ObserveDestructionReturn(second.actor,second.birth+100);
+    CHECK(!NpcHoldArbiter::ReleaseRetiredScope(f.scope));
+    NpcHoldArbiter::ObserveDestructionReturn(second.actor,second.birth);
+
+    // The still-current scope also prevents metadata release.
+    const auto next=NpcMutationGate::Begin(); REQUIRE(next);
+    CHECK(!NpcHoldArbiter::ReleaseRetiredScope(next));
+    REQUIRE(NpcHoldArbiter::ReleaseRetiredScope(f.scope));
+    CHECK(!NpcHoldArbiter::PoolScope());
+    CHECK(!NpcHoldArbiter::Invoke(first,false));
+    CHECK(f.actor.calls==1 && f.actor.held); // No native resume during release.
+
+    REQUIRE(NpcMutationGate::Bind(next,55,first.actor,3,1));
+    REQUIRE(NpcMutationGate::SetLocalOwner(next,55,3,1,true));
+    const auto replacement=NpcMutationGate::Find(next,55,3,1);
+    REQUIRE(NpcHoldArbiter::Watch(replacement));
+    CHECK(!NpcHoldArbiter::OwnsHold(replacement));
+    CHECK(!NpcHoldArbiter::ExternalCalls(replacement));
+    NpcHoldArbiter::Invalidate(first.actor,first.birth);
+    NpcHoldArbiter::ObserveDestructionReturn(first.actor,first.birth);
+    CHECK(NpcHoldArbiter::Invoke(replacement,true));
+    CHECK(NpcHoldArbiter::Invoke(replacement,false));
+    CHECK(!f.actor.held && f.actor.calls==3);
+    CHECK(!NpcHoldArbiter::ReleaseRetiredScope(f.scope));
+    CHECK(NpcHoldArbiter::PoolScope()==next);
+    NpcMutationGate::Clear(next);
+}
+TEST(HoldArbiter_PoolRetirementReclaimsCapacityAcrossReloads) {
+    Fixture f; REQUIRE(f.InstallPool());
+    std::array<Actor,NpcHoldArbiter::Capacity-2> additional{};
+    std::array<Actor*,NpcHoldArbiter::Capacity> actors{};
+    actors[0]=&f.actor; actors[1]=&f.other;
+    for (size_t i=2;i<actors.size();++i) {
+        actors[i]=&additional[i-2];
+        REQUIRE(NpcMutationGate::Bind(f.scope,55+i,actors[i],i+1,1));
+        REQUIRE(NpcHoldArbiter::Watch(NpcMutationGate::Find(f.scope,55+i,i+1,1)));
+    }
+    for (uint64_t cycle=0;cycle<3;++cycle) {
+        const auto oldScope=f.scope;
+        for (size_t i=0;i<actors.size();++i) {
+            const auto birth=cycle*actors.size()+i+1;
+            NpcHoldArbiter::Invalidate(actors[i],birth);
+            NpcHoldArbiter::ObserveDestructionReturn(actors[i],birth);
+        }
+        CHECK(!NpcHoldArbiter::ReleaseRetiredScope(oldScope));
+        REQUIRE(NpcMutationGate::Clear(oldScope));
+        REQUIRE(NpcHoldArbiter::ReleaseRetiredScope(oldScope));
+        f.scope=NpcMutationGate::Begin(); REQUIRE(f.scope);
+        for (size_t i=0;i<actors.size();++i) {
+            const auto birth=(cycle+1)*actors.size()+i+1;
+            REQUIRE(NpcMutationGate::Bind(f.scope,55+i,actors[i],birth,1));
+            const auto ticket=NpcMutationGate::Find(f.scope,55+i,birth,1);
+            REQUIRE(NpcHoldArbiter::Watch(ticket));
+            NpcHoldArbiter::Invalidate(actors[i],birth-actors.size());
+            NpcHoldArbiter::ObserveDestructionReturn(actors[i],birth-actors.size());
+            CHECK(!NpcHoldArbiter::ExternalCalls(ticket));
+            CHECK(!NpcHoldArbiter::OwnsHold(ticket));
+        }
+        const auto first=NpcMutationGate::Find(f.scope,55,(cycle+1)*actors.size()+1,1);
+        REQUIRE(NpcMutationGate::SetLocalOwner(first.scope,first.npc,first.birth,first.lease,true));
+        CHECK(NpcHoldArbiter::Invoke(first,true));
+        CHECK(NpcHoldArbiter::Invoke(first,false));
+    }
+}
+namespace {
+std::atomic<bool> nativeEntered=false,nativeReleased=false;
+void BlockNative(Actor&) {
+    nativeEntered=true;
+    while (!nativeReleased.load()) std::this_thread::yield();
+}
+}
+TEST(HoldArbiter_PoolRetirementWaitsForControllerContinuation) {
+    Fixture f; REQUIRE(f.InstallPool());
+    nativeEntered=false; nativeReleased=false;
+    f.actor.onCall=&BlockNative;
+    bool result=false;
+    std::thread worker([&] { result=NpcHoldArbiter::Invoke(f.first,true); });
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while (!nativeEntered && std::chrono::steady_clock::now()<deadline) std::this_thread::yield();
+    const bool entered=nativeEntered.load();
+    NpcHoldArbiter::Invalidate(f.first.actor,f.first.birth);
+    NpcHoldArbiter::ObserveDestructionReturn(f.first.actor,f.first.birth);
+    NpcHoldArbiter::Invalidate(f.second.actor,f.second.birth);
+    NpcHoldArbiter::ObserveDestructionReturn(f.second.actor,f.second.birth);
+    const bool clearedEarly=NpcMutationGate::Clear(f.scope);
+    const bool releasedEarly=NpcHoldArbiter::ReleaseRetiredScope(f.scope);
+    nativeReleased=true;
+    worker.join();
+    CHECK(entered);
+    CHECK(!clearedEarly && !releasedEarly && !result);
+    CHECK(f.actor.calls==1);
+    REQUIRE(NpcMutationGate::Clear(f.scope));
+    CHECK(NpcHoldArbiter::ReleaseRetiredScope(f.scope));
 }

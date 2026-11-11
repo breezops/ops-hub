@@ -113,6 +113,13 @@ void SdkWorld::OnSceneLoading(const coop::SceneDesc& p_Scene) {
 }
 
 void SdkWorld::OnSceneCleared() {
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+    m_NpcRestartBindingAttempted=false;
+#endif
+    if (const auto scope=NpcMutationGate::CurrentScope()) {
+        m_NpcRetiringScope=scope;
+        NpcMutationGate::Clear(scope); // Retry on a later frame if a native call is still pinned.
+    }
 #ifdef COOP_PARTY_NPC_DISCOVERY
     m_NpcDiscoveryClearMark=m_NpcActorBirths.Mark();
     // Retain the last Playing sample across additional loading clears.
@@ -122,11 +129,10 @@ void SdkWorld::OnSceneCleared() {
     m_NpcDiscoveryScope={};
 #endif
     m_SoloHoldRequested=false;
-#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+#if defined(COOP_NPC_HOLD_DIAGNOSTICS) || defined(COOP_NPC_RESTART_BINDING_DIAGNOSTICS)
     m_InScene=false; // Invalidate diagnostic control before any teardown callback can reenter.
 #endif
     if (m_SoloHoldTicket.scope) {
-        NpcMutationGate::Clear(m_SoloHoldTicket.scope);
         m_SoloHoldTicket={}; m_SoloHoldRequested=false; m_SoloHoldPhase=5;
         CoopLog::Info("npc-hold","Private hold test ended by scene clear; no native resume attempted during teardown");
     }
@@ -3405,6 +3411,13 @@ void SdkWorld::ObservePartyNpcEvent(const std::string& name,const std::string& j
     m_NpcNativeEvents.push_back({scope,eventActor,name=="Kill",std::move(contract)});
 }
 void SdkWorld::ProcessPartyNpcEvents() {
+    if (m_NpcRetiringScope) {
+        if (NpcMutationGate::CurrentScope()==m_NpcRetiringScope && !NpcMutationGate::Clear(m_NpcRetiringScope)) return;
+        m_NpcRetiringScope=0;
+    }
+    if (const auto scope=NpcHoldArbiter::PoolScope(); scope && NpcHoldArbiter::ReleaseRetiredScope(scope))
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-pool","Released retired binding metadata scope=%llu after exact watched destructor returns",
+            static_cast<unsigned long long>(scope));
     if(m_NpcNativeEvents.empty()) return;
     if(!m_InScene) { m_NpcNativeEvents.clear(); return; }
     // Count all native actors, including ones omitted from the shared stable-ID
@@ -3428,6 +3441,53 @@ void SdkWorld::ProcessPartyNpcEvents() {
         m_NpcLifeReceipts.Observe(event.contract,event.actor,event.killed ? NpcLifeReceipts::Life::Dead : NpcLifeReceipts::Life::Unconscious);
     }
 }
+
+bool SdkWorld::ObservePartyNpcDestructionReturn(const void* actor,uint64_t birth) noexcept {
+    const bool completed=m_NpcActorBirths.ObserveDestructionReturn(actor,birth);
+    if (completed) NpcHoldArbiter::ObserveDestructionReturn(actor,birth);
+    return completed;
+}
+
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+void SdkWorld::ObservePartyNpcRestartBindings(const NpcActionObserver::View& view) {
+    if (m_NpcRestartBindingAttempted || m_NpcRetiringScope || !m_InScene ||
+        !coop::IsFreeformTrainingScene(m_Scene.scene) || PartyGameThread()!=GetCurrentThreadId() ||
+        !m_NpcActorBirths.Healthy() || NpcMutationGate::CurrentScope() || NpcHoldArbiter::PoolScope()) return;
+
+    // Reuse the original mod's entire mission catalog and validate each
+    // physical instance against the fresh slot and action-boundary view.
+    std::vector<coop::NpcState> npcs;
+    ListNpcs(npcs);
+    if (npcs.empty() || npcs.size()>NpcHoldArbiter::Capacity) return;
+    std::vector<NpcMutationGate::Ticket> tickets;
+    for (const auto& npc:npcs) {
+        auto* actor=FindFreshPartyNpc(npc.id);
+        const auto birth=actor?m_NpcActorBirths.Find(actor):0;
+        if (!birth || !view.Observe(actor,npc.id,birth).valid) return;
+        tickets.push_back({0,npc.id,birth,1,actor});
+    }
+    const auto scope=NpcMutationGate::Begin();
+    if (!scope) return;
+    m_NpcRestartBindingAttempted=true;
+    for (auto& ticket:tickets) {
+        ticket.scope=scope;
+        if (!NpcMutationGate::Bind(scope,ticket.npc,ticket.actor,ticket.birth,ticket.lease) ||
+            !NpcMutationGate::SetLocalOwner(scope,ticket.npc,ticket.birth,ticket.lease,true) ||
+            !NpcHoldArbiter::Watch(ticket)) {
+            m_NpcRetiringScope=scope;
+            NpcMutationGate::Clear(scope);
+            CoopLog::Warn("npc-bind","Mission binding observation refused during admission");
+            return;
+        }
+    }
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-bind","Watched mission catalog scope=%llu count=%zu constructor-mark=%llu; local ownership; no native hold calls",
+        static_cast<unsigned long long>(scope),tickets.size(),static_cast<unsigned long long>(m_NpcActorBirths.Mark()));
+    for (const auto& ticket:tickets)
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-bind","scope=%llu id=%llx birth=%llu",
+            static_cast<unsigned long long>(scope),static_cast<unsigned long long>(ticket.npc),
+            static_cast<unsigned long long>(ticket.birth));
+}
+#endif
 
 bool SdkWorld::GetPartnerPosition(coop::Vec3& p_Out) const {
     if (!m_LegacyAvatar.entity)

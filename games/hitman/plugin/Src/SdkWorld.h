@@ -70,7 +70,7 @@ public:
     // actor reads and no session lock. Construction entry is not completion.
     void ObservePartyNpcConstruction(void* actor) noexcept { m_NpcActorBirths.ObserveConstruction(actor); }
     uint64_t ObservePartyNpcDestructionEntry(void* actor) noexcept { return m_NpcActorBirths.ObserveDestructionEntry(actor); }
-    bool ObservePartyNpcDestructionReturn(const void* actor,uint64_t birth) noexcept { return m_NpcActorBirths.ObserveDestructionReturn(actor,birth); }
+    bool ObservePartyNpcDestructionReturn(const void* actor,uint64_t birth) noexcept;
     const NpcActorBirths::Book& PartyNpcBirthBook() const { return m_NpcActorBirths; }
     void ObservePartyGameThread(uint32_t thread) noexcept;
     uint32_t PartyGameThread() const;
@@ -87,6 +87,9 @@ public:
     std::optional<std::vector<uint64_t>> TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now);
 #endif
     void TracePartyNpcAction(const NpcActionObserver::View&);
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+    void ObservePartyNpcRestartBindings(const NpcActionObserver::View&);
+#endif
     void MarkPartyNpcJobAttachment() { m_NpcJobAttachmentMark=m_NpcActorBirths.Mark(); }
     void ArmSoloNpcHold() { m_SoloHoldRequested=true; }
     void StepSoloNpcHold(NpcActionPhase::Boundary&);
@@ -679,6 +682,10 @@ private:
     unsigned m_NpcActionAudits=0;
     uint64_t m_NpcJobAttachmentMark=0; // Never reset on scene clear; diagnostic only.
     NpcMutationGate::Ticket m_SoloHoldTicket;
+    NpcMutationGate::Scope m_NpcRetiringScope=0;
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+    bool m_NpcRestartBindingAttempted=false;
+#endif
     bool m_SoloHoldRequested=false,m_SoloHoldUsed=false,m_SoloHoldOwned=false;
     unsigned m_SoloHoldPhase=0;
     double m_SoloHoldDeadline=0;
