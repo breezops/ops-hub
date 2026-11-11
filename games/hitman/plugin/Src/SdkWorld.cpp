@@ -2929,6 +2929,10 @@ SdkWorld::CatalogPreparation SdkWorld::PrepareNpcCatalog(const std::set<uint64_t
     if (m_CatalogPhase==CatalogPhase::Idle) {
         m_CatalogIds.assign(ids.begin(),ids.end());
         m_CatalogActors.resize(ids.size());
+        {
+            std::lock_guard lock(m_CatalogPoseMutex);
+            m_CatalogPoseBindings.resize(ids.size());
+        }
         m_CatalogPhase=CatalogPhase::Binding;
         m_CatalogStartedAt=GetTickCount64();
     } else if (!std::equal(ids.begin(),ids.end(),m_CatalogIds.begin(),m_CatalogIds.end())) {
@@ -3005,6 +3009,10 @@ bool SdkWorld::FreezeNpc(uint64_t id) {
     if (!actor) return false;
     actor->baseline.reset(); actor->receipt.reset();
     actor->canonical.reset(); actor->presentation.reset();
+#ifdef COOP_NPC_AGREED_CATALOG
+    actor->lastApplied.reset();
+    actor->blendPending=false;
+#endif
     if (actor->phase==CatalogActorPhase::Held) return true;
     if (actor->phase!=CatalogActorPhase::Drain && actor->phase!=CatalogActorPhase::Hold) {
         actor->phase=CatalogActorPhase::Hold;
@@ -3032,9 +3040,19 @@ bool SdkWorld::ApplyNpcBaseline(uint64_t id,const coop::PartyNpcState& state) {
 bool SdkWorld::ApplyNpcUpdate(uint64_t id,const coop::PartyNpcState& state) {
     auto* actor=FindCatalogActor(id);
     if (!actor || actor->phase!=CatalogActorPhase::Held) return false;
+#ifdef COOP_NPC_AGREED_CATALOG
+    if (!actor->receipt || !coop::ValidPartyNpcState(state) || state.life!=coop::PartyNpcLife::Alive || state.stripped)
+        return ApplyNpcBaseline(id,state);
+    if (actor->canonical && *actor->canonical==state) return true;
+    actor->blendFrom=actor->lastApplied.value_or(actor->receipt->xf);
+    actor->blendStarted=m_Now;
+    actor->blendPending=true;
+    actor->canonical=state;
+#else
     if (!actor->presentation || !coop::ValidPartyNpcState(state) || state.life!=coop::PartyNpcLife::Alive || state.stripped)
         return ApplyNpcBaseline(id,state);
     actor->canonical=state; // Keep the latest fallback while the matched pose and transform drive presentation.
+#endif
     return true;
 }
 
@@ -3056,11 +3074,21 @@ bool SdkWorld::CaptureNpc(uint64_t id,coop::PartyNpcState& state) {
 }
 
 void SdkWorld::RefreshCatalogPoseSources() {
-    std::array<void*,2> watched{};
-    size_t count=0;
+    std::vector<void*> watched;
     for (const auto& binding:m_CatalogPoseBindings)
-        if (binding.animator && binding.source) watched[count++]=binding.animator;
-    PoseHook::SetWatched(std::span(watched).first(count));
+        if (binding.animator && binding.source) watched.push_back(binding.animator);
+    PoseHook::SetWatched(watched);
+}
+
+void SdkWorld::SetNpcPoseSources(std::span<const uint64_t> ids) {
+    std::lock_guard lock(m_CatalogPoseMutex);
+    bool changed=false;
+    for (auto& binding:m_CatalogPoseBindings) {
+        if (!binding.source || std::find(ids.begin(),ids.end(),binding.ticket.npc)!=ids.end()) continue;
+        binding={};
+        changed=true;
+    }
+    if (changed) RefreshCatalogPoseSources();
 }
 
 SdkWorld::CatalogPoseBinding* SdkWorld::BindCatalogAnimator(const NpcMutationGate::Ticket& ticket,bool source) {
@@ -3113,8 +3141,10 @@ bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Transform& transform,const
     }
     PoseToBones(pose,m_NpcPoseBones);
     if (!PoseHook::SetPoseFor(binding->animator,m_NpcPoseBones,true)) return false;
+#ifndef COOP_NPC_AGREED_CATALOG
     if (!actor->presentation && actor->baseline) actor->canonical=std::exchange(actor->baseline,std::nullopt);
     actor->presentation=transform;
+#endif
     return true;
 }
 
@@ -3238,7 +3268,13 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
         case Phase::Held: {
             if (!drained) { RefuseNpcCatalog("held actor is no longer drained"); return; }
             const auto baseline=actor.baseline;
-            const auto transform=baseline ? std::optional{baseline->xf} : actor.presentation;
+            auto transform=baseline ? std::optional{baseline->xf} : actor.presentation;
+#ifdef COOP_NPC_AGREED_CATALOG
+            constexpr double blendSeconds=0.1;
+            const auto blend=static_cast<float>(std::clamp((m_Now-actor.blendStarted)/blendSeconds,0.0,1.0));
+            if (!baseline && actor.blendPending && actor.canonical)
+                transform=coop::Lerp(actor.blendFrom,actor.canonical->xf,blend);
+#endif
             if (transform) {
                 const bool applied=WriteCatalogTransform(ticket,*transform,!baseline);
                 if (m_CatalogPhase==CatalogPhase::Stopped || m_CatalogScope!=ticket.scope) return;
@@ -3248,6 +3284,10 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
                     afterJobs.outstanding || !NpcHoldArbiter::OwnsHold(ticket) || NpcHoldArbiter::ExternalCalls(ticket)) {
                     RefuseNpcCatalog("canonical transform write or held-state readback failed"); return;
                 }
+#ifdef COOP_NPC_AGREED_CATALOG
+                actor.lastApplied=*transform;
+                if (!baseline && blend>=1.f) actor.blendPending=false;
+#endif
                 if (!baseline || !actor.baseline) break;
                 const auto& requested=*baseline;
                 if (!actor.receipt) CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","First baseline confirmed entity=%016llx role=%s xyz=(%.2f, %.2f, %.2f)",

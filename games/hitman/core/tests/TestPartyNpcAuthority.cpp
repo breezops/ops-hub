@@ -21,6 +21,7 @@ struct World:IPartyNpcWorld {
     std::map<uint64_t,PartyNpcState> states;
     std::map<uint64_t,bool> running;
     std::map<uint64_t,Pose> sourcePoses, presentedPoses;
+    std::vector<uint64_t> poseSources;
     std::map<uint64_t,Transform> presentedTransforms;
     bool freeze=true,apply=true,resume=true,capture=true,prepare=true;
     unsigned preparations=0;
@@ -72,6 +73,9 @@ struct World:IPartyNpcWorld {
         const auto it=sourcePoses.find(npc);
         if(it==sourcePoses.end()) return false;
         pose=it->second; return true;
+    }
+    void SetNpcPoseSources(std::span<const uint64_t> ids) override {
+        poseSources.assign(ids.begin(),ids.end());
     }
     bool PresentNpcPose(uint64_t npc,const Transform& transform,const Pose& pose) override {
         CHECK(!running[npc]); presentedTransforms[npc]=transform; presentedPoses[npc]=pose; return true;
@@ -507,6 +511,35 @@ TEST(PartyNpcSync_FixedNpcPosesFanOutAndClearAfterSilenceOrStop) {
     REQUIRE(n.worlds[1].presentedPoses.contains(55));
     n.sync[0]->Stop(); n.Step(0.5);
     for(size_t i=1;i<n.count;++i) CHECK(n.worlds[i].presentedPoses.empty());
+}
+
+TEST(PartyNpcSync_NearbyPoseBudgetUsesGuestLocationsAndClearsDistantPoses) {
+    PartyNpcOptions options;
+    options.streamPoses=true;
+    options.nearbyNpcPoses=true;
+    for (uint64_t npc=1;npc<=16;++npc) options.fixedCatalog.insert(npc);
+    NetworkNpc room(4,881,options);
+    REQUIRE(room.Begin());
+    for (uint64_t npc=1;npc<=16;++npc) {
+        PartyNpcState state;
+        state.xf.pos.x=npc==16 ? 100.f : static_cast<float>(npc);
+        room.worlds[0].sourcePoses[npc].rotations.resize(2);
+        REQUIRE(room.sync[0]->Register(npc,state,room.now));
+    }
+    REQUIRE(room.sync[0]->ObservePlayer(room.Identity(1),{0,0,0},room.now));
+    REQUIRE(room.sync[0]->ObservePlayer(room.Identity(3),{100,0,0},room.now));
+    room.Step(.5);
+    CHECK(room.worlds[0].poseSources.size()==12);
+    CHECK(room.worlds[1].presentedPoses.contains(16));
+    CHECK(room.worlds[3].presentedPoses.contains(1));
+    CHECK(!room.worlds[1].presentedPoses.contains(15));
+    CHECK(room.worlds[1].states[15].xf.pos.x==15.f);
+
+    REQUIRE(room.sync[0]->ObservePlayer(room.Identity(1),{200,0,0},room.now));
+    REQUIRE(room.sync[0]->ObservePlayer(room.Identity(3),{200,0,0},room.now));
+    room.Step(.85);
+    CHECK(room.worlds[0].poseSources.empty());
+    for (size_t seat=1;seat<room.count;++seat) CHECK(room.worlds[seat].presentedPoses.empty());
 }
 
 TEST(PartyNpc_HostOnlyIsDefaultAndNeverIssuesGuestLeaseAttempts) {

@@ -90,6 +90,8 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         m_Session.reset(); m_LastJoin.reset(); m_Reconnecting=false; m_Relay.reset(); m_FrameStatus={};
 #ifdef COOP_NPC_AGREED_CATALOG
                         npcOptions.capacity=NpcHoldArbiter::Capacity;
+                        npcOptions.streamPoses=true;
+                        npcOptions.nearbyNpcPoses=true;
                         m_World.SetNpcCatalogHost(host);
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,
                             npcOptions,true,true,static_cast<coop::IPartyFreeformLaunch*>(this),true,true);

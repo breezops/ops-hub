@@ -384,7 +384,8 @@ void PartyPreviewRuntime::Tick(double now) {
     }
     const bool presenting=m_Playback.UpdateRoster(status);
     const bool npcs=UpdateNpcs(now,presenting);
-    const bool observeLocations=npcs && status.host && m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer;
+    const bool observeLocations=npcs && status.host &&
+        (m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer || m_NpcOptions.nearbyNpcPoses);
     if (observeLocations) {
         Transform local;
         if (m_Source.GetLocalAvatar(local)) {

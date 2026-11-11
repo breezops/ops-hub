@@ -1,4 +1,5 @@
 #pragma once
+#include <span>
 #include "PartyRoom.h"
 #include <map>
 #include <deque>
@@ -49,9 +50,11 @@ struct PartyNpcOptions {
     // in such a build must use the same catalog and a distinct room build ID.
     std::set<uint64_t> fixedCatalog;
     bool streamPoses = false;
+    bool nearbyNpcPoses = false;
     bool confirmInitialGuestBaselines = false;
     bool ValidCatalog() const {
         if (confirmInitialGuestBaselines && policy!=PartyNpcPolicy::HostOnly) return false;
+        if (nearbyNpcPoses && !streamPoses) return false;
         return fixedCatalog.empty() ? !streamPoses : (policy==PartyNpcPolicy::HostOnly &&
             fixedCatalog.size()<=capacity && !fixedCatalog.contains(0));
     }
@@ -134,6 +137,7 @@ public:
     virtual bool ResumeNpc(uint64_t) = 0;
     virtual bool CaptureNpc(uint64_t, PartyNpcState&) = 0;
     virtual bool CaptureNpcPose(uint64_t, Pose&) { return false; }
+    virtual void SetNpcPoseSources(std::span<const uint64_t>) {}
     virtual bool PresentNpcPose(uint64_t, const Transform&, const Pose&) { return false; }
     virtual void ClearNpcPresentationPose(uint64_t) {}
 };

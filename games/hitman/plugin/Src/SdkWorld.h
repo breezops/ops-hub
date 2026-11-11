@@ -116,6 +116,7 @@ public:
     bool ResumeNpc(uint64_t id) override;
     bool CaptureNpc(uint64_t id,coop::PartyNpcState&) override;
     bool CaptureNpcPose(uint64_t id,coop::Pose&) override;
+    void SetNpcPoseSources(std::span<const uint64_t> ids) override;
     bool PresentNpcPose(uint64_t id,const coop::Transform&,const coop::Pose&) override;
     void ClearNpcPresentationPose(uint64_t id) override;
     void InvalidateCatalogNpcPose(const void* actor,uint64_t birth) noexcept;
@@ -654,6 +655,12 @@ private:
         std::optional<coop::PartyNpcState> baseline, receipt;
         std::optional<coop::PartyNpcState> canonical;
         std::optional<coop::Transform> presentation;
+#ifdef COOP_NPC_AGREED_CATALOG
+        std::optional<coop::Transform> lastApplied;
+        coop::Transform blendFrom;
+        double blendStarted=0;
+        bool blendPending=false;
+#endif
     };
     CatalogActor* FindCatalogActor(uint64_t id);
     struct CatalogPoseBinding {
@@ -663,7 +670,7 @@ private:
     };
     CatalogPoseBinding* BindCatalogAnimator(const NpcMutationGate::Ticket&,bool source);
     void RefreshCatalogPoseSources();
-    std::array<CatalogPoseBinding,2> m_CatalogPoseBindings;
+    std::vector<CatalogPoseBinding> m_CatalogPoseBindings;
     std::mutex m_CatalogPoseMutex;
     bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&,bool presentation);
     void RefuseNpcCatalog(const char* reason);
