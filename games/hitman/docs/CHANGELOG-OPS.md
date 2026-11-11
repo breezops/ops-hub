@@ -1,5 +1,13 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.35 — NPC animation during guard handoff
+
+- Restore nearby NPC pose streaming for the host's actors.
+- Stream the rehearsal guard's pose from the guest while the guest
+  runs its AI. Validate the sender and ownership generation on the host.
+- Drop outdated poses at handoff and resume the current owner's stream.
+- The two-PC Freeform Training rehearsal still uses F8 for a single guard.
+
 ## 0.1.33 — NPC patrol and alert test
 
 - Prioritize moving NPCs within 40 metres of a guest for the 12 shared

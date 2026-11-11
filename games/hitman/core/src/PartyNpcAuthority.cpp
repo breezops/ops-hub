@@ -404,11 +404,19 @@ bool PartyNpcReplica::Pop(PartyNpcMessage& message) {
 bool PartyNpcReplica::Running(uint64_t npc) const {
     const auto it=m_Npcs.find(npc); return it!=m_Npcs.end() && it->second.running;
 }
-bool PartyNpcReplica::PresentingHostNpc(uint64_t npc) const {
+uint64_t PartyNpcReplica::RunningNpcGeneration(uint64_t npc) const {
     const auto it=m_Npcs.find(npc);
-    if(m_Stopped || m_Self.id==1 || it==m_Npcs.end()) return false;
+    if(m_Stopped || it==m_Npcs.end()) return 0;
     const auto& local=it->second;
-    return local.generation==1 && local.owner.id==1 && local.frozen && !local.suspended &&
+    return local.running && !local.frozen && !local.suspended && local.generation==local.fence &&
+        Same(local.owner,m_Self) ? local.generation : 0;
+}
+bool PartyNpcReplica::PresentingNpc(uint64_t npc,uint8_t owner,uint64_t generation) const {
+    const auto it=m_Npcs.find(npc);
+    if(m_Stopped || owner==m_Self.id || it==m_Npcs.end()) return false;
+    const auto& local=it->second;
+    return generation && local.generation==generation && local.fence==generation && local.owner.id==owner &&
+        local.frozen && !local.suspended &&
         local.state.life==PartyNpcLife::Alive && !local.state.stripped;
 }
 void PartyNpcReplica::ConfirmInitialGuests(uint64_t npc) {

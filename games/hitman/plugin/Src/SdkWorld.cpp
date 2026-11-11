@@ -3101,6 +3101,9 @@ bool SdkWorld::ResumeNpc(uint64_t id) {
     if (!m_CatalogHost) return false;
 #endif
     if (actor->phase==CatalogActorPhase::Held) {
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+        ClearNpcPresentationPose(id);
+#endif
         actor->released.reset();
         actor->captureRelease=false;
         actor->phase=CatalogActorPhase::Resume;
@@ -3165,21 +3168,25 @@ SdkWorld::CatalogPoseBinding* SdkWorld::BindCatalogAnimator(const NpcMutationGat
     if (index>=m_CatalogPoseBindings.size()) return nullptr;
     auto& binding=m_CatalogPoseBindings[index];
     if (binding.animator==animator && binding.ticket.birth==ticket.birth && binding.source==source) return &binding;
+    const bool wasSource=binding.source;
     if (binding.animator && !binding.source) PoseHook::ClearPoseFor(binding.animator);
     binding={ticket,animator,source};
-    if (source) RefreshCatalogPoseSources();
+    if (source || wasSource) RefreshCatalogPoseSources();
     return &binding;
 }
 
 bool SdkWorld::CaptureNpcPose(uint64_t id,coop::Pose& pose) {
     auto* actor=FindCatalogActor(id);
-    if (!m_CatalogHost || !actor || actor->phase!=CatalogActorPhase::Running) return false;
+    if (!actor || actor->phase!=CatalogActorPhase::Running) return false;
+#ifndef COOP_NPC_GUEST_HANDOFF_TEST
+    if (!m_CatalogHost) return false;
+#endif
     std::lock_guard lock(m_CatalogPoseMutex);
     auto* binding=BindCatalogAnimator(actor->ticket,true);
     if (!binding || !PoseHook::WatchedPose(binding->animator,m_NpcPoseBones,true) || m_NpcPoseBones.size()<2) return false;
     if (!binding->reported) {
-        CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","First host pose captured entity=%016llx bones=%zu",
-            static_cast<unsigned long long>(id),m_NpcPoseBones.size());
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","First owner pose captured role=%s entity=%016llx bones=%zu",
+            m_CatalogHost?"host":"guest",static_cast<unsigned long long>(id),m_NpcPoseBones.size());
         binding->reported=true;
     }
     BonesToPose(m_NpcPoseBones,pose);
@@ -3188,21 +3195,24 @@ bool SdkWorld::CaptureNpcPose(uint64_t id,coop::Pose& pose) {
 
 bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Transform& transform,const coop::Pose& pose) {
     auto* actor=FindCatalogActor(id);
-    if (m_CatalogHost || !actor || actor->phase!=CatalogActorPhase::Held || !actor->receipt ||
+    if (!actor || actor->phase!=CatalogActorPhase::Held || !actor->receipt ||
         !NpcHoldArbiter::OwnsHold(actor->ticket) || NpcHoldArbiter::ExternalCalls(actor->ticket)) return false;
+#ifndef COOP_NPC_GUEST_HANDOFF_TEST
+    if (m_CatalogHost) return false;
+#endif
     std::lock_guard lock(m_CatalogPoseMutex);
     auto* binding=BindCatalogAnimator(actor->ticket,false);
     if (!binding || !binding->animator) return false;
     if (!binding->overrideReported && PoseHook::PoseOverrideApplied(binding->animator)) {
-        CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","Guest pose override written entity=%016llx",
-            static_cast<unsigned long long>(id));
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","Replica pose override written role=%s entity=%016llx",
+            m_CatalogHost?"host":"guest",static_cast<unsigned long long>(id));
         binding->overrideReported=true;
     }
     if (!binding->reported) {
         const auto nativeCount=PoseHook::NativePoseOf(binding->animator,m_NpcPoseBones);
         if (nativeCount) {
-            CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","Guest animator observed entity=%016llx native=%u streamed=%zu",
-                static_cast<unsigned long long>(id),nativeCount,pose.rotations.size());
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","Replica animator observed role=%s entity=%016llx native=%u streamed=%zu",
+                m_CatalogHost?"host":"guest",static_cast<unsigned long long>(id),nativeCount,pose.rotations.size());
             binding->reported=true;
         }
     }

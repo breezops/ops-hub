@@ -448,6 +448,7 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         options.policy=PartyNpcPolicy::Explicit;
         options.confirmInitialGuestBaselines=true;
         options.fixedCatalog={npc};
+        options.streamPoses=true;
         unsigned hostHolds=0, guestHolds=0;
         NetworkNpc room(count,881,options);
         REQUIRE(room.Begin());
@@ -455,6 +456,9 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         const auto hostId=room.Identity(0);
         const auto guestId=room.Identity(guest);
         room.worlds[guest].apply=false;
+        room.worlds[0].sourcePoses[npc].rotations.resize(2);
+        room.worlds[guest].sourcePoses[npc].rotations.resize(kMaxPoseBones);
+        room.worlds[guest].sourcePoses[npc].pelvisPos.z=.5f;
         REQUIRE(room.sync[0]->Register(npc,PartyNpcState{},room.now));
         room.Step(.5);
         CHECK(!room.sync[0]->Propose(npc,guestId,room.now));
@@ -464,6 +468,7 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         REQUIRE(room.worlds[0].running[npc]);
 
         room.Step(options.minimumHold);
+        REQUIRE(room.worlds[guest].presentedPoses.contains(npc));
         REQUIRE(room.sync[0]->ObservePlayer(hostId,{30,0,0},room.now));
         REQUIRE(room.sync[0]->ObservePlayer(guestId,{0,0,0},room.now));
         room.Step(.6);
@@ -488,6 +493,15 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         room.worlds[guest].apply=true;
         room.Step(.7);
         REQUIRE(room.worlds[guest].running[npc] && !room.worlds[0].running[npc]);
+        for (size_t seat=0;seat<count;++seat) {
+            if (seat==guest) {
+                CHECK(!room.worlds[seat].presentedPoses.contains(npc));
+                continue;
+            }
+            REQUIRE(room.worlds[seat].presentedPoses.contains(npc));
+            CHECK(room.worlds[seat].presentedPoses.at(npc).rotations.size()==kMaxPoseBones);
+            CHECK(room.worlds[seat].presentedPoses.at(npc).pelvisPos.z==.5f);
+        }
         auto& guestState=room.worlds[guest].states[npc];
         CHECK(guestState.xf.pos.x==4.f);
         guestState.xf.pos.x=9.f;
@@ -500,6 +514,28 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         room.Step(.7);
         CHECK(room.worlds[0].running[npc] && !room.worlds[guest].running[npc]);
         for (size_t i=0;i<count;++i) CHECK(room.worlds[i].states[npc].xf.pos.x==9.f);
+        REQUIRE(room.worlds[guest].presentedPoses.contains(npc));
+
+        MsgNpcPose stale;
+        stale.epoch=room.rooms[0]->Status().epoch;
+        stale.timeMs=static_cast<uint32_t>(room.now*1000.)+100;
+        stale.id=npc;
+        stale.boneCount=2;
+        stale.rotations.resize(2);
+        ByteWriter writer;
+        writer.U8(static_cast<uint8_t>(MsgType::NpcPose));
+        writer.U64(1); // The first host lease was replaced during the round trip.
+        WriteTransform(writer,{});
+        stale.Write(writer);
+        PartyGameEvent event{hostId.id,hostId.incarnation,stale.epoch,PartyChannel::HostWorld,writer.Data(),false};
+        CHECK(!room.sync[guest]->Receive(event,room.now));
+        ByteWriter guestWriter;
+        guestWriter.U8(static_cast<uint8_t>(MsgType::NpcPose));
+        guestWriter.U64(2);
+        WriteTransform(guestWriter,{});
+        stale.Write(guestWriter);
+        event={guestId.id,guestId.incarnation,stale.epoch,PartyChannel::Interaction,guestWriter.Data(),false};
+        CHECK(!room.sync[0]->Receive(event,room.now));
     }
 }
 
@@ -545,7 +581,7 @@ TEST(PartyNpcSync_FixedNpcPosesFanOutAndClearAfterSilenceOrStop) {
     MsgNpcPose forged;
     forged.epoch=n.rooms[0]->Status().epoch; forged.id=55; forged.boneCount=2; forged.rotations.resize(2);
     forged.timeMs=static_cast<uint32_t>(n.now*1000.)+100;
-    ByteWriter writer; writer.U8(static_cast<uint8_t>(MsgType::NpcPose)); WriteTransform(writer,{}); forged.Write(writer);
+    ByteWriter writer; writer.U8(static_cast<uint8_t>(MsgType::NpcPose)); writer.U64(1); WriteTransform(writer,{}); forged.Write(writer);
     auto peer=n.Identity(2);
     PartyGameEvent event{peer.id,peer.incarnation,forged.epoch,PartyChannel::HostWorld,writer.Data(),false};
     CHECK(!n.sync[1]->Receive(event,n.now));

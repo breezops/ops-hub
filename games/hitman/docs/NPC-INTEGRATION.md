@@ -106,9 +106,15 @@ guest resume, a new running-job receipt, and a return to host control
 after the NPC settles. The adapter marks native interactions busy when
 it cannot prove the NPC is free. Keep that check until the native
 interaction reader or a controlled test condition is verified.
-The current NPC pose packets have no lease generation. The explicit
-handoff configuration leaves those packets off while the ownership path
-is validated.
+The initial handoff rehearsal disabled NPC poses. The next candidate
+streams poses for the host's nearby NPCs and for the guard while the
+guest runs it. The host checks the sender and current ownership
+generation before applying or relaying a guest frame. Each receiver
+clears the old pose on an ownership change and drops frames from
+previous generations. Native animation on the owner's own PC continues
+through the game animator. Guest streaming is currently exercised with
+the one-guard rehearsal. A larger delegated roster will need a shared
+bandwidth budget.
 
 The separate `COOP_NPC_GUEST_HANDOFF_TEST` build runs the agreed Freeform
 catalog and waits for an explicit F8 press from the host of a two-PC
@@ -120,6 +126,26 @@ physical interactions, knockouts and kills throughout this rehearsal.
 The diagnostic guard filter is scoped to this build because absence of
 drag, dump or victim flags is insufficient to prove a guard is generally
 free for transfer.
+
+The 0.1.34 two-PC rehearsal selected Jordan Reeves at the boat stairs.
+The guest confirmed a running native job for Reeves after the first F8,
+and the host confirmed a new running job for the same actor after the
+second F8. The testers saw Reeves react to the guest during guest
+ownership while the adjacent guard stayed quiet. The guest log shows no
+spotting, arrest, combat, or NPC tension transition during that interval.
+Its recorded trespass events came after the return to host ownership.
+This verifies the round trip and records the observed warning. A sustained
+guest detection or pursuit run still needs evidence while the guest owns
+the guard. Keep that ownership until the reaction and recovery are over.
+
+The repeat run confirmed guest spotting, arrest, combat and pursuit while
+Reeves was running on the guest. His tension returned to ambient before
+the second F8, and the host confirmed its replacement job. The testers
+saw Reeves slide on the host and other NPCs slide on the guest. These
+views used remote transform updates with pose streaming disabled. The
+rehearsal authorized only Reeves to run on the guest. Extending reactions
+to nearby guards requires a general ownership policy and shared alert
+handling.
 
 ## Next native milestones
 

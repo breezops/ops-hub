@@ -18,10 +18,11 @@ constexpr float kPoseRetentionBias=3.f;
 constexpr double kRecentMotionSeconds=0.75;
 constexpr size_t kNearbyPoseLimit=12;
 struct NpcPresentationPacket {
+    uint64_t generation=0;
     Transform transform;
     MsgNpcPose pose;
-    void Write(ByteWriter& writer) const { WriteTransform(writer,transform); pose.Write(writer); }
-    bool Read(ByteReader& reader) { return ReadTransform(reader,transform) && pose.Read(reader); }
+    void Write(ByteWriter& writer) const { writer.U64(generation); WriteTransform(writer,transform); pose.Write(writer); }
+    bool Read(ByteReader& reader) { return reader.U64(generation) && ReadTransform(reader,transform) && pose.Read(reader); }
 };
 bool ValidFullPose(const Pose& pose) {
     const auto position=[](Vec3 p) {
@@ -61,7 +62,7 @@ void PartyNpcSync::Fail() {
 void PartyNpcSync::Stop() {
     const bool notify=m_Active && Current();
     m_Active=false;
-    if(m_Host && m_Options.streamPoses && m_Options.nearbyNpcPoses) m_World.SetNpcPoseSources({});
+    if(m_Options.streamPoses) m_World.SetNpcPoseSources({});
     for(const auto& [npc,stream]:m_Poses) if(stream.applied) m_World.ClearNpcPresentationPose(npc);
     m_Poses.clear();
     m_PoseSources.clear();
@@ -116,84 +117,105 @@ bool PartyNpcSync::Receive(const PartyGameEvent& event,double now) {
     return false;
 }
 bool PartyNpcSync::ReceivePose(const PartyGameEvent& event,double now) {
-    if(!m_Options.streamPoses || m_Host || event.channel!=PartyChannel::HostWorld || event.source!=1 || event.reliable) return false;
+    if(!m_Options.streamPoses || event.reliable) return false;
+    if(event.source==1 ? event.channel!=PartyChannel::HostWorld :
+        event.channel!=PartyChannel::Interaction || m_Options.policy!=PartyNpcPolicy::Explicit) return false;
     NpcPresentationPacket frame;
     const auto& packet=frame.pose;
     const std::vector<uint8_t> body(event.payload.begin()+1,event.payload.end());
     if(!Decode(body,frame) || packet.epoch!=m_Scope.epoch || !packet.full ||
-        !m_Options.AcceptsNpc(packet.id) || !m_Replica->PresentingHostNpc(packet.id)) return false;
+        !m_Options.AcceptsNpc(packet.id) || !m_Replica->PresentingNpc(packet.id,event.source,frame.generation)) return false;
+    if(m_Host) {
+        const auto* record=m_Host->Find(packet.id);
+        if(!record || !record->confirmed || record->phase!=PartyNpcAuthority::Phase::Active ||
+            record->generation!=frame.generation || record->owner.id!=event.source ||
+            record->owner.incarnation!=event.incarnation) return false;
+    }
     Pose pose;
     if(!packet.ApplyTo(pose) || !ValidFullPose(pose)) return false;
     auto [it,inserted]=m_Poses.try_emplace(packet.id);
     auto& stream=it->second;
-    if(!inserted && static_cast<int32_t>(packet.timeMs-stream.timeMs)<=0) return false;
-    if(!inserted && now-stream.received>=kPoseTimeout) stream.buffer.Clear();
+    if(!inserted && stream.generation==frame.generation) {
+        if(static_cast<int32_t>(packet.timeMs-stream.timeMs)<=0) return false;
+        if(now-stream.received>=kPoseTimeout) stream.buffer.Clear();
+    } else {
+        if(stream.applied) m_World.ClearNpcPresentationPose(packet.id);
+        stream.buffer.Clear();
+        stream.applied=false;
+        stream.generation=frame.generation;
+        stream.owner=event.source;
+    }
     stream.buffer.Push(now,packet.timeMs,{frame.transform,std::move(pose)});
     stream.timeMs=packet.timeMs;
     stream.received=now;
+    if(m_Host) m_Room.ApproveInteraction(event);
     return true;
 }
-void PartyNpcSync::TickPoses(double now) {
-    if(m_Host) {
-        if(now<m_NextPose) return;
-        if(m_NextPose==0 || now-m_NextPose>=kPoseInterval) m_NextPose=now;
-        m_NextPose+=kPoseInterval;
-        std::vector<std::tuple<bool,float,uint64_t>> candidates;
-        for(const auto npc:m_Known) {
-            const auto* record=m_Host->Find(npc);
-            if(!record || !record->confirmed || record->phase!=PartyNpcAuthority::Phase::Active ||
-                record->state.life!=PartyNpcLife::Alive || record->state.stripped || !m_Replica->Running(npc)) continue;
-            float nearest=0.f;
-            bool moving=false;
-            if (m_Options.nearbyNpcPoses) {
-                moving=record->lastMovement>=0. && now-record->lastMovement<=kRecentMotionSeconds;
-                const bool wasStreaming=std::find(m_PoseSources.begin(),m_PoseSources.end(),npc)!=m_PoseSources.end();
-                const float radius=(moving ? kMovingPoseRadius : kNearbyPoseRadius) +
-                    (wasStreaming ? kPoseRetentionRadius : 0.f);
-                nearest=radius;
-                for (const auto& [seat,player]:m_Locations) {
-                    if (seat!=1 && now-player.observed<=m_Options.locationMaxAge)
-                        nearest=std::min(nearest,Distance(player.position,record->state.xf.pos));
-                }
-                if (nearest>=radius) continue;
-                if (wasStreaming) nearest=std::max(0.f,nearest-kPoseRetentionBias);
+void PartyNpcSync::SendPoses(double now) {
+    if(now<m_NextPose) return;
+    if(m_NextPose==0 || now-m_NextPose>=kPoseInterval) m_NextPose=now;
+    m_NextPose+=kPoseInterval;
+    std::vector<std::tuple<bool,float,uint64_t,uint64_t>> candidates;
+    for(const auto npc:m_Known) {
+        const auto generation=m_Replica->RunningNpcGeneration(npc);
+        if(!generation) continue;
+        const auto* record=m_Host ? m_Host->Find(npc) : nullptr;
+        if(m_Host && (!record || !record->confirmed || record->phase!=PartyNpcAuthority::Phase::Active ||
+            record->generation!=generation || record->state.life!=PartyNpcLife::Alive || record->state.stripped)) continue;
+        float nearest=0.f;
+        bool moving=false;
+        if (record && m_Options.nearbyNpcPoses) {
+            moving=record->lastMovement>=0. && now-record->lastMovement<=kRecentMotionSeconds;
+            const bool wasStreaming=std::find(m_PoseSources.begin(),m_PoseSources.end(),npc)!=m_PoseSources.end();
+            const float radius=(moving ? kMovingPoseRadius : kNearbyPoseRadius) +
+                (wasStreaming ? kPoseRetentionRadius : 0.f);
+            nearest=radius;
+            for (const auto& [seat,player]:m_Locations) {
+                if (seat!=1 && now-player.observed<=m_Options.locationMaxAge)
+                    nearest=std::min(nearest,Distance(player.position,record->state.xf.pos));
             }
-            candidates.emplace_back(!moving,nearest,npc);
+            if (nearest>=radius) continue;
+            if (wasStreaming) nearest=std::max(0.f,nearest-kPoseRetentionBias);
         }
-        if (m_Options.nearbyNpcPoses) {
-            std::sort(candidates.begin(),candidates.end());
-            if (candidates.size()>kNearbyPoseLimit) candidates.resize(kNearbyPoseLimit);
-            std::vector<uint64_t> ids;
-            ids.reserve(candidates.size());
-            for (const auto& candidate:candidates) ids.push_back(std::get<2>(candidate));
-            m_World.SetNpcPoseSources(ids);
-            m_PoseSources=std::move(ids);
-        }
-        for (const auto& candidate:candidates) {
-            const auto npc=std::get<2>(candidate);
-            Pose pose;
-            PartyNpcState state;
-            if (!m_World.CaptureNpcPose(npc,pose) || !ValidFullPose(pose) || !m_World.CaptureNpc(npc,state) ||
-                !ValidPartyNpcState(state) || state.life!=PartyNpcLife::Alive || state.stripped) continue;
-            NpcPresentationPacket frame;
-            frame.transform=state.xf;
-            auto& packet=frame.pose;
-            packet.epoch=m_Scope.epoch;
-            packet.timeMs=static_cast<uint32_t>(static_cast<uint64_t>(now*1000.));
-            packet.id=npc;
-            packet.boneCount=static_cast<uint16_t>(pose.rotations.size());
-            packet.rootPos=pose.rootPos;
-            packet.pelvisPos=pose.pelvisPos;
-            packet.rotations=std::move(pose.rotations);
-            auto bytes=Encode(frame);
-            bytes.insert(bytes.begin(),kNpcPosePacket);
-            m_Room.SendGame(PartyChannel::HostWorld,bytes,false);
-        }
-        return;
+        candidates.emplace_back(!moving,nearest,npc,generation);
     }
+    if (m_Options.nearbyNpcPoses || !m_Host) {
+        std::sort(candidates.begin(),candidates.end());
+        if (candidates.size()>kNearbyPoseLimit) candidates.resize(kNearbyPoseLimit);
+    }
+    std::vector<uint64_t> ids;
+    ids.reserve(candidates.size());
+    for (const auto& candidate:candidates) ids.push_back(std::get<2>(candidate));
+    m_World.SetNpcPoseSources(ids);
+    m_PoseSources=std::move(ids);
+    for (const auto& candidate:candidates) {
+        const auto npc=std::get<2>(candidate);
+        Pose pose;
+        PartyNpcState state;
+        if (!m_World.CaptureNpcPose(npc,pose) || !ValidFullPose(pose) || !m_World.CaptureNpc(npc,state) ||
+            !ValidPartyNpcState(state) || state.life!=PartyNpcLife::Alive || state.stripped) continue;
+        NpcPresentationPacket frame;
+        frame.generation=std::get<3>(candidate);
+        frame.transform=state.xf;
+        auto& packet=frame.pose;
+        packet.epoch=m_Scope.epoch;
+        packet.timeMs=static_cast<uint32_t>(static_cast<uint64_t>(now*1000.));
+        packet.id=npc;
+        packet.boneCount=static_cast<uint16_t>(pose.rotations.size());
+        packet.rootPos=pose.rootPos;
+        packet.pelvisPos=pose.pelvisPos;
+        packet.rotations=std::move(pose.rotations);
+        auto bytes=Encode(frame);
+        bytes.insert(bytes.begin(),kNpcPosePacket);
+        m_Room.SendGame(m_Host ? PartyChannel::HostWorld : PartyChannel::Interaction,bytes,false);
+    }
+}
+void PartyNpcSync::TickPoses(double now) {
+    if(m_Host || m_Options.policy==PartyNpcPolicy::Explicit) SendPoses(now);
     for(auto& [npc,stream]:m_Poses) {
         PresentationFrame frame;
-        const bool available=m_Replica->PresentingHostNpc(npc) && now-stream.received<kPoseTimeout && stream.buffer.Sample(now,frame);
+        const bool available=m_Replica->PresentingNpc(npc,stream.owner,stream.generation) &&
+            now-stream.received<kPoseTimeout && stream.buffer.Sample(now,frame);
         if(available && m_World.PresentNpcPose(npc,frame.transform,frame.pose)) stream.applied=true;
         else if(stream.applied) {
             m_World.ClearNpcPresentationPose(npc);

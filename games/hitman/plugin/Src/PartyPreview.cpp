@@ -95,10 +95,9 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         npcOptions.policy=coop::PartyNpcPolicy::Explicit;
                         m_NpcHandoffEpoch=0;
                         m_NpcHandoffGuard=0;
-#else
+#endif
                         npcOptions.streamPoses=true;
                         npcOptions.nearbyNpcPoses=true;
-#endif
                         m_World.SetNpcCatalogHost(host);
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,
                             npcOptions,true,true,static_cast<coop::IPartyFreeformLaunch*>(this),true,true);

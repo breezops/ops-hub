@@ -41,6 +41,8 @@ private:
     };
     struct PoseStream {
         TimedBuffer<PresentationFrame> buffer;
+        uint64_t generation=0;
+        uint8_t owner=0;
         uint32_t timeMs=0;
         double received=0;
         bool applied=false;
@@ -53,6 +55,7 @@ private:
     bool Current() const;
     bool ApplyHost(const PartyNpcMessage&);
     bool ReceivePose(const PartyGameEvent&,double now);
+    void SendPoses(double now);
     void TickPoses(double now);
     void Flush(double now);
     void Fail();

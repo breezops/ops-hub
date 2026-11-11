@@ -55,8 +55,6 @@ struct PartyNpcOptions {
     bool ValidCatalog() const {
         if (confirmInitialGuestBaselines && policy==PartyNpcPolicy::NearestPlayer) return false;
         if (nearbyNpcPoses && !streamPoses) return false;
-        // Pose packets currently identify the host stream, not its lease.
-        if (streamPoses && policy!=PartyNpcPolicy::HostOnly) return false;
         return fixedCatalog.empty() ? !streamPoses : (policy!=PartyNpcPolicy::NearestPlayer &&
             fixedCatalog.size()<=capacity && !fixedCatalog.contains(0));
     }
@@ -158,7 +156,8 @@ public:
     void ConfirmInitialGuests(uint64_t npc);
     bool Pop(PartyNpcMessage&);
     bool Running(uint64_t npc) const;
-    bool PresentingHostNpc(uint64_t npc) const;
+    uint64_t RunningNpcGeneration(uint64_t npc) const;
+    bool PresentingNpc(uint64_t npc, uint8_t owner, uint64_t generation) const;
     bool Stopped() const { return m_Stopped; }
     bool Stop();
     bool StopConfirmed() const { return m_StopConfirmed; }
