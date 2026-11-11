@@ -1,5 +1,18 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.33 — NPC patrol and alert test
+
+- Prioritize moving NPCs within 40 metres of a guest for the 12 shared
+  animation slots. Fill spare slots with idle NPCs within 25 metres.
+- Play the host's sampled NPC position and pose together. Blend back to
+  regular position updates when the pose stream ends.
+- Log the guest's first actual pose write per animator binding and record
+  native NPC tension changes and local detection events on both PCs.
+- Shared NPC behavior is still host-driven. This release gathers evidence
+  for guest detection and pursuit. Keep knockouts and kills out of this test.
+- Native build `0.13.94-four-player.preview.4.npc-agreed.4`, HITMAN 3.290.1,
+  party protocol 2. Both PCs need the matching release.
+
 ## 0.1.3 — 2026-11-09
 
 - Carry the animation world orientation alongside each player's bone pose.

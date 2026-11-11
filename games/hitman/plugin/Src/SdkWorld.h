@@ -660,13 +660,14 @@ private:
         coop::Transform blendFrom;
         double blendStarted=0;
         bool blendPending=false;
+        int32_t observedTension=-1;
 #endif
     };
     CatalogActor* FindCatalogActor(uint64_t id);
     struct CatalogPoseBinding {
         NpcMutationGate::Ticket ticket;
         void* animator=nullptr;
-        bool source=false, reported=false;
+        bool source=false, reported=false, overrideReported=false;
     };
     CatalogPoseBinding* BindCatalogAnimator(const NpcMutationGate::Ticket&,bool source);
     void RefreshCatalogPoseSources();
@@ -676,6 +677,9 @@ private:
     void RefuseNpcCatalog(const char* reason);
     std::string NpcCatalogError() const;
     std::vector<CatalogActor> m_CatalogActors;
+#ifdef COOP_NPC_AGREED_CATALOG
+    uint64_t m_NextCatalogTensionSample=0;
+#endif
     std::vector<uint64_t> m_CatalogIds;
     NpcMutationGate::Scope m_CatalogScope=0;
     CatalogPhase m_CatalogPhase=CatalogPhase::Idle;

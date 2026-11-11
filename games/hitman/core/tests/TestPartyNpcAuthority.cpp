@@ -535,6 +535,13 @@ TEST(PartyNpcSync_NearbyPoseBudgetUsesGuestLocationsAndClearsDistantPoses) {
     CHECK(!room.worlds[1].presentedPoses.contains(15));
     CHECK(room.worlds[1].states[15].xf.pos.x==15.f);
 
+    // A walker behind the idle crowd gets a slot even beyond the idle radius.
+    room.worlds[0].states[15].xf.pos.x=30.f;
+    room.Step(.3);
+    CHECK(room.worlds[0].poseSources.size()==12);
+    CHECK(room.worlds[0].poseSources.front()==15);
+    CHECK(room.worlds[1].presentedPoses.contains(15));
+
     REQUIRE(room.sync[0]->ObservePlayer(room.Identity(1),{200,0,0},room.now));
     REQUIRE(room.sync[0]->ObservePlayer(room.Identity(3),{200,0,0},room.now));
     room.Step(.85);

@@ -2952,6 +2952,9 @@ void SdkWorld::StopNpcCatalog() {
         RefreshCatalogPoseSources();
     }
     for (auto& actor:m_CatalogActors) actor={};
+#ifdef COOP_NPC_AGREED_CATALOG
+    m_NextCatalogTensionSample=0;
+#endif
     if (m_CatalogScope && NpcMutationGate::Clear(m_CatalogScope)) m_CatalogScope=0;
 }
 
@@ -3131,6 +3134,11 @@ bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Transform& transform,const
     std::lock_guard lock(m_CatalogPoseMutex);
     auto* binding=BindCatalogAnimator(actor->ticket,false);
     if (!binding || !binding->animator) return false;
+    if (!binding->overrideReported && PoseHook::PoseOverrideApplied(binding->animator)) {
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-pose","Guest pose override written entity=%016llx",
+            static_cast<unsigned long long>(id));
+        binding->overrideReported=true;
+    }
     if (!binding->reported) {
         const auto nativeCount=PoseHook::NativePoseOf(binding->animator,m_NpcPoseBones);
         if (nativeCount) {
@@ -3143,8 +3151,8 @@ bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Transform& transform,const
     if (!PoseHook::SetPoseFor(binding->animator,m_NpcPoseBones,true)) return false;
 #ifndef COOP_NPC_AGREED_CATALOG
     if (!actor->presentation && actor->baseline) actor->canonical=std::exchange(actor->baseline,std::nullopt);
-    actor->presentation=transform;
 #endif
+    actor->presentation=transform;
     return true;
 }
 
@@ -3157,7 +3165,15 @@ void SdkWorld::ClearNpcPresentationPose(uint64_t id) {
     }
     if (auto* actor=FindCatalogActor(id); actor && actor->presentation) {
         actor->presentation.reset();
+#ifdef COOP_NPC_AGREED_CATALOG
+        if (actor->canonical && actor->lastApplied) {
+            actor->blendFrom=*actor->lastApplied;
+            actor->blendStarted=m_Now;
+            actor->blendPending=true;
+        }
+#else
         if (actor->canonical) actor->baseline=std::exchange(actor->canonical,std::nullopt);
+#endif
     }
 }
 
@@ -3227,6 +3243,12 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
 #ifdef COOP_NPC_AGREED_CATALOG
     unsigned controlCalls=0;
     constexpr unsigned maxControlCalls=8;
+    // Use the original co-op alert sampling cadence on the validated actor.
+    // Tension describes the NPC, without identifying who caused the alert.
+    const bool sampleTension=m_CatalogPhase==CatalogPhase::Active && now>=m_NextCatalogTensionSample;
+    const bool firstTensionSample=sampleTension && !m_NextCatalogTensionSample;
+    size_t readableTension=0, sampledTension=0;
+    if (sampleTension) m_NextCatalogTensionSample=now+200;
 #endif
     for (auto& actor:m_CatalogActors) {
         const auto ticket=actor.ticket;
@@ -3240,6 +3262,23 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
         actor.observedAt=now;
         const bool owns=NpcHoldArbiter::OwnsHold(ticket);
         const bool drained=sample.native.held() && sample.native.drained() && !jobs.outstanding && owns;
+#ifdef COOP_NPC_AGREED_CATALOG
+        if (sampleTension && (m_CatalogHost ? actor.phase==Phase::Running : actor.phase==Phase::Held && drained)) {
+            ++sampledTension;
+            const auto tension=CrashGuards::TensionOf(static_cast<ZActor*>(ticket.actor)->m_pKnowledge);
+            constexpr auto ambient=static_cast<int32_t>(EGameTension::EGT_Ambient);
+            constexpr auto combat=static_cast<int32_t>(EGameTension::EGT_Combat);
+            if (tension>=ambient && tension<=combat) {
+                ++readableTension;
+                if (actor.observedTension!=tension && (tension>ambient || actor.observedTension>ambient)) {
+                    CoopLog::Fmt(coop::LogLevel::Info,"npc-alert","Tension role=%s entity=%016llx birth=%llu from=%d to=%d",
+                        m_CatalogHost?"host":"guest",static_cast<unsigned long long>(ticket.npc),
+                        static_cast<unsigned long long>(ticket.birth),actor.observedTension,tension);
+                }
+                actor.observedTension=tension;
+            }
+        }
+#endif
         switch (actor.phase) {
         case Phase::Hold: {
             if (drained) { actor.phase=Phase::Held; actor.deadline=0; break; }
@@ -3272,7 +3311,7 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
 #ifdef COOP_NPC_AGREED_CATALOG
             constexpr double blendSeconds=0.1;
             const auto blend=static_cast<float>(std::clamp((m_Now-actor.blendStarted)/blendSeconds,0.0,1.0));
-            if (!baseline && actor.blendPending && actor.canonical)
+            if (!transform && actor.blendPending && actor.canonical)
                 transform=coop::Lerp(actor.blendFrom,actor.canonical->xf,blend);
 #endif
             if (transform) {
@@ -3286,7 +3325,7 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
                 }
 #ifdef COOP_NPC_AGREED_CATALOG
                 actor.lastApplied=*transform;
-                if (!baseline && blend>=1.f) actor.blendPending=false;
+                if (!baseline && !actor.presentation && blend>=1.f) actor.blendPending=false;
 #endif
                 if (!baseline || !actor.baseline) break;
                 const auto& requested=*baseline;
@@ -3326,6 +3365,14 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             break;
         }
     }
+#ifdef COOP_NPC_AGREED_CATALOG
+    if (firstTensionSample && sampledTension) {
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-alert","Tension probe role=%s readable=%zu sampled=%zu",
+            m_CatalogHost?"host":"guest",readableTension,sampledTension);
+    } else if (firstTensionSample) {
+        m_NextCatalogTensionSample=0; // The host may still be resuming its actors.
+    }
+#endif
     if (m_CatalogPhase==CatalogPhase::Preparing && std::all_of(m_CatalogActors.begin(),m_CatalogActors.end(),
         [](const auto& actor) { return actor.phase==Phase::Held; })) {
         m_CatalogPhase=CatalogPhase::Active;

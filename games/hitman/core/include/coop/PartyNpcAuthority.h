@@ -78,6 +78,7 @@ public:
         PartyIdentity next;
         uint64_t nextGeneration=0;
         double changed=0, deadline=0, retryAt=0, snapshotAt=0;
+        double lastMovement=-1.;
         bool confirmed=false;
         uint8_t preparedGuests=0;
     };

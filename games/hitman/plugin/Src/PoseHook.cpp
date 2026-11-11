@@ -30,6 +30,7 @@ std::vector<PoseHook::Bone> g_ExtraPoses[c_Extras];
 std::vector<PoseHook::Bone> g_ExtraNative[c_Extras]; // the target's own first bones, before ours
 uint32_t g_ExtraNativeCount[c_Extras] {};
 bool g_ExtraExactCount[c_Extras] {};
+bool g_ExtraApplied[c_Extras] {};
 std::atomic<void*> g_Watched[c_Watched] {};
 std::vector<PoseHook::Bone> g_WatchedPoses[c_Watched];
 bool g_WatchedFresh[c_Watched] {};
@@ -201,6 +202,7 @@ void Update(void* p_This, void* p_In, uint8_t* p_Out, const void* p_World, uint6
             std::min<uint32_t>(s_Count, static_cast<uint32_t>(s_Pose.size()));
         g_ExtraNative[s_Extra].assign(s_Bones, s_Bones + s_Count);
         g_ExtraNativeCount[s_Extra] = s_Count;
+        if (s_Copy) g_ExtraApplied[s_Extra] = true;
 
         for (uint32_t i = 0; i < s_Copy; ++i) {
             WriteRotation(s_Bones[i], s_Pose[i].rot);
@@ -461,9 +463,18 @@ bool PoseHook::SetPoseFor(void* p_Animator, const std::vector<Bone>& p_Pose, boo
     g_ExtraPoses[s_Free] = p_Pose;
     g_ExtraExactCount[s_Free] = exactBoneCount;
     g_ExtraNativeCount[s_Free] = 0;
+    g_ExtraApplied[s_Free] = false;
     g_ExtraNative[s_Free].clear();
     g_Extras[s_Free] = p_Animator;
     return true;
+}
+
+bool PoseHook::PoseOverrideApplied(void* animator) {
+    if (!animator) return false;
+    std::lock_guard lock(g_Mutex);
+    for (size_t i=0;i<c_Extras;++i)
+        if (g_Extras[i]==animator) return g_ExtraApplied[i];
+    return false;
 }
 
 void PoseHook::ClearPoseFor(void* p_Animator) {

@@ -92,8 +92,11 @@ TEST(NpcPoses_ConsumesFreshSourceAndRequiresMatchingTargetRig) {
     CHECK(!PoseHook::WatchedPose(&f.animators[0],bones,true));
     REQUIRE(PoseHook::SetPoseFor(&f.animators[1],bones,true));
     CHECK(f.Run(1,1,5)[0].pos[0]==1);
+    CHECK(!PoseHook::PoseOverrideApplied(&f.animators[1]));
     CHECK(f.Run(1,1,4)[0].pos[0]==12);
+    CHECK(PoseHook::PoseOverrideApplied(&f.animators[1]));
     PoseHook::ClearPoseFor(&f.animators[1]);
+    CHECK(!PoseHook::PoseOverrideApplied(&f.animators[1]));
     CHECK(f.Run(1,1,4)[0].pos[0]==1);
     PoseHook::SetWatched({});
     f.Run(0,14);

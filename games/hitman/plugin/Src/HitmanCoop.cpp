@@ -2674,7 +2674,20 @@ DEFINE_PLUGIN_DETOUR(
         ZString data;
         Functions::ZDynamicObject_ToString->Call(const_cast<ZDynamicObject*>(&p_Event),data);
         const std::string json(data.c_str(),data.size());
-        m_World.ObservePartyNpcEvent(EventName(json),json);
+        const auto name=EventName(json);
+        m_World.ObservePartyNpcEvent(name,json);
+#ifdef COOP_NPC_AGREED_CATALOG
+        if (m_PartyPreview) {
+            const auto& party=m_PartyPreview->Status();
+            if (party.phase==coop::LobbyRoster::Phase::Playing) {
+                const auto awareness=coop::GameEvents::Awareness(name,json);
+                if (!awareness.empty()) {
+                    CoopLog::Fmt(coop::LogLevel::Info,"npc-alert","Local awareness seat=%u epoch=%u event=%s",
+                        static_cast<unsigned>(party.self),static_cast<unsigned>(party.epoch),awareness.c_str());
+                }
+            }
+        }
+#endif
     }
     if (m_Session && m_Session->Active()) {
         const bool s_Connected = m_Session->Status().state == coop::SessionState::Connected;

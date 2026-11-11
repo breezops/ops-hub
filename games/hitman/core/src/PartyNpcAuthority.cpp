@@ -169,7 +169,9 @@ bool PartyNpcAuthority::Receive(PartyIdentity source,const PartyNpcMessage& mess
             message.generation!=record.generation || message.sequence<=record.reportSequence) return false;
         if (m_Options.confirmInitialGuestBaselines && record.generation==1 && !InitialGuestsPrepared(message.npc)) return false;
         const auto previous=record.revision;
+        const bool moved=Distance(record.state.xf.pos,message.state.xf.pos)>=0.02f;
         if (!Adopt(record,message.state)) return false;
+        if (moved) record.lastMovement=now;
         record.reportSequence=message.sequence; record.confirmed=true;
         return previous==record.revision || Emit(0,message.npc,PartyNpcKind::Canonical,record);
     }

@@ -75,6 +75,7 @@ void ClearPlayerTargets();
 // Extra targets (the partner's takedown victims): each animator is given its pose every frame
 // until cleared. False when all slots are in use.
 bool SetPoseFor(void* p_Animator, const std::vector<Bone>& p_Pose, bool exactBoneCount = false);
+bool PoseOverrideApplied(void* animator);
 void ClearPoseFor(void* p_Animator);
 // Animators whose own pose is recorded (our NPCs near the partner, sent to them), and the latest.
 void SetWatched(std::span<void* const> p_Animators);

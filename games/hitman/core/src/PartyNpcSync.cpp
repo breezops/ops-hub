@@ -1,5 +1,6 @@
 #include "coop/PartyNpcSync.h"
 #include <cmath>
+#include <tuple>
 
 namespace coop {
 namespace {
@@ -11,6 +12,8 @@ constexpr uint8_t kNpcPosePacket=static_cast<uint8_t>(MsgType::NpcPose);
 constexpr double kPoseTimeout=0.75;
 constexpr double kPoseInterval=1./24.;
 constexpr float kNearbyPoseRadius=25.f;
+constexpr float kMovingPoseRadius=40.f;
+constexpr double kRecentMotionSeconds=0.75;
 constexpr size_t kNearbyPoseLimit=12;
 struct NpcPresentationPacket {
     Transform transform;
@@ -132,32 +135,35 @@ void PartyNpcSync::TickPoses(double now) {
         if(now<m_NextPose) return;
         if(m_NextPose==0 || now-m_NextPose>=kPoseInterval) m_NextPose=now;
         m_NextPose+=kPoseInterval;
-        std::vector<std::pair<float,uint64_t>> candidates;
+        std::vector<std::tuple<bool,float,uint64_t>> candidates;
         for(const auto npc:m_Known) {
             const auto* record=m_Host->Find(npc);
             if(!record || !record->confirmed || record->phase!=PartyNpcAuthority::Phase::Active ||
                 record->state.life!=PartyNpcLife::Alive || record->state.stripped || !m_Replica->Running(npc)) continue;
             float nearest=0.f;
+            bool moving=false;
             if (m_Options.nearbyNpcPoses) {
-                nearest=kNearbyPoseRadius;
+                moving=record->lastMovement>=0. && now-record->lastMovement<=kRecentMotionSeconds;
+                const float radius=moving ? kMovingPoseRadius : kNearbyPoseRadius;
+                nearest=radius;
                 for (const auto& [seat,player]:m_Locations) {
                     if (seat!=1 && now-player.observed<=m_Options.locationMaxAge)
                         nearest=std::min(nearest,Distance(player.position,record->state.xf.pos));
                 }
-                if (nearest>=kNearbyPoseRadius) continue;
+                if (nearest>=radius) continue;
             }
-            candidates.emplace_back(nearest,npc);
+            candidates.emplace_back(!moving,nearest,npc);
         }
         if (m_Options.nearbyNpcPoses) {
             std::sort(candidates.begin(),candidates.end());
             if (candidates.size()>kNearbyPoseLimit) candidates.resize(kNearbyPoseLimit);
             std::vector<uint64_t> ids;
             ids.reserve(candidates.size());
-            for (const auto& candidate:candidates) ids.push_back(candidate.second);
+            for (const auto& candidate:candidates) ids.push_back(std::get<2>(candidate));
             m_World.SetNpcPoseSources(ids);
         }
         for (const auto& candidate:candidates) {
-            const auto npc=candidate.second;
+            const auto npc=std::get<2>(candidate);
             Pose pose;
             PartyNpcState state;
             if (!m_World.CaptureNpcPose(npc,pose) || !ValidFullPose(pose) || !m_World.CaptureNpc(npc,state) ||
