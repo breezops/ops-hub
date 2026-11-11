@@ -82,6 +82,9 @@ public:
     // scope. Used by observation mode; never authorizes actor control.
     bool ValidatePartyNpcObservationAtActionBoundary(const void* actor,uint64_t npc,uint64_t birth,int32_t& runtimeId) const;
     void TracePartyNpcIdentity(); // Diagnostic build only; reads/counts, no NPC controls.
+#ifdef COOP_PARTY_NPC_DISCOVERY
+    void TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now);
+#endif
     void TracePartyNpcAction(const NpcActionObserver::View&);
     void MarkPartyNpcJobAttachment() { m_NpcJobAttachmentMark=m_NpcActorBirths.Mark(); }
     void ArmSoloNpcHold() { m_SoloHoldRequested=true; }
@@ -624,6 +627,7 @@ private:
     std::atomic<uint32_t> m_PartyGameThread=0;
     std::atomic<bool> m_PartyGameThreadChanged=false;
     ZActor* FindFreshPartyNpc(uint64_t id) const;
+    bool MatchesFreshPartyNpc(uint64_t id, ZActor* actor, const void* entity) const;
 #ifdef COOP_NPC_CATALOG
     enum class CatalogPhase { Idle, Binding, Preparing, Active, Stopped };
     enum class CatalogActorPhase { Hold, Drain, Held, Resume, StartJob, Running };
@@ -662,6 +666,12 @@ private:
 #endif
     double m_NextNpcIdentityAudit=0;
     unsigned m_NpcIdentityAudits=0;
+#ifdef COOP_PARTY_NPC_DISCOVERY
+    uint64_t m_NpcDiscoverySession=0;
+    uint32_t m_NpcDiscoveryEpoch=0;
+    double m_NextNpcDiscovery=0;
+    std::vector<std::string> m_LastNpcDiscovery;
+#endif
     double m_NextNpcActionAudit=0;
     unsigned m_NpcActionAudits=0;
     uint64_t m_NpcJobAttachmentMark=0; // Never reset on scene clear; diagnostic only.

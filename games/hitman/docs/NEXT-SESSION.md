@@ -246,6 +246,11 @@ For escorts and shared scripted behaviors, verify that dependent actors remain
 under coherent authority during the behavior. Ronnie and Ritter are the first
 acceptance example for that rule, with identities resolved by the generic path.
 
+The first NPC discovery build adds room-scoped scans to Loop-6. Compare
+the complete ID sets on two PCs before and after a restart. Use that
+evidence to select which native actor bindings can be admitted to shared
+simulation. Keep the scan independent of NPC names.
+
 ### Gameplay parity and upstream reuse
 
 Use Jordan Rodrigues's original 0.13.94 beta and the paired Foundation tests as
@@ -332,6 +337,9 @@ separate; focus loss/tutorials/map are not votes. Avoid a major pause detour.
    Loop-5 loaded the exact Freeform contract and reached playable state in
    about three seconds. Loop-6 uses that path for guests and checks the
    exact native contract and local avatar at the room's load barrier.
+   Loop-6 passed live two-PC and three-PC main-menu launches and
+   same-room restarts. The successful three-PC retry confirmed the exact
+   contract on initial load and restart in all three logs.
 3. **Complete and replay.** Bind shared objectives and native exit events.
    Collect actual local `ContractEnd` receipts before presenting party success.
    Return the party to mission choice with the same seats and allow replay.

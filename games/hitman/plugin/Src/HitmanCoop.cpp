@@ -1669,6 +1669,9 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     m_World.ProcessPartyNpcEvents();
     if (m_PartyPreview)
         m_PartyPreview->Tick(s_Now);
+#ifdef COOP_PARTY_NPC_DISCOVERY
+    m_World.TracePartyNpcDiscovery(m_PartyPreview ? &m_PartyPreview->Status() : nullptr,s_Now);
+#endif
 #ifdef COOP_PARTY_FREEFORM_PROBE
     UpdateFreeformLaunchProbe(s_Now);
 #endif

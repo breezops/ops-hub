@@ -2553,15 +2553,94 @@ ZActor* SdkWorld::FindFreshPartyNpc(uint64_t id) const {
         if (++matches!=1) return nullptr;
         actor=entry.m_pInterfaceRef; entity=entry.m_entityRef.m_pObj;
     }
-    if (!actor || IsPartnerActor(actor) || !actor->m_bEnabled || !actor->m_bActorActivated) return nullptr;
-    const auto runtime=actor->m_nActorRuntimeId;
-    if (runtime<0 || runtime>=500) return nullptr;
-    const auto& slot=manager->m_aActors[runtime];
-    if (slot.m_pInterfaceRef!=actor || slot.m_entityRef.m_pObj!=entity) return nullptr;
-    ZEntityRef actual; actor->GetID(actual);
-    if (!actual || actual.m_pObj!=entity || !actual->GetType() || actual->GetType()->m_nEntityID!=id) return nullptr;
-    return actor;
+    return MatchesFreshPartyNpc(id,actor,entity) ? actor : nullptr;
 }
+bool SdkWorld::MatchesFreshPartyNpc(uint64_t id, ZActor* actor, const void* entity) const {
+    if (!actor || IsPartnerActor(actor) || !actor->m_bEnabled || !actor->m_bActorActivated) return false;
+    const auto runtime=actor->m_nActorRuntimeId;
+    if (runtime<0 || runtime>=500) return false;
+    const auto& slot=Globals::ActorManager->m_aActors[runtime];
+    if (slot.m_pInterfaceRef!=actor || slot.m_entityRef.m_pObj!=entity) return false;
+    ZEntityRef actual; actor->GetID(actual);
+    return actual && actual.m_pObj==entity && actual->GetType() && actual->GetType()->m_nEntityID==id;
+}
+#ifdef COOP_PARTY_NPC_DISCOVERY
+void SdkWorld::TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now) {
+    using State=coop::PartyRoomStatus::State;
+    if (!status || (status->state!=State::Hosting && status->state!=State::Connected) ||
+        status->phase!=coop::LobbyRoster::Phase::Playing || !status->session || !status->epoch || !status->self ||
+        !m_InScene || PartyGameThread()!=GetCurrentThreadId() || !Globals::ActorManager) {
+        m_NpcDiscoverySession=0;
+        return;
+    }
+    const bool newEpoch=status->session!=m_NpcDiscoverySession || status->epoch!=m_NpcDiscoveryEpoch;
+    if (!newEpoch && now<m_NextNpcDiscovery) return;
+    m_NextNpcDiscovery=now+2.;
+
+    struct Candidate {
+        ZActor* actor=nullptr;
+        const void* entity=nullptr;
+        unsigned count=0;
+        bool hasMissionActor=false;
+    };
+    std::map<uint64_t,Candidate> candidates;
+    unsigned missingId=0;
+    for (const auto& entry:Globals::ActorManager->m_activatedActors) {
+        const auto* type=entry.m_entityRef ? entry.m_entityRef->GetType() : nullptr;
+        const auto id=type ? type->m_nEntityID : 0;
+        auto* actor=entry.m_pInterfaceRef;
+        const bool missionActor=actor && !IsPartnerActor(actor);
+        if (!id) {
+            if (missionActor) ++missingId;
+            continue;
+        }
+        auto& candidate=candidates[id];
+        ++candidate.count;
+        if (missionActor) {
+            candidate.hasMissionActor=true;
+            candidate.actor=actor;
+            candidate.entity=entry.m_entityRef.m_pObj;
+        }
+    }
+
+    std::vector<std::string> rows;
+    const bool birthsHealthy=m_NpcActorBirths.Healthy();
+    unsigned matched=0;
+    for (const auto& [id,candidate]:candidates) {
+        if (!candidate.hasMissionActor) continue;
+        std::ostringstream row;
+        row<<"id="<<std::hex<<id<<std::dec;
+        if (candidate.count!=1) {
+            row<<" state=ambiguous instances="<<candidate.count;
+        } else {
+            auto* actor=candidate.actor;
+            row<<" target="<<(actor->m_bContractTarget?1:0);
+            if (!actor->m_bEnabled || !actor->m_bActorActivated) {
+                row<<" state=inactive";
+            } else if (!MatchesFreshPartyNpc(id,actor,candidate.entity)) {
+                row<<" state=stale";
+            } else if (const auto birth=birthsHealthy ? m_NpcActorBirths.Find(actor) : 0) {
+                row<<" state=matched birth="<<birth<<" slot="<<actor->m_nActorRuntimeId;
+                ++matched;
+            } else {
+                row<<" state=untracked";
+            }
+        }
+        rows.push_back(row.str());
+    }
+    std::ostringstream summary;
+    summary<<"room="<<std::hex<<status->session<<std::dec<<" epoch="<<status->epoch
+           <<" seat="<<unsigned(status->self)<<" scene="<<m_Scene.scene
+           <<" ids="<<rows.size()<<" matched="<<matched<<" missing-id="<<missingId
+           <<" birth-book="<<(birthsHealthy?"healthy":"unavailable");
+    rows.insert(rows.begin(),summary.str());
+    if (!newEpoch && rows==m_LastNpcDiscovery) return;
+    m_NpcDiscoverySession=status->session;
+    m_NpcDiscoveryEpoch=status->epoch;
+    m_LastNpcDiscovery=std::move(rows);
+    for (const auto& row:m_LastNpcDiscovery) CoopLog::Info("npc-scan",row);
+}
+#endif
 uint64_t SdkWorld::CurrentPartyNpcBirth(uint64_t id) const {
     const auto* actor=FindFreshPartyNpc(id);
     return actor?m_NpcActorBirths.Find(actor):0;
