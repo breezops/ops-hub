@@ -18,11 +18,17 @@ uint64_t NextRetirement() {
 PartyPreviewRuntime::PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
                                        IPartyNpcWorld* npcWorld, PartyNpcOptions npcOptions,
                                        bool followHostRestart, bool autoInitialLoad, IPartyFreeformLaunch* launcher,
-                                       bool exchangeNpcRoster)
+                                       bool exchangeNpcRoster, bool prepareAgreedNpcCatalog)
     : m_Room(std::move(room)), m_Source(source), m_Sink(sink), m_Playback(sink),
-      m_NpcWorld(npcWorld), m_NpcOptions(npcOptions), m_AutoInitialLoad(autoInitialLoad && !npcWorld),
-      m_Launcher(m_AutoInitialLoad ? launcher : nullptr), m_FollowHostRestart(followHostRestart && !npcWorld) {
-    if (exchangeNpcRoster) m_NpcRoster=std::make_unique<PartyNpcRoster>(*m_Room);
+      m_NpcWorld(npcWorld), m_NpcOptions(npcOptions), m_PrepareAgreedNpcCatalog(npcWorld && prepareAgreedNpcCatalog),
+      m_AutoInitialLoad(autoInitialLoad && (!npcWorld || m_PrepareAgreedNpcCatalog)),
+      m_Launcher(m_AutoInitialLoad ? launcher : nullptr),
+      m_FollowHostRestart(followHostRestart && (!npcWorld || m_PrepareAgreedNpcCatalog)) {
+    if (exchangeNpcRoster || m_PrepareAgreedNpcCatalog) m_NpcRoster=std::make_unique<PartyNpcRoster>(*m_Room);
+    if (m_PrepareAgreedNpcCatalog) {
+        m_NpcOptions.fixedCatalog.clear();
+        m_NpcOptions.confirmInitialGuestBaselines=true;
+    }
 }
 
 void PartyPreviewRuntime::ObserveNpcRoster(std::span<const uint64_t> ids) {
@@ -92,13 +98,28 @@ bool PartyPreviewRuntime::RegisterFixedCatalog(double now) {
     return true;
 }
 
+bool PartyPreviewRuntime::PrepareAgreedNpcs() {
+    const auto& shared=m_NpcRoster->Shared();
+    if (m_NpcCatalogStarted) {
+        if (!shared || !std::includes(shared->begin(),shared->end(),m_NpcOptions.fixedCatalog.begin(),m_NpcOptions.fixedCatalog.end()))
+            return InterruptNpcs("The agreed NPC catalog changed. Reload the mission.");
+    } else {
+        if (!shared || shared->empty()) return false;
+        m_NpcOptions.fixedCatalog=std::set<uint64_t>(shared->begin(),shared->end());
+    }
+    if (!m_NpcScenePrepared) PrepareNpcs();
+    return m_NpcScenePrepared;
+}
+
 bool PartyPreviewRuntime::UpdateNpcs(double now, bool presenting) {
     if (!m_NpcWorld) return false;
+    if (m_PrepareAgreedNpcCatalog && Status().phase==LobbyRoster::Phase::Restarting) return false;
     if (m_NpcCatalogStarted && Status().phase==LobbyRoster::Phase::Loading && presenting && NativeReady()) return false;
     if (!presenting || !NativeReady() || Status().phase!=LobbyRoster::Phase::Playing) {
         if (m_NpcCatalogStarted) return InterruptNpcs("Shared NPC session stopped.");
         StopNpcs(); return false;
     }
+    if (m_PrepareAgreedNpcCatalog && !PrepareAgreedNpcs()) return false;
     if (!m_NpcScenePrepared) return InterruptNpcs("Native NPC preparation was not confirmed.");
     if (!m_Npcs) m_Npcs=std::make_unique<PartyNpcSync>(*m_Room,*m_NpcWorld,m_NpcOptions);
     if (!m_Npcs->Active()) {
@@ -137,11 +158,14 @@ bool PartyPreviewRuntime::UpdateNpcs(double now, bool presenting) {
     return m_Npcs->Active();
 }
 
-bool PartyPreviewRuntime::NativeReady() const {
+bool PartyPreviewRuntime::NativeSceneAvailable() const {
     Transform transform;
-    return !m_NpcStopFault && !m_NpcCatalogSpent && !m_NpcRetirementPending && m_Sink.PartyPreviewError().empty() &&
-        m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) &&
+    return m_Source.IsInScene() && IsFreeformTrainingScene(m_Source.CurrentScene().scene) &&
         (!m_Launcher || m_Launcher->NativeFreeformContract()) && m_Source.GetLocalAvatar(transform);
+}
+bool PartyPreviewRuntime::NativeReady() const {
+    return !m_NpcStopFault && !m_NpcCatalogSpent && !m_NpcRetirementPending && m_Sink.PartyPreviewError().empty() &&
+        NativeSceneAvailable();
 }
 bool PartyPreviewRuntime::LocalReady() const {
     for (const auto& member : Status().members)
@@ -236,9 +260,11 @@ void PartyPreviewRuntime::SceneCleared() {
         m_Source.Log(LogLevel::Info,"party-restart","Native scene clear observed for epoch "+std::to_string(m_RestartCleared)+".");
     }
     CancelRestart();
-    const bool retire=m_NpcWorld && (m_NpcOptions.fixedCatalog.empty() || m_NpcCatalogStarted || m_NpcCatalogSpent);
+    const bool retire=m_NpcWorld && ((!m_PrepareAgreedNpcCatalog && m_NpcOptions.fixedCatalog.empty()) ||
+        m_NpcCatalogStarted || m_NpcCatalogSpent);
     StopNpcs();
     m_Npcs.reset(); m_NpcCatalog.clear(); m_NextNpcCatalog=0;
+    if (m_PrepareAgreedNpcCatalog) m_NpcOptions.fixedCatalog.clear();
     if (retire) {
         m_NpcRetirementPending=true;
         m_NpcRetirement=NextRetirement();
@@ -343,7 +369,7 @@ void PartyPreviewRuntime::Tick(double now) {
         m_Room->SetReady(false,false);
     UpdateInitialLoad(now,native);
     UpdateGuestLaunch(now,native);
-    UpdateRestart(now,native);
+    UpdateRestart(now,m_PrepareAgreedNpcCatalog && status.phase==LobbyRoster::Phase::Restarting ? NativeSceneAvailable() : native);
     status=m_Room->Status();
     const bool restarted=status.phase==LobbyRoster::Phase::Restarting && !m_RestartFailed && m_RestartCleared==status.epoch;
     if ((status.phase==LobbyRoster::Phase::Loading || restarted) && native && now>=m_NextLoaded) {
@@ -351,8 +377,8 @@ void PartyPreviewRuntime::Tick(double now) {
         bool loaded=false;
         for (const auto& member : status.members) if (member.id==status.self) loaded=member.loaded;
         if (!loaded) {
-            if (m_NpcWorld && !m_NpcScenePrepared) PrepareNpcs();
-            if (!m_NpcWorld || m_NpcScenePrepared) m_Room->ReportLoaded();
+            if (m_NpcWorld && !m_PrepareAgreedNpcCatalog && !m_NpcScenePrepared) PrepareNpcs();
+            if (!m_NpcWorld || m_PrepareAgreedNpcCatalog || m_NpcScenePrepared) m_Room->ReportLoaded();
         }
         status=m_Room->Status();
     }

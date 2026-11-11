@@ -381,6 +381,58 @@ TEST(PartyNpcSync_TwoAndFourPeersRunTheSameOwnershipAndDeathPipeline) {
     }
 }
 
+TEST(PartyNpcSync_HostWaitsForEveryGuestsInitialBaselineReceipt) {
+    PartyNpcOptions options;
+    options.confirmInitialGuestBaselines=true;
+    NetworkNpc room(4,881,options);
+    REQUIRE(room.Begin());
+    constexpr uint64_t npc=55;
+    room.worlds[2].apply=false;
+    room.worlds[3].freeze=false;
+    room.worlds[3].running[npc]=true;
+    PartyNpcState baseline;
+    baseline.xf.pos.x=37.f;
+    REQUIRE(room.sync[0]->Register(npc,baseline,room.now));
+    room.Step(1.);
+    CHECK(room.worlds[0].resumes==0);
+    CHECK(room.worlds[1].states[npc]==baseline);
+    CHECK(room.worlds[2].applies>0);
+    CHECK(room.worlds[3].applies==0 && room.worlds[3].running[npc]);
+
+    const auto scope=room.sync[0]->Authority()->Scope();
+    const auto guest=room.Identity(3);
+    PartyNpcMessage receipt;
+    receipt.kind=PartyNpcKind::Prepared;
+    receipt.session=scope.session; receipt.epoch=scope.epoch; receipt.npc=npc;
+    receipt.generation=1; receipt.revision=1; receipt.owner=guest; receipt.state=baseline;
+    PartyGameEvent event;
+    event.source=guest.id; event.incarnation=guest.incarnation; event.epoch=scope.epoch;
+    event.channel=PartyChannel::Interaction; event.reliable=true;
+    receipt.state.xf.pos.x=42.f;
+    event.payload=EncodePartyNpc(receipt);
+    CHECK(!room.sync[0]->Receive(event,room.now));
+    receipt.state=baseline;
+    ++receipt.epoch;
+    event.payload=EncodePartyNpc(receipt);
+    REQUIRE(!event.payload.empty());
+    CHECK(!room.sync[0]->Receive(event,room.now));
+
+    room.worlds[3].freeze=true;
+    room.Step(.5);
+    CHECK(room.worlds[3].states[npc]==baseline && !room.worlds[3].running[npc]);
+    CHECK(room.worlds[0].resumes==0);
+    CHECK(!room.sync[0]->Authority()->InitialGuestsPrepared(npc));
+
+    room.worlds[2].apply=true;
+    room.Step(.5);
+    REQUIRE(room.sync[0]->Authority()->InitialGuestsPrepared(npc));
+    CHECK(room.worlds[0].resumes==1 && room.worlds[0].running[npc]);
+    for (size_t seat=1;seat<room.count;++seat) {
+        CHECK(room.worlds[seat].states[npc]==baseline);
+        CHECK(!room.worlds[seat].running[npc]);
+    }
+}
+
 TEST(PartyNpcSync_FixedNpcPosesFanOutAndClearAfterSilenceOrStop) {
     PartyNpcOptions options; options.fixedCatalog={55}; options.streamPoses=true;
     NetworkNpc n(4,774,options);
@@ -527,7 +579,7 @@ struct RuntimeNpcLab {
     double now=0;
     explicit RuntimeNpcLab(size_t players=4,bool enable=true,PartyNpcOptions options={},
                            std::optional<PartyNpcOptions> guestOptions={},bool exchangeNpcRoster=false,
-                           bool followHostRestart=false):count(players) {
+                           bool followHostRestart=false,bool prepareAgreedNpcCatalog=false):count(players) {
         for(size_t i=0;i<count;++i) {
             sources[i].inScene=true;
             sources[i].scene.scene="assembly:/_PRO/Scenes/Missions/TheFacility/_Scene_Mission_Polarbear_Module_002_B.entity";
@@ -546,7 +598,8 @@ struct RuntimeNpcLab {
             auto room=i==0?PartyRoom::Host(net->Open(host),config):
                 PartyRoom::Join(net->Open({uint32_t(0x0a000001+i),uint16_t(50001+i)}),host,config,now);
             games[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i],
-                enable?&natives[i]:nullptr,i && guestOptions?*guestOptions:options,followHostRestart,false,nullptr,exchangeNpcRoster);
+                enable?&natives[i]:nullptr,i && guestOptions?*guestOptions:options,followHostRestart,false,nullptr,exchangeNpcRoster,
+                prepareAgreedNpcCatalog);
         }
     }
     void AddNpc(uint64_t id) {
@@ -616,6 +669,56 @@ TEST(PartyNpcRoster_IntersectsFourPagedReportsAndDropsAgreementAtSceneChange) {
         REQUIRE(game->NpcRoster()->Shared());
         CHECK(*game->NpcRoster()->Shared()==withoutLast);
     }
+}
+
+TEST(PartyNpcRuntime_PreparesAgreedCatalogAndWaitsForGuestBaselinesAcrossRestart) {
+    RuntimeNpcLab lab(4,true,{},std::nullopt,true,true,true);
+    lab.AddNpc(56);
+    REQUIRE(lab.Begin());
+    const std::array<uint64_t,2> both{55,56};
+    const std::array<uint64_t,1> first{55},second{56};
+    lab.natives[3].prepare=false;
+    lab.natives[3].apply=false;
+    for (size_t i=0;i<3;++i) lab.games[i]->ObserveNpcRoster(both);
+    lab.Step(.5);
+    CHECK(lab.natives[0].catalogPreparations==0);
+    lab.games[3]->ObserveNpcRoster(first);
+    lab.Step(1.);
+    CHECK(lab.natives[0].preparedCatalog==std::set<uint64_t>{55});
+    CHECK(lab.natives[3].preparedCatalog.empty());
+    CHECK(lab.natives[0].resumes==0);
+    lab.natives[3].prepare=true;
+    lab.Step(.5);
+    for (const auto& native:lab.natives) CHECK(native.preparedCatalog==std::set<uint64_t>{55});
+    CHECK(lab.natives[0].resumes==0);
+    CHECK(lab.natives[3].applies>0);
+    lab.natives[3].apply=true;
+    lab.Step(.5);
+    REQUIRE(lab.natives[0].running[55]);
+    lab.games[3]->ObserveNpcRoster(both);
+    lab.Step(.5);
+    CHECK(lab.natives[0].running[55]);
+    CHECK(lab.natives[0].preparedCatalog==std::set<uint64_t>{55});
+
+    REQUIRE(lab.games[0]->HostMissionRestarted());
+    lab.Step(.5);
+    for (size_t i=0;i<lab.count;++i) {
+        REQUIRE(lab.games[i]->Status().phase==LobbyRoster::Phase::Restarting);
+        lab.games[i]->SceneCleared();
+        REQUIRE(lab.natives[i].retirements.size()==1);
+        lab.natives[i].retired.insert(lab.natives[i].retirements.back());
+    }
+    lab.Step(2.);
+    for (const auto& game:lab.games) {
+        REQUIRE(game->Status().phase==LobbyRoster::Phase::Playing);
+        CHECK(!game->SharedNpcsActive());
+        game->ObserveNpcRoster(second);
+    }
+    lab.Step(1.);
+    for (const auto& native:lab.natives) CHECK(native.preparedCatalog==std::set<uint64_t>{56});
+    CHECK(!lab.natives[0].running[55]);
+    CHECK(lab.natives[0].running[56]);
+    for (size_t i=1;i<lab.count;++i) CHECK(!lab.natives[i].running[56]);
 }
 
 TEST(PartyNpcRuntime_OptionalAdapterKeepsMovementAndNpcPacketsOnOneLifecycle) {

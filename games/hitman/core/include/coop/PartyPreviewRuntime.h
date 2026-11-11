@@ -21,7 +21,8 @@ public:
     PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
                         IPartyNpcWorld* npcWorld = nullptr, PartyNpcOptions npcOptions = {},
                         bool followHostRestart = false, bool autoInitialLoad = false,
-                        IPartyFreeformLaunch* launcher = nullptr, bool exchangeNpcRoster = false);
+                        IPartyFreeformLaunch* launcher = nullptr, bool exchangeNpcRoster = false,
+                        bool prepareAgreedNpcCatalog = false);
     ~PartyPreviewRuntime();
     void Tick(double now);
     bool Ready();
@@ -55,6 +56,7 @@ private:
     PartyNpcOptions m_NpcOptions;
     std::unique_ptr<PartyNpcSync> m_Npcs;
     std::unique_ptr<PartyNpcRoster> m_NpcRoster;
+    bool m_PrepareAgreedNpcCatalog = false;
     std::optional<std::vector<uint64_t>> m_LastSharedNpcIds;
     std::set<uint64_t> m_NpcCatalog;
     double m_NextNpcCatalog = 0;
@@ -66,6 +68,8 @@ private:
     void StopNpcs();
     bool InterruptNpcs(const char* reason);
     void PrepareNpcs();
+    bool PrepareAgreedNpcs();
+    bool NativeSceneAvailable() const;
     bool RegisterFixedCatalog(double now);
     bool UpdateNpcs(double now, bool presenting);
     uint32_t m_Epoch = 0;

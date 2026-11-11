@@ -826,3 +826,16 @@ The four-player roster regression covers paged agreement, immediate
 invalidation at host restart, and a different agreed set in the next
 epoch. Connecting host simulation requires confirming that remote
 simulators are stopped and can apply the host's baseline.
+
+The host-only startup handshake can now require a baseline receipt from
+each guest before the host resumes that NPC. A guest sends its receipt
+after the native adapter confirms both freeze and baseline application.
+The host checks the room epoch, seat incarnation, initial lease, revision,
+and exact baseline. The existing fixed catalog development adapter enables
+this mode and uses a distinct room build key. The agreed mission roster
+runtime can now prepare a catalog after agreement in Playing and use the
+same receipt handshake. It keeps the prepared set for the mission epoch
+while additional IDs appear and stops if a prepared ID leaves the
+agreement. Restart requires fresh agreement and the adapter's retirement
+receipt. The current agreed-roster DLL uses local simulation while the
+native preparation adapter is extended to accept that catalog.

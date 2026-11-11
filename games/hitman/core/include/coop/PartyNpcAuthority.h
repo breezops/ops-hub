@@ -49,7 +49,9 @@ struct PartyNpcOptions {
     // in such a build must use the same catalog and a distinct room build ID.
     std::set<uint64_t> fixedCatalog;
     bool streamPoses = false;
+    bool confirmInitialGuestBaselines = false;
     bool ValidCatalog() const {
+        if (confirmInitialGuestBaselines && policy!=PartyNpcPolicy::HostOnly) return false;
         return fixedCatalog.empty() ? !streamPoses : (policy==PartyNpcPolicy::HostOnly &&
             fixedCatalog.size()<=capacity && !fixedCatalog.contains(0));
     }
@@ -74,6 +76,7 @@ public:
         uint64_t nextGeneration=0;
         double changed=0, deadline=0, retryAt=0, snapshotAt=0;
         bool confirmed=false;
+        uint8_t preparedGuests=0;
     };
     explicit PartyNpcAuthority(PartyNpcScope, PartyNpcOptions = {});
     bool Register(uint64_t npc, const PartyNpcState&, double now);
@@ -85,6 +88,7 @@ public:
     void Stop();
     bool Pop(PartyNpcDelivery&);
     const Record* Find(uint64_t npc) const;
+    bool InitialGuestsPrepared(uint64_t npc) const;
     bool Failed() const { return m_Failed; }
     const PartyNpcScope& Scope() const { return m_Scope; }
 private:
@@ -135,12 +139,14 @@ public:
 };
 class PartyNpcReplica {
 public:
-    PartyNpcReplica(PartyNpcScope scope, PartyIdentity self, IPartyNpcWorld& world, size_t limit=1024);
+    PartyNpcReplica(PartyNpcScope scope, PartyIdentity self, IPartyNpcWorld& world, size_t limit=1024,
+                    bool confirmInitialGuestBaselines=false);
     ~PartyNpcReplica();
     // Caller passes the actual validated transport envelope origin and channel.
     bool Receive(PartyIdentity source, PartyChannel channel, const PartyNpcMessage&);
     bool Report(uint64_t npc, bool refresh=false);
     void RetryPending(); // Actor/template may become available after its catalog entry.
+    void ConfirmInitialGuests(uint64_t npc);
     bool Pop(PartyNpcMessage&);
     bool Running(uint64_t npc) const;
     bool PresentingHostNpc(uint64_t npc) const;
@@ -157,6 +163,7 @@ private:
         uint64_t generation=0, revision=0, sequence=0, prepared=0, fence=0, attempt=0;
         PartyNpcState state;
         bool running=false, frozen=true, suspended=false;
+        bool initialGuestsPrepared=false;
         PartyNpcMessage cachedRelease;
         std::optional<PartyNpcMessage> pending;
         std::optional<CommitProgress> install;
@@ -166,6 +173,7 @@ private:
     PartyIdentity m_Self;
     IPartyNpcWorld& m_World;
     size_t m_Limit;
+    bool m_ConfirmInitialGuestBaselines;
     bool m_Stopped=false, m_StopConfirmed=false;
     std::map<uint64_t,Local> m_Npcs;
     std::deque<PartyNpcMessage> m_Out;

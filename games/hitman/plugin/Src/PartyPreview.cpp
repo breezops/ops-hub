@@ -87,6 +87,7 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
 #ifdef COOP_NPC_CATALOG
                         npcOptions.capacity=npcOptions.fixedCatalog.size();
                         npcOptions.streamPoses=true;
+                        npcOptions.confirmInitialGuestBaselines=true;
                         m_World.SetNpcCatalogHost(host);
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,npcOptions);
 #elif defined(COOP_PARTY_GUEST_START)

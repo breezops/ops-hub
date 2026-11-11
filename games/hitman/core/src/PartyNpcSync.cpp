@@ -39,7 +39,7 @@ bool PartyNpcSync::Start() {
     if(m_Active || m_Failed || !m_Options.ValidCatalog() || !PartyNpcScope::FromRoom(m_Room.Status(),next) || next==m_Scope) return false;
     m_Scope=next;
     m_Self={m_Room.Status().self,m_Scope.incarnations[m_Room.Status().self-1]};
-    m_Replica=std::make_unique<PartyNpcReplica>(m_Scope,m_Self,m_World,m_Options.capacity);
+    m_Replica=std::make_unique<PartyNpcReplica>(m_Scope,m_Self,m_World,m_Options.capacity,m_Options.confirmInitialGuestBaselines);
     m_Host.reset();
     if(m_Room.Status().host) m_Host=std::make_unique<PartyNpcAuthority>(m_Scope,m_Options);
     if(m_Replica->Stopped() || (m_Host && m_Host->Failed())) { Fail(); return false; }
@@ -99,7 +99,10 @@ bool PartyNpcSync::Receive(const PartyGameEvent& event,double now) {
     }
     if(event.channel==PartyChannel::Interaction && m_Host && !HostKind(message.kind)) {
         if(message.kind!=PartyNpcKind::Report && !event.reliable) return false;
-        return m_Host->Receive({event.source,event.incarnation},message,now);
+        if(!m_Host->Receive({event.source,event.incarnation},message,now)) return false;
+        if(message.kind==PartyNpcKind::Prepared && m_Host->InitialGuestsPrepared(message.npc))
+            m_Replica->ConfirmInitialGuests(message.npc);
+        return true;
     }
     return false;
 }

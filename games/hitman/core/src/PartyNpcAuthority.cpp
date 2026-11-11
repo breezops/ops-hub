@@ -93,6 +93,14 @@ PartyNpcAuthority::PartyNpcAuthority(PartyNpcScope scope, PartyNpcOptions option
 const PartyNpcAuthority::Record* PartyNpcAuthority::Find(uint64_t npc) const {
     const auto it=m_Npcs.find(npc); return it==m_Npcs.end()?nullptr:&it->second;
 }
+bool PartyNpcAuthority::InitialGuestsPrepared(uint64_t npc) const {
+    const auto* record=Find(npc);
+    if (!m_Options.confirmInitialGuestBaselines || !record || record->generation!=1 || record->phase!=Phase::Active)
+        return false;
+    for (size_t seat=1;seat<m_Scope.incarnations.size();++seat)
+        if (m_Scope.incarnations[seat] && !(record->preparedGuests & (1u<<seat))) return false;
+    return true;
+}
 bool PartyNpcAuthority::Emit(uint8_t target,uint64_t npc,PartyNpcKind kind,const Record& record) {
     if (m_Failed) return false;
     if (m_Out.size()>=m_Options.queueLimit) { m_Out.clear(); m_Failed=m_Stopped=true; return false; }
@@ -159,6 +167,7 @@ bool PartyNpcAuthority::Receive(PartyIdentity source,const PartyNpcMessage& mess
     if (message.kind==PartyNpcKind::Report) {
         if ((record.phase!=Phase::Active && record.phase!=Phase::Releasing) || !Same(source,record.owner) ||
             message.generation!=record.generation || message.sequence<=record.reportSequence) return false;
+        if (m_Options.confirmInitialGuestBaselines && record.generation==1 && !InitialGuestsPrepared(message.npc)) return false;
         const auto previous=record.revision;
         if (!Adopt(record,message.state)) return false;
         record.reportSequence=message.sequence; record.confirmed=true;
@@ -176,6 +185,12 @@ bool PartyNpcAuthority::Receive(PartyIdentity source,const PartyNpcMessage& mess
         return Emit(record.next.id,message.npc,PartyNpcKind::Prepare,record);
     }
     if (message.kind==PartyNpcKind::Prepared) {
+        if (m_Options.confirmInitialGuestBaselines && message.generation==1) {
+            if (source.id==1 || record.generation!=1 || record.phase!=Phase::Active || record.confirmed ||
+                message.revision!=record.revision || !(message.state==record.state)) return false;
+            record.preparedGuests|=static_cast<uint8_t>(1u<<(source.id-1));
+            return true;
+        }
         if (record.phase!=Phase::Preparing || !Same(source,record.next) || message.generation!=record.nextGeneration || message.revision!=record.revision) return false;
         if (record.revision==std::numeric_limits<uint64_t>::max()) { Stop(); m_Failed=true; return false; }
         record.owner=record.next; record.generation=record.nextGeneration; record.next={}; record.nextGeneration=0;
@@ -223,8 +238,10 @@ bool PartyNpcAuthority::Pop(PartyNpcDelivery& delivery) {
     delivery=std::move(m_Out.front()); m_Out.pop_front(); return true;
 }
 
-PartyNpcReplica::PartyNpcReplica(PartyNpcScope scope,PartyIdentity self,IPartyNpcWorld& world,size_t limit)
-    :m_Scope(scope),m_Self(self),m_World(world),m_Limit(limit) {
+PartyNpcReplica::PartyNpcReplica(PartyNpcScope scope,PartyIdentity self,IPartyNpcWorld& world,size_t limit,
+                                 bool confirmInitialGuestBaselines)
+    :m_Scope(scope),m_Self(self),m_World(world),m_Limit(limit),
+     m_ConfirmInitialGuestBaselines(confirmInitialGuestBaselines) {
     m_Stopped=!ScopeValid(scope) || !scope.Contains(self) || !limit || limit>4096;
 }
 PartyNpcReplica::~PartyNpcReplica() { Stop(); }
@@ -342,6 +359,8 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
         if(!m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
         step=Step::Resume;
     }
+    const bool initial=m_ConfirmInitialGuestBaselines && message.generation==1 && message.owner.id==1;
+    if(initial && mine && !local.initialGuestsPrepared) return defer();
     if(mine && message.state.life==PartyNpcLife::Alive && !m_World.ResumeNpc(message.npc)) return defer();
     local.running=mine && message.state.life==PartyNpcLife::Alive; local.frozen=!mine;
     local.owner=message.owner; local.generation=message.generation; local.revision=message.revision;
@@ -350,6 +369,8 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
     local.reported.reset();
     local.pending.reset();
     local.install.reset();
+    if(initial && !mine)
+        return Emit(MakeNpcMessage(m_Scope,message.npc,PartyNpcKind::Prepared,message.generation,message.revision,m_Self,message.state));
     return true;
 }
 bool PartyNpcReplica::Report(uint64_t npc,bool refresh) {
@@ -381,6 +402,11 @@ bool PartyNpcReplica::PresentingHostNpc(uint64_t npc) const {
     const auto& local=it->second;
     return local.generation==1 && local.owner.id==1 && local.frozen && !local.suspended &&
         local.state.life==PartyNpcLife::Alive && !local.state.stripped;
+}
+void PartyNpcReplica::ConfirmInitialGuests(uint64_t npc) {
+    const auto it=m_Npcs.find(npc);
+    if (m_ConfirmInitialGuestBaselines && m_Self.id==1 && !m_Stopped && it!=m_Npcs.end())
+        it->second.initialGuestsPrepared=true;
 }
 void PartyNpcReplica::RetryPending() {
     if(m_Stopped) return;

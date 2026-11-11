@@ -119,10 +119,13 @@ bool PartyNpcRoster::Receive(const PartyGameEvent& event) {
     auto& snapshot=host ? m_Reports[event.source-1] : m_HostReport;
     if (revision<snapshot.revision) return false;
     if (revision>snapshot.revision) {
+        // Keep the last complete report until all pages of the replacement
+        // arrive. An in-flight page must not revoke a prepared catalog.
+        auto previous=std::move(snapshot.ids);
         snapshot={};
+        snapshot.ids=std::move(previous);
         snapshot.revision=revision;
         snapshot.pageCount=count;
-        UpdateShared();
     }
     if (snapshot.pageCount!=count) return false;
     if (snapshot.pages[page]) return snapshot.pages[page]==ids;
