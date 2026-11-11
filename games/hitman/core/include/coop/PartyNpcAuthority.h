@@ -52,9 +52,9 @@ struct PartyNpcOptions {
     bool streamPoses = false;
     bool nearbyNpcPoses = false;
     bool confirmInitialGuestBaselines = false;
-    bool automaticSingleGuard = false;
+    bool automaticGuardHandoffs = false;
     bool ValidCatalog() const {
-        if (automaticSingleGuard && policy!=PartyNpcPolicy::Explicit) return false;
+        if (automaticGuardHandoffs && policy!=PartyNpcPolicy::Explicit) return false;
         if (confirmInitialGuestBaselines && policy==PartyNpcPolicy::NearestPlayer) return false;
         if (nearbyNpcPoses && !streamPoses) return false;
         return fixedCatalog.empty() ? !streamPoses : (policy!=PartyNpcPolicy::NearestPlayer &&

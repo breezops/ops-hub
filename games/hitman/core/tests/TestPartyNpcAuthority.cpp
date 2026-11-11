@@ -546,7 +546,7 @@ TEST(PartyNpcSync_AutomaticGuardFollowsGuestProximityAndStaysThroughRecovery) {
     PartyNpcOptions options;
     options.policy=PartyNpcPolicy::Explicit;
     options.confirmInitialGuestBaselines=true;
-    options.automaticSingleGuard=true;
+    options.automaticGuardHandoffs=true;
     options.fixedCatalog={55,77};
     NetworkNpc room(2,982,options);
     REQUIRE(room.Begin());
@@ -587,6 +587,56 @@ TEST(PartyNpcSync_AutomaticGuardFollowsGuestProximityAndStaysThroughRecovery) {
         room.Step(.7);
     }
     CHECK(room.worlds[0].running[77] && !room.worlds[1].running[77]);
+}
+
+TEST(PartyNpcSync_AutomaticGuardsSupportThreeIndependentGuests) {
+    PartyNpcOptions options;
+    options.policy=PartyNpcPolicy::Explicit;
+    options.confirmInitialGuestBaselines=true;
+    options.automaticGuardHandoffs=true;
+    options.fixedCatalog={55,56,77,99};
+    NetworkNpc room(4,983,options);
+    REQUIRE(room.Begin());
+    const auto addGuard=[&](uint64_t npc,float x) {
+        PartyNpcState state;
+        state.xf.pos.x=x;
+        REQUIRE(room.sync[0]->Register(npc,state,room.now));
+    };
+    addGuard(55,2.f);
+    addGuard(56,4.f);
+    addGuard(77,26.f);
+    addGuard(99,51.f);
+    room.Step(options.minimumHold+.5);
+
+    const auto locations=[&](float firstGuestX,float secondGuestX,float thirdGuestX) {
+        const std::array<float,4> positions {100.f,firstGuestX,secondGuestX,thirdGuestX};
+        for (size_t player=0;player<positions.size();++player)
+            REQUIRE(room.sync[0]->ObservePlayer(room.Identity(player),{positions[player],0,0},room.now));
+    };
+    locations(1.f,14.f,50.f);
+    room.Step(.7);
+    REQUIRE(room.worlds[1].running[55]);
+    REQUIRE(room.worlds[2].running[77]);
+    REQUIRE(room.worlds[3].running[99]);
+    CHECK(room.worlds[0].running[56]);
+
+    room.worlds[1].states[55].engaged=true;
+    room.worlds[2].states[77].engaged=true;
+    room.Step(.3);
+    locations(100.f,85.f,50.f);
+    room.Step(.6);
+    CHECK(room.worlds[1].running[55]);
+    CHECK(room.worlds[2].running[77]);
+
+    room.worlds[1].states[55].engaged=false;
+    for (unsigned i=0;i<4;++i) {
+        locations(100.f,85.f,50.f);
+        room.Step(.7);
+    }
+    CHECK(room.worlds[0].running[55]);
+    CHECK(room.worlds[2].running[77]);
+    CHECK(room.worlds[3].running[99]);
+    CHECK(room.worlds[0].running[56]);
 }
 
 TEST(PartyNpcSync_FourPlayersPrepareTheFullFreeformSizedCatalog) {

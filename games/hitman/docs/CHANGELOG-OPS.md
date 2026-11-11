@@ -1,5 +1,13 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.41 — Independent guest guard handoffs
+
+- Allow one nearby guard per guest in a Freeform Training party of up
+  to four players.
+- Prefer the nearest eligible guest and keep an active encounter with
+  its current owner through recovery.
+- Return calm guards independently while other encounters continue.
+
 ## 0.1.40 — Automatic guard handoff test
 
 - Automatically assign one calm nearby guard to the guest when they

@@ -94,7 +94,7 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
 #ifdef COOP_NPC_GUEST_HANDOFF_TEST
                         npcOptions.policy=coop::PartyNpcPolicy::Explicit;
 #ifdef COOP_NPC_AUTO_HANDOFF_TEST
-                        npcOptions.automaticSingleGuard=true;
+                        npcOptions.automaticGuardHandoffs=true;
 #endif
                         m_NpcHandoffEpoch=0;
                         m_NpcHandoffGuard=0;

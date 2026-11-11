@@ -175,8 +175,21 @@ host back and have the guest approach and trespass without F8. Move
 the guest away after the guard recovers and compare the paired
 native running-job logs. The automatic selection is map-independent,
 while the private native rehearsal still runs in Freeform Training.
-Keep the one-guard limit until native detection and recovery are
-verified before testing simultaneous encounters with four real PCs.
+
+The 0.1.40 two-PC test passed without F8. Jordan Reeves started running
+on the guest before the trespass and entered alert, arrest, and combat
+on that PC. He returned to ambient, then the host resumed his AI at
+the original post. Ronnie Aguilar was assigned only after Reeves
+returned to the host.
+
+The 0.1.41 build keeps one slot per guest, including during handoff
+and return. Each calm eligible guard is considered for the closest
+guest. If that guest already has a guard, the host keeps the candidate.
+With three or four PCs, spread guests across different guards and
+check that one guard returning does not interrupt another pursuit.
+The simulated four-player test covers three separate assignments,
+competition for the same guard, and independent recovery. Native
+simultaneous encounters still require a multiplayer test.
 
 ### Drawn weapon visibility
 
@@ -200,6 +213,13 @@ guest saw Reeves draw his gun, and the host saw empty hands. Both logs
 kept the actor's unholstered flag at zero. The follow-up probe reads
 visibility on the actual weapon geometry and the item's native
 visibility switch, in addition to the inventory and actor fields.
+
+In 0.1.40, Reeves's weapon visibility switch followed the visible
+draw and holster on the guest. The host had the same main weapon
+and its switch stayed off while Reeves was a replica. The geometry
+flag was on throughout, and the unholstered flag stayed off. Use the
+owner's visibility switch as the next candidate signal, and match
+the replica's weapon identity before applying it.
 
 The player-weapon candidate sends the held item's repository ID with
 the avatar frame. Empty frames clear the held item. Playback rejects

@@ -51,14 +51,14 @@ private:
     std::vector<uint64_t> m_PoseSources;
     double m_NextPose=0;
     double m_NextReport=0, m_NextPolicy=0, m_NextRefresh=0;
-    uint64_t m_AutomaticGuard=0;
+    std::array<uint64_t,4> m_AutomaticGuards {};
     bool m_Active=false, m_Failed=false;
     bool Current() const;
     bool ApplyHost(const PartyNpcMessage&);
     bool ReceivePose(const PartyGameEvent&,double now);
     void SendPoses(double now);
     void TickPoses(double now);
-    void ConsiderAutomaticGuard(double now);
+    void ConsiderAutomaticGuards(double now);
     void Flush(double now);
     void Fail();
 };
