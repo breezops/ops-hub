@@ -120,6 +120,7 @@ struct AvatarSink : IPartyAvatarWorld {
     std::array<Pose, 5> poses;
     std::array<OutfitDesc, 5> outfits;
     std::array<std::vector<int16_t>, 5> skeletons;
+    std::array<std::string, 5> heldItems;
     std::array<int, 5> shown {}, posed {}, hidden {};
     int hiddenAll = 0;
     bool ApplyPartyRoster(const PartyRoomStatus&) override { return accept; }
@@ -131,6 +132,7 @@ struct AvatarSink : IPartyAvatarWorld {
     }
     bool SetPartyOutfit(uint8_t id, uint64_t, uint32_t, const OutfitDesc& outfit) override { outfits[id] = outfit; return true; }
     bool SetPartySkeleton(uint8_t id, uint64_t, uint32_t, const std::vector<int16_t>& parents) override { skeletons[id] = parents; return true; }
+    void SetPartyHeldItem(uint8_t id,uint64_t,uint32_t,const std::string& item) override { heldItems[id]=item; }
     bool HidePartyAvatar(uint8_t id, uint64_t, uint32_t) override { ++hidden[id]; return true; }
     void HidePartyAvatars() override { ++hiddenAll; }
 };
@@ -220,6 +222,30 @@ TEST(PartyPlayback_DuplicateOrReorderedPacketsCannotKeepAFrozenAvatarAlive) {
     playback.Tick(3.3);
     CHECK(sink.shown[2] == 2);
     CHECK(sink.transforms[2].pos.x == 30.f);
+}
+
+TEST(PartyPlayback_HeldItemIsScopedToTheNewestAvatarFrameAndSeat) {
+    AvatarSink sink;
+    PartyAvatarPlayback playback(sink);
+    REQUIRE(playback.UpdateRoster(Playing()));
+    MsgAvatarState state;
+    state.epoch=4;
+    state.timeMs=1000;
+    state.heldItem="2953E9AC-E25B-41AE-AFBF-4A47F86C4F54";
+    PartyGameEvent draw{2,102,4,PartyChannel::Avatar,PartyAvatarPacket(state),false};
+    REQUIRE(playback.Receive(draw,1.));
+    CHECK(sink.heldItems[2]==state.heldItem);
+    CHECK(sink.heldItems[3].empty());
+    auto holster=AvatarEvent(2,1100,0.f);
+    REQUIRE(playback.Receive(holster,1.1));
+    CHECK(!playback.Receive(draw,1.2));
+    CHECK(sink.heldItems[2].empty());
+    auto roster=Playing();
+    ++roster.revision;
+    roster.members[1].incarnation=900;
+    REQUIRE(playback.UpdateRoster(roster));
+    CHECK(!playback.Receive(draw,1.3));
+    CHECK(sink.heldItems[2].empty());
 }
 
 TEST(PartyPlayback_ReconnectAndReplayClearBufferedTransformsAndPoses) {

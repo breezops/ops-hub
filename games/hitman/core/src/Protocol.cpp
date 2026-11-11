@@ -273,14 +273,30 @@ bool MsgSceneReady::Read(ByteReader& r) {
     return r.U32(epoch);
 }
 
+namespace {
+bool ValidHeldItem(const std::string& item) {
+    if (item.size()!=36) return false;
+    for (size_t i=0;i<item.size();++i) {
+        const auto c=item[i];
+        const bool dash=i==8 || i==13 || i==18 || i==23;
+        if (dash ? c!='-' : !((c>='0' && c<='9') || (c>='A' && c<='F') || (c>='a' && c<='f')))
+            return false;
+    }
+    return true;
+}
+}
+
 void MsgAvatarState::Write(ByteWriter& w) const {
     w.U32(epoch);
     w.U32(timeMs);
     WriteTransform(w, xf);
+    if (ValidHeldItem(heldItem)) w.Str(heldItem);
 }
 
 bool MsgAvatarState::Read(ByteReader& r) {
-    return r.U32(epoch) && r.U32(timeMs) && ReadTransform(r, xf);
+    heldItem.clear();
+    if (!r.U32(epoch) || !r.U32(timeMs) || !ReadTransform(r, xf)) return false;
+    return r.AtEnd() || (r.Str(heldItem,36) && ValidHeldItem(heldItem));
 }
 
 void MsgVictimPose::Write(ByteWriter& w) const {

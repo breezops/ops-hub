@@ -156,11 +156,15 @@ returned actors for 1.5 seconds within the existing moving-pose range
 and slot cap. This addresses the observed stream gap. The snap still
 needs a live retest.
 
+In the 0.1.36 retest the host resumed Reeves in 167 ms and captured the
+first host pose 259 ms after F8. The tester saw an immediate head
+direction reset without the previous snap.
+
 ### Drawn weapon visibility
 
 The same test reported invisible drawn weapons on remote players and
-guards. The current party animation carries bones and transforms. It
-does not carry equipment identity or drawn state. The original mod
+guards. The 0.1.35 party animation carried bones and transforms. It
+did not carry equipment identity or drawn state. The original mod
 already identifies the local player's held item by repository ID and
 attaches a native presentation copy to its legacy stand-in using the
 inventory handler. Reuse that path with a slot per party avatar and
@@ -173,13 +177,29 @@ Scope the visual state to the current actor and ownership generation.
 Verify draw and holster on both PCs before connecting the separate
 gameplay paths for shots, damage, pickups and inventory.
 
+The 0.1.36 retest confirmed matching main weapons on both PCs. The
+guest saw Reeves draw his gun, and the host saw empty hands. Both logs
+kept the actor's unholstered flag at zero. The follow-up probe reads
+visibility on the actual weapon geometry and the item's native
+visibility switch, in addition to the inventory and actor fields.
+
+The player-weapon candidate sends the held item's repository ID with
+the avatar frame. Empty frames clear the held item. Playback rejects
+old timestamps and stale party identities before changing the avatar.
+The native adapter requests a presentation item for that seat and
+attaches it through the original inventory finalizer. Holster, hide
+and scene changes invalidate outstanding requests. The callback checks
+the requested item entity before touching the avatar and disables pickup
+on the visual copy. Test draw, holster, swap, and a mission restart with
+two PCs before expanding this to back-slot equipment or guards.
+
 ### Order for the next playtests
 
 1. Retest the returning guard's pose and keep the successful chase as a
    baseline. The same run can compare the native guard's main weapon and
    drawn state against its held copy. The rehearsal logs both values
    when they change on either PC.
-2. Add player weapon visibility using the original stand-in attachment
+2. Verify player weapon visibility using the original stand-in attachment
    path. Use the guard readback to decide whether replicas can show
    their existing weapon or need a presentation copy.
 3. Check Escape and tutorial interruptions separately using the same

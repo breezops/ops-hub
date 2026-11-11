@@ -2143,6 +2143,7 @@ void SdkWorld::HideRemoteAvatar() {
 
 void SdkWorld::HideRemoteAvatar(RemoteAvatarState& avatar) {
     avatar.appearance.Hide();
+    if (avatar.playerId) ClearPartyHeldItem(avatar);
     if (!avatar.entity || avatar.partnerHidden)
         return;
 
@@ -2522,6 +2523,8 @@ void SdkWorld::ListNpcs(std::vector<coop::NpcState>& p_Out) const {
 }
 
 #ifdef COOP_NPC_GUEST_HANDOFF_TEST
+namespace { bool ItemDrawn(const ZHM5Item* item); }
+
 static bool IsHandoffGuard(const ZActor& actor) {
     const auto* outfit=actor.m_rOutfit.m_pInterfaceRef;
     return outfit && outfit->m_eActorType==EActorType::eAT_Guard &&
@@ -3339,16 +3342,25 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             const bool drawn=nativeActor->m_bWeaponUnholstered;
             const auto* inventory=nativeActor->m_pInventoryHandler;
             const bool hasMain=inventory && inventory->m_rMainWeapon.m_pInterfaceRef;
-            if (actor.observedWeaponRunning!=running || drawn!=actor.observedWeaponDrawn || hasMain!=actor.observedMainWeapon) {
+            const auto weaponRef=hasMain ? inventory->m_rMainWeapon.m_entityRef : ZEntityRef{};
+            const auto* weapon=weaponRef ? weaponRef.QueryInterface<ZHM5Item>() : nullptr;
+            const int geometry=weapon ? (ItemDrawn(weapon)?1:0) : -1;
+            const int visibleSwitch=weapon && weapon->m_rItemVisible.m_entityRef ?
+                (weapon->m_rItemVisible.m_entityRef.GetProperty<bool>("m_bValue").Get()?1:0) : -1;
+            if (actor.observedWeaponRunning!=running || drawn!=actor.observedWeaponDrawn ||
+                hasMain!=actor.observedMainWeapon || geometry!=actor.observedWeaponGeometry ||
+                visibleSwitch!=actor.observedWeaponVisibleSwitch) {
                 CoopLog::Fmt(coop::LogLevel::Info,"npc-weapon",
-                    "Equipment role=%s running=%d entity=%016llx drawn=%d main=%d repository=%s",
+                    "Equipment role=%s running=%d entity=%016llx drawn=%d main=%d geometry=%d visible-switch=%d repository=%s",
                     m_CatalogHost?"host":"guest",running?1:0,
-                    static_cast<unsigned long long>(ticket.npc),drawn?1:0,hasMain?1:0,
+                    static_cast<unsigned long long>(ticket.npc),drawn?1:0,hasMain?1:0,geometry,visibleSwitch,
                     inventory?inventory->m_rWeaponID.ToString().c_str():"-");
             }
             actor.observedWeaponDrawn=drawn;
             actor.observedMainWeapon=hasMain;
             actor.observedWeaponRunning=running;
+            actor.observedWeaponGeometry=geometry;
+            actor.observedWeaponVisibleSwitch=visibleSwitch;
         }
 #endif
         if (sampleTension && (actor.phase==Phase::Running || (!m_CatalogHost && actor.phase==Phase::Held && drained))) {
@@ -5873,9 +5885,9 @@ void SdkWorld::SetPartnerHeldItem(const std::string& p_RepositoryId) {
     m_LegacyAvatar.handSlot.wanted = p_RepositoryId;
 }
 
-void SdkWorld::DropStandInItem(StandInSlot& p_Slot) {
-    if (p_Slot.item && m_LegacyAvatar.actor) {
-        m_LegacyAvatar.actor->ReleaseItem(p_Slot.item, false);
+void SdkWorld::DropStandInItem(RemoteAvatarState& avatar, StandInSlot& p_Slot) {
+    if (p_Slot.item && avatar.actor) {
+        avatar.actor->ReleaseItem(p_Slot.item, false);
         Functions::ZWorldInventory_DestroyItem->Call(Globals::WorldInventory, TEntityRef<IItemBase>(p_Slot.item.m_entityRef));
 
         if (m_Trace)
@@ -5886,25 +5898,37 @@ void SdkWorld::DropStandInItem(StandInSlot& p_Slot) {
     p_Slot.shown.clear();
 }
 
+void SdkWorld::ClearPartyHeldItem(RemoteAvatarState& avatar) {
+    auto& slot=avatar.handSlot;
+    slot.ticket=0;
+    slot.requestedEntity=0;
+    if (m_InScene && avatar.actor && avatar.actor->m_pAnimatedActor && Globals::WorldInventory)
+        DropStandInItem(avatar,slot);
+    else {
+        slot.item={};
+        slot.shown.clear();
+    }
+}
+
 void SdkWorld::UpdateStandInItem() {
     if (!m_InScene || !m_LegacyAvatar.actor || !m_LegacyAvatar.actor->m_pInventoryHandler || !Globals::WorldInventory)
         return;
 
-    UpdateStandInSlot(m_LegacyAvatar.handSlot, "hand");
-    UpdateStandInSlot(m_LegacyAvatar.backSlot, "back");
+    UpdateStandInSlot(m_LegacyAvatar,m_LegacyAvatar.handSlot,"hand");
+    UpdateStandInSlot(m_LegacyAvatar,m_LegacyAvatar.backSlot,"back");
 }
 
-void SdkWorld::UpdateStandInSlot(StandInSlot& p_Slot, const char* p_Where) {
+void SdkWorld::UpdateStandInSlot(RemoteAvatarState& avatar, StandInSlot& p_Slot, const char* p_Where) {
     // Hidden (out of the mission, or far off): nothing to give away. The same item in hand and on
     // the back (a frame mid-draw): only in hand.
-    std::string s_Want = m_LegacyAvatar.partnerHidden ? std::string() : p_Slot.wanted;
+    std::string s_Want = avatar.partnerHidden ? std::string() : p_Slot.wanted;
 
-    if (&p_Slot == &m_LegacyAvatar.backSlot && s_Want == m_LegacyAvatar.handSlot.wanted)
+    if (&p_Slot == &avatar.backSlot && s_Want == avatar.handSlot.wanted)
         s_Want.clear();
 
     // Asked for already: the copy is on its way (a few frames while its resource loads). One that
     // never came in 5 s is let go of (its late answer is ignored, see OnStandInItemCreated).
-    if (p_Slot.ticket && m_Now - p_Slot.askedAt < 5.0)
+    if (p_Slot.ticket && m_Now - p_Slot.askedAt < 5.0 && (!avatar.playerId || p_Slot.shown==s_Want))
         return;
 
     p_Slot.ticket = 0;
@@ -5912,13 +5936,14 @@ void SdkWorld::UpdateStandInSlot(StandInSlot& p_Slot, const char* p_Where) {
     if (s_Want == p_Slot.shown && (s_Want.empty() || p_Slot.item))
         return;
 
-    DropStandInItem(p_Slot);
+    DropStandInItem(avatar,p_Slot);
 
     // An item the game can't make here (not in this mission's resources) is tried again later.
     if (s_Want.empty() || (s_Want == p_Slot.failedFor && m_Now - p_Slot.failedAt < 10.0))
         return;
 
-    ZEntityRef s_ActorRef = m_LegacyAvatar.actor->m_pInventoryHandler->m_rActor.m_entityRef;
+    auto* inventory=avatar.actor->m_pInventoryHandler;
+    ZEntityRef s_ActorRef = inventory->m_rActor.m_entityRef;
 
     if (!s_ActorRef)
         return;
@@ -5940,15 +5965,18 @@ void SdkWorld::UpdateStandInSlot(StandInSlot& p_Slot, const char* p_Where) {
         return;
     }
 
-    ZActorInventoryHandler::SPendingItemInfo s_Pending;
-    s_Pending.m_nTicket = s_Ticket;
-    s_Pending.m_eAttachLocation = static_cast<EAttachLocation>(p_Slot.attach);
-    s_Pending.m_eMaxTension = EGameTension::EGT_Undefined;
-    s_Pending.m_bLeftHand = false;
-    s_Pending.m_bWeapon = p_Slot.weapon;
-    m_LegacyAvatar.actor->m_pInventoryHandler->m_aPendingItems.push_back(s_Pending);
+    if (!avatar.playerId) {
+        ZActorInventoryHandler::SPendingItemInfo s_Pending{};
+        s_Pending.m_nTicket = s_Ticket;
+        s_Pending.m_eAttachLocation = static_cast<EAttachLocation>(p_Slot.attach);
+        s_Pending.m_eMaxTension = EGameTension::EGT_Undefined;
+        s_Pending.m_bLeftHand = false;
+        s_Pending.m_bWeapon = p_Slot.weapon;
+        inventory->m_aPendingItems.push_back(s_Pending);
+    }
 
     p_Slot.ticket = s_Ticket;
+    p_Slot.requestedEntity = s_NewId;
     p_Slot.askedAt = m_Now;
     p_Slot.shown = s_Want;
 
@@ -5957,6 +5985,44 @@ void SdkWorld::UpdateStandInSlot(StandInSlot& p_Slot, const char* p_Where) {
 }
 
 void SdkWorld::OnStandInItemCreated(uint32_t p_Ticket, TEntityRef<IItemBase> p_Item) {
+    if (p_Ticket) {
+        for (auto& avatar:m_PlayerAvatars) {
+            auto& slot=avatar.handSlot;
+            if (slot.ticket!=p_Ticket) continue;
+            if (!p_Item.m_entityRef) return; // Allow the request to expire.
+            const auto* type=p_Item.m_entityRef->GetType();
+            if (!type || type->m_nEntityID!=slot.requestedEntity) {
+                if (Globals::WorldInventory)
+                    Functions::ZWorldInventory_DestroyItem->Call(Globals::WorldInventory,p_Item);
+                CoopLog::Warn("party-item","Discarded item callback with a mismatched entity ID");
+                return;
+            }
+            slot.ticket=0;
+            slot.requestedEntity=0;
+            if (m_InScene && avatar.present && !avatar.partnerHidden && avatar.actor &&
+                avatar.actor->m_pAnimatedActor && avatar.actor->m_pInventoryHandler &&
+                slot.shown==slot.wanted) {
+                if (auto* item=p_Item.m_entityRef.QueryInterface<ZHM5Item>(); item && item->m_rItemPickupEnabled.m_entityRef)
+                    item->m_rItemPickupEnabled.m_entityRef.SetProperty("m_bValue",false);
+                auto* inventory=avatar.actor->m_pInventoryHandler;
+                ZActorInventoryHandler::SPendingItemInfo pending{};
+                pending.m_nTicket=p_Ticket;
+                pending.m_rItem=TEntityRef<IItem>(p_Item.m_entityRef);
+                pending.m_eAttachLocation=EAttachLocation::eALRightHand;
+                pending.m_eMaxTension=EGameTension::EGT_Undefined;
+                inventory->m_aPendingItems.push_back(pending);
+                slot.item=pending.m_rItem;
+                Functions::ZActorInventoryHandler_FinalizePendingItems->Call(inventory);
+                CoopLog::Fmt(coop::LogLevel::Info,"party-item","Attached item seat=%u repository=%s",
+                    static_cast<unsigned>(avatar.playerId),slot.shown.c_str());
+            } else {
+                if (p_Item.m_entityRef && Globals::WorldInventory)
+                    Functions::ZWorldInventory_DestroyItem->Call(Globals::WorldInventory,p_Item);
+                slot.shown.clear();
+            }
+            return;
+        }
+    }
     StandInSlot* s_Slot = p_Ticket == m_LegacyAvatar.handSlot.ticket ? &m_LegacyAvatar.handSlot : p_Ticket == m_LegacyAvatar.backSlot.ticket ? &m_LegacyAvatar.backSlot : nullptr;
 
     if (!m_LegacyAvatar.actor || !m_LegacyAvatar.actor->m_pInventoryHandler || !p_Ticket || !s_Slot) {

@@ -167,6 +167,7 @@ struct MsgAvatarState {
     uint32_t epoch = 0;
     uint32_t timeMs = 0; // sender clock
     Transform xf;
+    std::string heldItem; // Party visual attachment; empty means holstered.
 
     void Write(ByteWriter& w) const;
     bool Read(ByteReader& r);

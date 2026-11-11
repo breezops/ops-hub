@@ -56,6 +56,8 @@ public:
     bool ShowPartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Transform& xf) override;
     bool ShowPartyPose(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Pose& pose) override;
     bool SetPartyOutfit(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::OutfitDesc& outfit) override;
+    std::string LocalPartyHeldItem() const override { return LocalHeldItem(); }
+    void SetPartyHeldItem(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::string& item) override;
     bool SetPartySkeleton(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::vector<int16_t>& parents) override;
     void HidePartyAvatars() override;
     bool HidePartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch) override;
@@ -530,8 +532,10 @@ public:
     // An item made for the stand-in to carry: in its right hand, or on its back.
     using StandInSlot = RemoteAvatarState::ItemSlot;
     void UpdateStandInItem();
-    void UpdateStandInSlot(StandInSlot& p_Slot, const char* p_Where);
-    void DropStandInItem(StandInSlot& p_Slot);
+    void UpdateStandInSlot(RemoteAvatarState& avatar, StandInSlot& p_Slot, const char* p_Where);
+    void DropStandInItem(RemoteAvatarState& avatar, StandInSlot& p_Slot);
+    void DropStandInItem(StandInSlot& p_Slot) { DropStandInItem(m_LegacyAvatar,p_Slot); }
+    void ClearPartyHeldItem(RemoteAvatarState& avatar);
     void DropStandInItem() { DropStandInItem(m_LegacyAvatar.handSlot); }
     void OnStandInItemCreated(uint32_t p_Ticket, TEntityRef<IItemBase> p_Item);
     int m_StandInAttach = 0; // EAttachLocation (test: other places)
@@ -670,6 +674,7 @@ private:
 #ifdef COOP_NPC_GUEST_HANDOFF_TEST
         bool observedWeaponDrawn=false, observedMainWeapon=false;
         std::optional<bool> observedWeaponRunning;
+        int observedWeaponGeometry=-1, observedWeaponVisibleSwitch=-1;
 #endif
 #endif
     };

@@ -1,5 +1,14 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.37 — Remote player weapon visibility test
+
+- Send the player's held item with avatar movement and attach a visual
+  copy to the matching remote player.
+- Clear held items when holstered and reject stale updates and item
+  callbacks during player or scene changes.
+- Extend the guard weapon probe to record the existing model's
+  visibility. Guard weapon visibility and pause remain diagnostic.
+
 ## 0.1.36 — Guard return, weapon and pause observations
 
 - Give recently returned NPCs brief animation priority within the

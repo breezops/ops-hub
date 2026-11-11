@@ -88,6 +88,14 @@ display. Test that separately from whether the guest's own player can
 still move. Include a guest-owned guard in the check so the two
 simulation owners can be observed independently.
 
+In 0.1.36, the guest reported that NPCs appeared to keep moving while
+the host's Escape menu was open, and the host saw their local background
+freeze. Only the guest log captured menu transitions during play. It
+recorded the native `UI_Menus` hold for both a splash hint (request 14)
+and Escape (request 1), while the always-update callback kept running.
+This confirms the hold is shared by multiple menu types and leaves the
+host's simulation state during Escape unverified in this run.
+
 Use the existing `GamePause` named-request binding for shared pause rather than
 freezing individual NPCs. It already locates the native request list, adds a
 mod-owned request and releases that request through the SDK. The plugin's

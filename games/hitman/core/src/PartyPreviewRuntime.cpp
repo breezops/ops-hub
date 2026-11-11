@@ -434,8 +434,10 @@ void PartyPreviewRuntime::Tick(double now) {
             m_NextSend=now+1./30.;
             const uint32_t ms=static_cast<uint32_t>(static_cast<uint64_t>(now*1000.));
             MsgAvatarState avatar; avatar.epoch=status.epoch; avatar.timeMs=ms;
-            if (m_Source.GetLocalAvatar(avatar.xf))
+            if (m_Source.GetLocalAvatar(avatar.xf)) {
+                avatar.heldItem=m_Sink.LocalPartyHeldItem();
                 m_Room->SendGame(PartyChannel::Avatar,PartyAvatarPacket(avatar),false);
+            }
             MsgPose pose; pose.epoch=status.epoch; pose.timeMs=ms;
             if (m_Source.GetLocalPose(pose.pose))
                 m_Room->SendGame(PartyChannel::Pose,PartyAvatarPacket(pose),false);
