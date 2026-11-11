@@ -177,6 +177,10 @@ void PartyPreviewRuntime::UpdateRestart(double now,bool native) {
     const auto& status=Status();
     if (status.phase!=LobbyRoster::Phase::Restarting ||
         (status.state!=PartyRoomStatus::State::Hosting && status.state!=PartyRoomStatus::State::Connected)) {
+        if (m_RestartSince>=0. && status.phase==LobbyRoster::Phase::Playing && m_RestartCleared==status.epoch) {
+            m_Message="Every player reloaded. Preview resumed.";
+            m_Source.Log(LogLevel::Info,"party-restart","All PCs loaded mission epoch "+std::to_string(status.epoch)+" in the same room.");
+        }
         CancelRestart();
         m_RestartSince=-1.;
         m_RestartFailed=false;
@@ -195,6 +199,7 @@ void PartyPreviewRuntime::UpdateRestart(double now,bool native) {
         m_RestartPending=true;
         m_Source.RestartMission();
         m_Message="Following the host's restart.";
+        m_Source.Log(LogLevel::Info,"party-restart","Queued native guest restart for epoch "+std::to_string(status.epoch)+".");
     }
 }
 void PartyPreviewRuntime::Leave(double now) {
@@ -206,7 +211,10 @@ void PartyPreviewRuntime::Leave(double now) {
 }
 void PartyPreviewRuntime::SceneCleared() {
     const bool restarting=m_FollowHostRestart && Status().phase==LobbyRoster::Phase::Restarting;
-    if (restarting) m_RestartCleared=Status().epoch;
+    if (restarting) {
+        m_RestartCleared=Status().epoch;
+        m_Source.Log(LogLevel::Info,"party-restart","Native scene clear observed for epoch "+std::to_string(m_RestartCleared)+".");
+    }
     CancelRestart();
     const bool retire=m_NpcWorld && (m_NpcOptions.fixedCatalog.empty() || m_NpcCatalogStarted || m_NpcCatalogSpent);
     StopNpcs();
