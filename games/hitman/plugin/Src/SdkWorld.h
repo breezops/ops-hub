@@ -93,10 +93,11 @@ public:
     void StopNpcCatalog() override;
     bool FreezeNpc(uint64_t id) override;
     bool ApplyNpcBaseline(uint64_t id,const coop::PartyNpcState&) override;
+    bool ApplyNpcUpdate(uint64_t id,const coop::PartyNpcState&) override;
     bool ResumeNpc(uint64_t id) override;
     bool CaptureNpc(uint64_t id,coop::PartyNpcState&) override;
     bool CaptureNpcPose(uint64_t id,coop::Pose&) override;
-    bool PresentNpcPose(uint64_t id,const coop::Pose&) override;
+    bool PresentNpcPose(uint64_t id,const coop::Transform&,const coop::Pose&) override;
     void ClearNpcPresentationPose(uint64_t id) override;
     void InvalidateCatalogNpcPose(const void* actor,uint64_t birth) noexcept;
     void StepPartyNpcCatalog(NpcActionPhase::Boundary&);
@@ -269,6 +270,7 @@ public:
             bool ours = false;
             bool danger = false;
             bool target = false;
+            bool catalog = false;
             float age = 0.f;
             float distance = 0.f;
         };
@@ -629,6 +631,8 @@ private:
         CatalogActorPhase phase=CatalogActorPhase::Hold;
         uint64_t observedAt=0, deadline=0;
         std::optional<coop::PartyNpcState> baseline, receipt;
+        std::optional<coop::PartyNpcState> canonical;
+        std::optional<coop::Transform> presentation;
     };
     CatalogActor* FindCatalogActor(uint64_t id);
     struct CatalogPoseBinding {
@@ -640,7 +644,7 @@ private:
     void RefreshCatalogPoseSources();
     std::array<CatalogPoseBinding,2> m_CatalogPoseBindings;
     std::mutex m_CatalogPoseMutex;
-    bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&);
+    bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&,bool presentation);
     void RefuseNpcCatalog(const char* reason);
     std::string NpcCatalogError() const;
     std::array<CatalogActor,2> m_CatalogActors;

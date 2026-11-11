@@ -32,8 +32,15 @@ private:
     std::unique_ptr<PartyNpcReplica> m_Replica;
     std::set<uint64_t> m_Known;
     std::map<uint8_t,PartyNpcLocation> m_Locations;
+    struct PresentationFrame {
+        Transform transform;
+        Pose pose;
+        friend PresentationFrame Lerp(const PresentationFrame& a,const PresentationFrame& b,float t) {
+            return {coop::Lerp(a.transform,b.transform,t),coop::Lerp(a.pose,b.pose,t)};
+        }
+    };
     struct PoseStream {
-        PoseBuffer buffer;
+        TimedBuffer<PresentationFrame> buffer;
         uint32_t timeMs=0;
         double received=0;
         bool applied=false;

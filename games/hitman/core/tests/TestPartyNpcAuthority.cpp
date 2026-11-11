@@ -21,6 +21,7 @@ struct World:IPartyNpcWorld {
     std::map<uint64_t,PartyNpcState> states;
     std::map<uint64_t,bool> running;
     std::map<uint64_t,Pose> sourcePoses, presentedPoses;
+    std::map<uint64_t,Transform> presentedTransforms;
     bool freeze=true,apply=true,resume=true,capture=true,prepare=true;
     unsigned preparations=0;
     unsigned resumes=0, applies=0;
@@ -72,10 +73,10 @@ struct World:IPartyNpcWorld {
         if(it==sourcePoses.end()) return false;
         pose=it->second; return true;
     }
-    bool PresentNpcPose(uint64_t npc,const Pose& pose) override {
-        CHECK(!running[npc]); presentedPoses[npc]=pose; return true;
+    bool PresentNpcPose(uint64_t npc,const Transform& transform,const Pose& pose) override {
+        CHECK(!running[npc]); presentedTransforms[npc]=transform; presentedPoses[npc]=pose; return true;
     }
-    void ClearNpcPresentationPose(uint64_t npc) override { presentedPoses.erase(npc); }
+    void ClearNpcPresentationPose(uint64_t npc) override { presentedTransforms.erase(npc); presentedPoses.erase(npc); }
 };
 struct Four {
     PartyNpcAuthority host{Scope(),DelegatedOptions()};
@@ -386,25 +387,43 @@ TEST(PartyNpcSync_FixedNpcPosesFanOutAndClearAfterSilenceOrStop) {
     REQUIRE(n.Begin()); REQUIRE(n.Add());
     auto& pose=n.worlds[0].sourcePoses[55];
     pose.rotations.resize(kMaxPoseBones); pose.pelvisPos.z=0.3f;
+    n.worlds[0].states[55].xf.pos.x=42.f;
     n.Step(1.);
     CHECK(n.worlds[0].presentedPoses.empty());
     for(size_t i=1;i<n.count;++i) {
         REQUIRE(n.worlds[i].presentedPoses.contains(55));
         CHECK(n.worlds[i].presentedPoses.at(55).rotations.size()==kMaxPoseBones);
         CHECK(n.worlds[i].presentedPoses.at(55).pelvisPos.z==0.3f);
+        CHECK(n.worlds[i].presentedTransforms.at(55).pos.x==42.f);
     }
     MsgNpcPose forged;
     forged.epoch=n.rooms[0]->Status().epoch; forged.id=55; forged.boneCount=2; forged.rotations.resize(2);
     forged.timeMs=static_cast<uint32_t>(n.now*1000.)+100;
-    auto bytes=Encode(forged); bytes.insert(bytes.begin(),static_cast<uint8_t>(MsgType::NpcPose));
+    ByteWriter writer; writer.U8(static_cast<uint8_t>(MsgType::NpcPose)); WriteTransform(writer,{}); forged.Write(writer);
     auto peer=n.Identity(2);
-    PartyGameEvent event{peer.id,peer.incarnation,forged.epoch,PartyChannel::HostWorld,bytes,false};
+    PartyGameEvent event{peer.id,peer.incarnation,forged.epoch,PartyChannel::HostWorld,writer.Data(),false};
     CHECK(!n.sync[1]->Receive(event,n.now));
     const auto host=n.Identity(0); event.source=host.id; event.incarnation=host.incarnation;
     event.channel=PartyChannel::Pose;
     CHECK(!n.sync[1]->Receive(event,n.now));
     event.channel=PartyChannel::HostWorld; event.reliable=true;
     CHECK(!n.sync[1]->Receive(event,n.now));
+
+    // Drive root and pose with the same source value. They must stay aligned
+    // during playback even between received samples.
+    bool blended=false;
+    for(unsigned i=0;i<60;++i) {
+        const float x=static_cast<float>(i)*0.1f;
+        pose.pelvisPos.x=x;
+        n.worlds[0].states[55].xf.pos.x=x;
+        n.Step(1./60.);
+        if(i<24) continue;
+        REQUIRE(n.worlds[1].presentedTransforms.contains(55));
+        const auto position=n.worlds[1].presentedTransforms.at(55).pos.x;
+        CHECK(std::abs(position-n.worlds[1].presentedPoses.at(55).pelvisPos.x)<0.001f);
+        blended=blended || std::abs(position*10.f-std::round(position*10.f))>0.01f;
+    }
+    CHECK(blended);
 
     n.worlds[0].sourcePoses.clear(); n.Step(1.);
     for(size_t i=1;i<n.count;++i) CHECK(n.worlds[i].presentedPoses.empty());

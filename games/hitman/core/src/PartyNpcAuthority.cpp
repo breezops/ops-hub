@@ -303,7 +303,7 @@ bool PartyNpcReplica::Receive(PartyIdentity source,PartyChannel channel,const Pa
     if(kind==PartyNpcKind::Canonical) {
         if(message.generation!=local.generation || message.revision<=local.revision || !Progress(local.state,message.state)) return false;
         if(local.pending && local.pending->kind==PartyNpcKind::Canonical && message.revision<local.pending->revision) return false;
-        if(!Same(local.owner,m_Self) && !m_World.ApplyNpcBaseline(message.npc,message.state)) return defer();
+        if(!Same(local.owner,m_Self) && !m_World.ApplyNpcUpdate(message.npc,message.state)) return defer();
         local.state=message.state; local.revision=message.revision;
         local.pending.reset();
         return true;

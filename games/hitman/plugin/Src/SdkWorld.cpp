@@ -23,6 +23,7 @@
 #include <malloc.h>
 #include <sstream>
 #include <string_view>
+#include <utility>
 
 #include "Functions.h"
 #include "Globals.h"
@@ -2755,11 +2756,12 @@ bool SdkWorld::BindPartyNpcHoldCatalog(NpcActionPhase::Boundary& boundary, std::
 #endif
 
 #ifdef COOP_NPC_CATALOG
+namespace { constexpr std::string_view kCatalogWalker="Ronnie Aguilar"; }
 bool SdkWorld::ResolveNpcCatalog(std::set<uint64_t>& ids) const {
     const auto observer=NpcActionObserver::Diagnostics();
     if (!observer.active || !observer.healthy || !m_NpcActorBirths.Healthy() || PartyGameThread()!=GetCurrentThreadId() ||
         !m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) || !Globals::ActorManager) return false;
-    static constexpr std::array<std::string_view,2> names{"Terry Norfolk","Joseph Harding"};
+    static constexpr std::array<std::string_view,2> names{"Terry Norfolk",kCatalogWalker};
     std::array<uint64_t,names.size()> found{};
     for (const auto& entry:Globals::ActorManager->m_activatedActors) {
         auto* actor=entry.m_pInterfaceRef;
@@ -2798,7 +2800,7 @@ void SdkWorld::StopNpcCatalog() {
         }
         RefreshCatalogPoseSources();
     }
-    for (auto& actor:m_CatalogActors) { actor.baseline.reset(); actor.receipt.reset(); }
+    for (auto& actor:m_CatalogActors) actor={};
     if (m_CatalogScope && NpcMutationGate::Clear(m_CatalogScope)) m_CatalogScope=0;
 }
 
@@ -2835,6 +2837,7 @@ bool SdkWorld::FreezeNpc(uint64_t id) {
     auto* actor=FindCatalogActor(id);
     if (!actor) return false;
     actor->baseline.reset(); actor->receipt.reset();
+    actor->canonical.reset(); actor->presentation.reset();
     if (actor->phase==CatalogActorPhase::Held) return true;
     if (actor->phase!=CatalogActorPhase::Drain && actor->phase!=CatalogActorPhase::Hold) {
         actor->phase=CatalogActorPhase::Hold;
@@ -2857,6 +2860,15 @@ bool SdkWorld::ApplyNpcBaseline(uint64_t id,const coop::PartyNpcState& state) {
     }
     actor->baseline=state;
     return false;
+}
+
+bool SdkWorld::ApplyNpcUpdate(uint64_t id,const coop::PartyNpcState& state) {
+    auto* actor=FindCatalogActor(id);
+    if (!actor || actor->phase!=CatalogActorPhase::Held) return false;
+    if (!actor->presentation || !coop::ValidPartyNpcState(state) || state.life!=coop::PartyNpcLife::Alive || state.stripped)
+        return ApplyNpcBaseline(id,state);
+    actor->canonical=state; // Keep the latest fallback while the matched pose and transform drive presentation.
+    return true;
 }
 
 bool SdkWorld::ResumeNpc(uint64_t id) {
@@ -2915,7 +2927,7 @@ bool SdkWorld::CaptureNpcPose(uint64_t id,coop::Pose& pose) {
     return true;
 }
 
-bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Pose& pose) {
+bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Transform& transform,const coop::Pose& pose) {
     auto* actor=FindCatalogActor(id);
     if (m_CatalogHost || !actor || actor->phase!=CatalogActorPhase::Held || !actor->receipt ||
         !NpcHoldArbiter::OwnsHold(actor->ticket) || NpcHoldArbiter::ExternalCalls(actor->ticket)) return false;
@@ -2931,7 +2943,10 @@ bool SdkWorld::PresentNpcPose(uint64_t id,const coop::Pose& pose) {
         }
     }
     PoseToBones(pose,m_NpcPoseBones);
-    return PoseHook::SetPoseFor(binding->animator,m_NpcPoseBones,true);
+    if (!PoseHook::SetPoseFor(binding->animator,m_NpcPoseBones,true)) return false;
+    if (!actor->presentation && actor->baseline) actor->canonical=std::exchange(actor->baseline,std::nullopt);
+    actor->presentation=transform;
+    return true;
 }
 
 void SdkWorld::ClearNpcPresentationPose(uint64_t id) {
@@ -2940,6 +2955,10 @@ void SdkWorld::ClearNpcPresentationPose(uint64_t id) {
         if (binding.ticket.npc!=id || binding.source) continue;
         if (binding.animator) PoseHook::ClearPoseFor(binding.animator);
         binding={};
+    }
+    if (auto* actor=FindCatalogActor(id); actor && actor->presentation) {
+        actor->presentation.reset();
+        if (actor->canonical) actor->baseline=std::exchange(actor->canonical,std::nullopt);
     }
 }
 
@@ -2955,7 +2974,7 @@ void SdkWorld::InvalidateCatalogNpcPose(const void* actor,uint64_t birth) noexce
     }
 }
 
-bool SdkWorld::WriteCatalogTransform(const NpcMutationGate::Ticket& ticket,const coop::Transform& xf) {
+bool SdkWorld::WriteCatalogTransform(const NpcMutationGate::Ticket& ticket,const coop::Transform& xf,bool presentation) {
     NpcMutationGate::Pin pin(ticket);
     int32_t runtime=-1;
     if (!pin || !ValidatePartyNpcAtActionBoundary(ticket,runtime)) return false;
@@ -2968,7 +2987,10 @@ bool SdkWorld::WriteCatalogTransform(const NpcMutationGate::Ticket& ticket,const
     const auto matches=[&](const coop::Transform& actual) {
         return coop::Distance(actual.pos,xf.pos)<=0.03f && coop::AngleBetween(actual.rot,xf.rot)<=0.03f;
     };
-    if (!matches(ToTransform(spatial->GetObjectToWorldMatrix()))) {
+    const auto current=ToTransform(spatial->GetObjectToWorldMatrix());
+    const bool alreadyApplied=presentation ? coop::Distance(current.pos,xf.pos)<=0.003f &&
+        coop::AngleBetween(current.rot,xf.rot)<=0.005f : matches(current);
+    if (!alreadyApplied) {
         const coop::Transform normalized{xf.pos,coop::Normalize(xf.rot)};
         spatial->SetObjectToWorldMatrixFromEditor(ToMatrix(normalized));
     }
@@ -3034,11 +3056,12 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             if (!owns || !sample.native.held()) { RefuseNpcCatalog("owned hold lost during drain"); return; }
             if (drained) { actor.phase=Phase::Held; actor.deadline=0; }
             break;
-        case Phase::Held:
+        case Phase::Held: {
             if (!drained) { RefuseNpcCatalog("held actor is no longer drained"); return; }
-            if (actor.baseline) {
-                const auto requested=*actor.baseline;
-                const bool applied=WriteCatalogTransform(ticket,requested.xf);
+            const auto baseline=actor.baseline;
+            const auto transform=baseline ? std::optional{baseline->xf} : actor.presentation;
+            if (transform) {
+                const bool applied=WriteCatalogTransform(ticket,*transform,!baseline);
                 if (m_CatalogPhase==CatalogPhase::Stopped) return;
                 const auto after=boundary.Observe(ticket.actor,ticket.npc,ticket.birth);
                 const auto afterJobs=NpcActionProbe::Inspect(reinterpret_cast<void*>(after.native.unit));
@@ -3046,13 +3069,15 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
                     afterJobs.outstanding || !NpcHoldArbiter::OwnsHold(ticket) || NpcHoldArbiter::ExternalCalls(ticket)) {
                     RefuseNpcCatalog("canonical transform write or held-state readback failed"); return;
                 }
-                if (!actor.baseline) break; // A nested stop or freeze can revoke the pending baseline.
+                if (!baseline || !actor.baseline) break;
+                const auto& requested=*baseline;
                 if (!actor.receipt) CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","First baseline confirmed entity=%016llx role=%s xyz=(%.2f, %.2f, %.2f)",
                     static_cast<unsigned long long>(ticket.npc),m_CatalogHost?"host":"guest",requested.xf.pos.x,requested.xf.pos.y,requested.xf.pos.z);
                 actor.receipt=requested;
                 if (actor.baseline && *actor.baseline==requested) actor.baseline.reset();
             }
             break;
+        }
         case Phase::Resume: {
             if (!drained || !actor.receipt || !m_CatalogHost) { RefuseNpcCatalog("owner resume prerequisites lost"); return; }
             if (!NpcMutationGate::SetLocalOwner(ticket.scope,ticket.npc,ticket.birth,ticket.lease,true)) break;
@@ -6375,6 +6400,27 @@ SdkWorld::Overlay SdkWorld::BuildOverlay() const {
         s_Out.signalAge = static_cast<float>(m_Now - m_PartnerSignalAt);
     }
 
+#ifdef COOP_NPC_CATALOG
+    if (m_CatalogPhase==CatalogPhase::Active) {
+        for (const auto& entry:m_CatalogActors) {
+            auto* actor=FindFreshPartyNpc(entry.ticket.npc);
+            if (!actor || actor!=entry.ticket.actor || m_NpcActorBirths.Find(actor)!=entry.ticket.birth || !entry.receipt) continue;
+            const auto& name=actor->m_sActorName;
+            if (std::string_view(name.c_str(),name.size())!=kCatalogWalker) continue;
+            coop::Transform transform;
+            if (!ActorTransform(actor,transform)) continue;
+            Overlay::Marker marker{};
+            marker.ground=transform.pos;
+            marker.pos=transform.pos+coop::Vec3{0,0,2.2f};
+            marker.distance=coop::Distance(s_Local.pos,marker.ground);
+            marker.label="Ronnie Aguilar";
+            marker.ours=true;
+            marker.catalog=true;
+            marker.age=1.f;
+            s_Out.marks.push_back(std::move(marker));
+        }
+    }
+#endif
     // Target assist: the mission's living targets.
     if (m_ListTargets) {
         for (const auto& [s_Id, s_Npc] : m_NpcsById) {

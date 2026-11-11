@@ -126,10 +126,11 @@ public:
     virtual bool ConfirmNpcSceneRetired(uint64_t) { return false; }
     virtual bool FreezeNpc(uint64_t) = 0;
     virtual bool ApplyNpcBaseline(uint64_t, const PartyNpcState&) = 0;
+    virtual bool ApplyNpcUpdate(uint64_t id,const PartyNpcState& state) { return ApplyNpcBaseline(id,state); }
     virtual bool ResumeNpc(uint64_t) = 0;
     virtual bool CaptureNpc(uint64_t, PartyNpcState&) = 0;
     virtual bool CaptureNpcPose(uint64_t, Pose&) { return false; }
-    virtual bool PresentNpcPose(uint64_t, const Pose&) { return false; }
+    virtual bool PresentNpcPose(uint64_t, const Transform&, const Pose&) { return false; }
     virtual void ClearNpcPresentationPose(uint64_t) {}
 };
 class PartyNpcReplica {

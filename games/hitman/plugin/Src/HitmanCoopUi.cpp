@@ -145,7 +145,7 @@ std::string HitmanCoop::Hide(const std::string& p_Secret) const {
 // ---- Over the game ------------------------------------------------------------------------------
 
 void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::SessionStatus& p_Status) {
-    if (!p_Overlay.inMission || p_Overlay.hidden || !p_Status.synced)
+    if (!p_Overlay.inMission || p_Overlay.hidden)
         return;
 
     ImDrawList* s_List = ImGui::GetBackgroundDrawList();
@@ -159,7 +159,7 @@ void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::Ses
 
     // The partner: their name over their head, or an arrow to them when they are off screen. Shown
     // even with name tags off while one of us looks for the other.
-    if ((m_ShowNameTag || p_Overlay.pulse) && p_Overlay.partnerShown) {
+    if (p_Status.synced && (m_ShowNameTag || p_Overlay.pulse) && p_Overlay.partnerShown) {
         ImVec2 s_At;
         bool s_OnScreen = false;
 
@@ -212,12 +212,11 @@ void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::Ses
         }
     }
 
-    if (!m_ShowMarks)
-        return;
-
     const uint32_t s_Ours = m_ColourSetting;
 
     for (const auto& s_Mark : p_Overlay.marks) {
+        if (!s_Mark.catalog && (!p_Status.synced || !m_ShowMarks))
+            continue;
         ImVec2 s_At;
         bool s_OnScreen = false;
 
@@ -226,7 +225,7 @@ void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::Ses
 
         // Fades over its last 3 s; pulses as it appears (a danger mark keeps pulsing).
         const float s_Left = p_Overlay.markSeconds - s_Mark.age;
-        const int s_Alpha = static_cast<int>(255.f * std::clamp(s_Left / 3.f, 0.f, 1.f));
+        const int s_Alpha = s_Mark.catalog ? 255 : static_cast<int>(255.f * std::clamp(s_Left / 3.f, 0.f, 1.f));
         const ImU32 s_Colour = s_Mark.danger ? WithAlpha(s_Palette.danger, s_Alpha) : s_Mark.ours ? FromRgb(s_Ours ? s_Ours : 0x6EC8FF, s_Alpha) :
             PartnerColour(p_Status, s_Alpha);
         const std::string s_Text = std::string(s_Mark.danger ? "DANGER: " : s_Mark.target ? "TARGET: " : "") + s_Mark.label + "  " + Dist(s_Mark.distance);

@@ -168,6 +168,33 @@ identity prevents mixed Catalog-1 and Catalog-2 rooms. Guest-triggered NPC
 attention is outside this host-authority test. The first live pass should
 compare Terry's turn, arm and hand motion, and the phone prop itself.
 
+### Catalog-2 live result
+
+The host captured 231-bone poses for both actors. The guest animator reported
+matching 231-bone native and streamed poses for both. The guest saw Terry drop
+his phone and turn in place to track the host. The turn looked choppy on the
+guest. During the later interaction window the guest game reported 77–92 FPS.
+Catalog-2 caps skeletal snapshots at 12 Hz and applies canonical root transforms
+from the separate 10 Hz report path. The logs confirm matching rigs and initial
+capture, with no per-actor packet cadence or loss measurements yet. Keep both
+logs under `research/checks/playtest-26-two-pc-catalog-2`.
+
+Measure per-actor pose and transform delivery cadence and smooth the guest root
+and skeletal playback together. Retest Terry's standing turn first. For a
+walking check, use an accessible naturally walking NPC in a future fixed
+catalog. The pair could reach Terry beside the car, but he stayed in place and
+the mechanic blocked their route to the walkers. Avoid requiring a knockout
+for the movement test. The phone transition passed as an observed visual result.
+
+Catalog-3 pairs each position, facing and skeletal sample in one unreliable
+presentation frame and interpolates it at the guest. The host samples up to
+24 Hz per catalog actor. The native guest preserves the canonical transform as
+a fallback and applies the interpolated transform at the action boundary. The
+walking slot uses Ronnie Aguilar, Ritter's bodyguard. A marker follows that
+catalog actor, so testers can use Instinct from the dock while leaving both
+catalog NPCs alive and dressed. Live resolution, sight range, and movement
+quality await a two-PC test.
+
 Product target remains4players, host-controlled persistent lobby and native
 mission/restart following, automatic admission rather than manual Ready/Start,
 then shared objectives/extraction. Unanimous explicit pause is optional and
