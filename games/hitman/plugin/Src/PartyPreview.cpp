@@ -41,8 +41,8 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
         } else if (!m_World.CanOpenPartyPreview()) {
             ok=false; message="Reload Freeform Training to clear the previous session, then try again.";
 #ifdef COOP_NPC_CATALOG
-        } else if (!m_World.ResolveNpcCatalog(npcOptions.fixedCatalog)) {
-            ok=false; message="Load Freeform Training and use Restart Mission once before hosting or joining the NPC test.";
+        } else if (message=m_World.ResolveNpcCatalog(npcOptions.fixedCatalog); !message.empty()) {
+            ok=false;
 #endif
         } else {
             m_Session.reset(); // Inactive legacy sockets must release the host port.

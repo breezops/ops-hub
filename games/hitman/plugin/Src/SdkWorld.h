@@ -88,7 +88,7 @@ public:
     void StepSoloNpcHold(NpcActionPhase::Boundary&);
     void StepSoloNpcPool(NpcActionPhase::Boundary&);
 #ifdef COOP_NPC_CATALOG
-    bool ResolveNpcCatalog(std::set<uint64_t>& ids) const;
+    std::string ResolveNpcCatalog(std::set<uint64_t>& ids) const;
     CatalogPreparation PrepareNpcCatalog(const std::set<uint64_t>& ids) override;
     void StopNpcCatalog() override;
     bool FreezeNpc(uint64_t id) override;

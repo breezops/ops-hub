@@ -195,6 +195,13 @@ catalog actor, so testers can use Instinct from the dock while leaving both
 catalog NPCs alive and dressed. Live resolution, sight range, and movement
 quality await a two-PC test.
 
+Catalog-3's first host attempt loaded and restarted Freeform correctly. The
+native constructor mark advanced from 99 to 198 and the action observer remained
+healthy. Room creation failed during catalog lookup. The original beta guest
+log records the native spelling `Ronnie  Aguilar` with two spaces. Catalog-3.1
+accepts that exact native name and the display spelling in both the room lookup
+and walking marker. The launcher now reports the failed check directly.
+
 Product target remains4players, host-controlled persistent lobby and native
 mission/restart following, automatic admission rather than manual Ready/Start,
 then shared objectives/extraction. Unanimous explicit pause is optional and

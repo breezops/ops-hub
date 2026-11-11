@@ -2756,28 +2756,40 @@ bool SdkWorld::BindPartyNpcHoldCatalog(NpcActionPhase::Boundary& boundary, std::
 #endif
 
 #ifdef COOP_NPC_CATALOG
-namespace { constexpr std::string_view kCatalogWalker="Ronnie Aguilar"; }
-bool SdkWorld::ResolveNpcCatalog(std::set<uint64_t>& ids) const {
+namespace {
+constexpr std::string_view kCatalogWalker="Ronnie Aguilar";
+std::string_view CatalogName(const ZActor& actor) {
+    const auto& raw=actor.m_sActorName;
+    const std::string_view name(raw.c_str(),raw.size());
+    // Freeform's native actor name has an extra space in the shipped scene.
+    return name=="Ronnie  Aguilar" ? kCatalogWalker : name;
+}
+}
+std::string SdkWorld::ResolveNpcCatalog(std::set<uint64_t>& ids) const {
+    if (!m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene)) return "Load Freeform Training first.";
     const auto observer=NpcActionObserver::Diagnostics();
     if (!observer.active || !observer.healthy || !m_NpcActorBirths.Healthy() || PartyGameThread()!=GetCurrentThreadId() ||
-        !m_InScene || !coop::IsFreeformTrainingScene(m_Scene.scene) || !Globals::ActorManager) return false;
+        !Globals::ActorManager) return "Freeform Training loaded, but the NPC hooks are unavailable. Save the game log.";
     static constexpr std::array<std::string_view,2> names{"Terry Norfolk",kCatalogWalker};
     std::array<uint64_t,names.size()> found{};
     for (const auto& entry:Globals::ActorManager->m_activatedActors) {
         auto* actor=entry.m_pInterfaceRef;
         if (!actor || IsPartnerActor(actor) || !entry.m_entityRef || !entry.m_entityRef->GetType()) continue;
-        const auto& name=actor->m_sActorName;
-        const auto match=std::find(names.begin(),names.end(),std::string_view(name.c_str(),name.size()));
+        const auto match=std::find(names.begin(),names.end(),CatalogName(*actor));
         if (match==names.end()) continue;
         auto& id=found[match-names.begin()];
-        if (id) return false;
+        if (id) return "Freeform Training loaded, but "+std::string(*match)+" matched multiple actors. Save the game log.";
         id=entry.m_entityRef->GetType()->m_nEntityID;
-        if (!id || FindFreshPartyNpc(id)!=actor || m_NpcActorBirths.Find(actor)<=m_NpcJobAttachmentMark ||
-            ActorDown(actor) || actor->m_bContractTarget) return false;
+        if (!id || FindFreshPartyNpc(id)!=actor || ActorDown(actor) || actor->m_bContractTarget)
+            return "Freeform Training loaded, but "+std::string(*match)+" is unavailable. Save the game log.";
+        if (m_NpcActorBirths.Find(actor)<=m_NpcJobAttachmentMark)
+            return "Use Restart Mission once to prepare the NPC test, then try again.";
     }
-    if (!found[0] || !found[1] || found[0]==found[1]) return false;
+    for (size_t i=0;i<found.size();++i)
+        if (!found[i]) return "Freeform Training loaded, but "+std::string(names[i])+" was not found. Save the game log.";
+    if (found[0]==found[1]) return "The test actors shared an entity ID. Save the game log.";
     ids=std::set<uint64_t>(found.begin(),found.end());
-    return true;
+    return {};
 }
 
 SdkWorld::CatalogPreparation SdkWorld::PrepareNpcCatalog(const std::set<uint64_t>& ids) {
@@ -6405,8 +6417,7 @@ SdkWorld::Overlay SdkWorld::BuildOverlay() const {
         for (const auto& entry:m_CatalogActors) {
             auto* actor=FindFreshPartyNpc(entry.ticket.npc);
             if (!actor || actor!=entry.ticket.actor || m_NpcActorBirths.Find(actor)!=entry.ticket.birth || !entry.receipt) continue;
-            const auto& name=actor->m_sActorName;
-            if (std::string_view(name.c_str(),name.size())!=kCatalogWalker) continue;
+            if (CatalogName(*actor)!=kCatalogWalker) continue;
             coop::Transform transform;
             if (!ActorTransform(actor,transform)) continue;
             Overlay::Marker marker{};
