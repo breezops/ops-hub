@@ -17,10 +17,17 @@ uint64_t NextRetirement() {
 }
 PartyPreviewRuntime::PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
                                        IPartyNpcWorld* npcWorld, PartyNpcOptions npcOptions,
-                                       bool followHostRestart, bool autoInitialLoad, IPartyFreeformLaunch* launcher)
+                                       bool followHostRestart, bool autoInitialLoad, IPartyFreeformLaunch* launcher,
+                                       bool exchangeNpcRoster)
     : m_Room(std::move(room)), m_Source(source), m_Sink(sink), m_Playback(sink),
       m_NpcWorld(npcWorld), m_NpcOptions(npcOptions), m_AutoInitialLoad(autoInitialLoad && !npcWorld),
-      m_Launcher(m_AutoInitialLoad ? launcher : nullptr), m_FollowHostRestart(followHostRestart && !npcWorld) {}
+      m_Launcher(m_AutoInitialLoad ? launcher : nullptr), m_FollowHostRestart(followHostRestart && !npcWorld) {
+    if (exchangeNpcRoster) m_NpcRoster=std::make_unique<PartyNpcRoster>(*m_Room);
+}
+
+void PartyPreviewRuntime::ObserveNpcRoster(std::span<const uint64_t> ids) {
+    if (m_NpcRoster) m_NpcRoster->Update(ids);
+}
 
 PartyPreviewRuntime::~PartyPreviewRuntime() {
     CancelGuestLaunch();
@@ -363,11 +370,22 @@ void PartyPreviewRuntime::Tick(double now) {
     while (m_Room->PopGame(event)) {
         const bool npcChannel=event.channel==PartyChannel::HostWorld || event.channel==PartyChannel::Interaction;
         std::optional<Vec3> acceptedPosition;
-        const bool accepted=presenting && native && (npcChannel ?
-            (npcs && m_Npcs->Receive(event,now)) : m_Playback.Receive(event,now,observeLocations?&acceptedPosition:nullptr));
+        const bool rosterPacket=m_NpcRoster && npcChannel && !event.payload.empty() && event.payload.front()==PartyNpcRoster::Packet;
+        const bool accepted=native && (rosterPacket ? m_NpcRoster->Receive(event) :
+            presenting && (npcChannel ? npcs && m_Npcs->Receive(event,now) :
+                m_Playback.Receive(event,now,observeLocations?&acceptedPosition:nullptr)));
         if (acceptedPosition) m_Npcs->ObservePlayer({event.source,event.incarnation},*acceptedPosition,now);
         if (accepted) ++m_Accepted;
         else ++m_Rejected;
+    }
+    if (m_NpcRoster) {
+        m_NpcRoster->Tick();
+        const auto& shared=m_NpcRoster->Shared();
+        if (shared!=m_LastSharedNpcIds) {
+            if (shared) m_Source.Log(LogLevel::Info,"npc-roster",
+                "Room agreed on "+std::to_string(shared->size())+" shared NPC IDs in epoch "+std::to_string(Status().epoch)+".");
+            m_LastSharedNpcIds=shared;
+        }
     }
     if (npcs && m_Npcs) {
         m_Npcs->Tick(now);

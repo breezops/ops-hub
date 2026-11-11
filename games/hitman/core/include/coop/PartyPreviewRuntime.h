@@ -2,6 +2,7 @@
 #include "PartyAvatarPlayback.h"
 #include "Session.h"
 #include "PartyNpcSync.h"
+#include "PartyNpcRoster.h"
 #include <set>
 
 namespace coop {
@@ -20,7 +21,7 @@ public:
     PartyPreviewRuntime(std::unique_ptr<PartyRoom> room, IGameWorld& source, IPartyAvatarWorld& sink,
                         IPartyNpcWorld* npcWorld = nullptr, PartyNpcOptions npcOptions = {},
                         bool followHostRestart = false, bool autoInitialLoad = false,
-                        IPartyFreeformLaunch* launcher = nullptr);
+                        IPartyFreeformLaunch* launcher = nullptr, bool exchangeNpcRoster = false);
     ~PartyPreviewRuntime();
     void Tick(double now);
     bool Ready();
@@ -41,6 +42,8 @@ public:
         return m_NpcStopFault ? "NPC simulation did not confirm it stopped. Reload Freeform Training on this PC." : m_Message;
     }
     bool SharedNpcsActive() const { return m_Npcs && m_Npcs->Active(); }
+    void ObserveNpcRoster(std::span<const uint64_t> ids);
+    const PartyNpcRoster* NpcRoster() const { return m_NpcRoster.get(); }
     uint64_t Accepted() const { return m_Accepted; }
     uint64_t Rejected() const { return m_Rejected; }
 private:
@@ -51,6 +54,8 @@ private:
     IPartyNpcWorld* m_NpcWorld = nullptr;
     PartyNpcOptions m_NpcOptions;
     std::unique_ptr<PartyNpcSync> m_Npcs;
+    std::unique_ptr<PartyNpcRoster> m_NpcRoster;
+    std::optional<std::vector<uint64_t>> m_LastSharedNpcIds;
     std::set<uint64_t> m_NpcCatalog;
     double m_NextNpcCatalog = 0;
     bool m_NpcStopFault = false;

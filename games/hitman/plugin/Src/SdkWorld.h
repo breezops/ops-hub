@@ -83,7 +83,7 @@ public:
     bool ValidatePartyNpcObservationAtActionBoundary(const void* actor,uint64_t npc,uint64_t birth,int32_t& runtimeId) const;
     void TracePartyNpcIdentity(); // Diagnostic build only; reads/counts, no NPC controls.
 #ifdef COOP_PARTY_NPC_DISCOVERY
-    void TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now);
+    std::optional<std::vector<uint64_t>> TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now);
 #endif
     void TracePartyNpcAction(const NpcActionObserver::View&);
     void MarkPartyNpcJobAttachment() { m_NpcJobAttachmentMark=m_NpcActorBirths.Mark(); }

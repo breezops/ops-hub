@@ -251,6 +251,19 @@ the complete ID sets on two PCs before and after a restart. Use that
 evidence to select which native actor bindings can be admitted to shared
 simulation. Keep the scan independent of NPC names.
 
+The live Freeform test matched all 83 active NPC IDs, including the target,
+on both PCs before and after restart. Each active slot was reused by a
+new actor construction. The next adapter should agree on the shared ID
+set, then bind the current local actor for the mission epoch before
+applying host-driven movement.
+
+The roster exchange sends verified game IDs over the party connection.
+The host waits for complete lists from every connected seat, intersects
+the lists, and returns the shared IDs. Each guest checks that those IDs
+exist locally. Agreement expires with the room's mission epoch.
+The native movement adapter still needs an actor instance binding for
+every admitted ID, plus a verified stop and release path across restart.
+
 ### Gameplay parity and upstream reuse
 
 Use Jordan Rodrigues's original 0.13.94 beta and the paired Foundation tests as

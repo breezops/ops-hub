@@ -2565,16 +2565,16 @@ bool SdkWorld::MatchesFreshPartyNpc(uint64_t id, ZActor* actor, const void* enti
     return actual && actual.m_pObj==entity && actual->GetType() && actual->GetType()->m_nEntityID==id;
 }
 #ifdef COOP_PARTY_NPC_DISCOVERY
-void SdkWorld::TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now) {
+std::optional<std::vector<uint64_t>> SdkWorld::TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now) {
     using State=coop::PartyRoomStatus::State;
     if (!status || (status->state!=State::Hosting && status->state!=State::Connected) ||
         status->phase!=coop::LobbyRoster::Phase::Playing || !status->session || !status->epoch || !status->self ||
         !m_InScene || PartyGameThread()!=GetCurrentThreadId() || !Globals::ActorManager) {
         m_NpcDiscoverySession=0;
-        return;
+        return std::nullopt;
     }
     const bool newEpoch=status->session!=m_NpcDiscoverySession || status->epoch!=m_NpcDiscoveryEpoch;
-    if (!newEpoch && now<m_NextNpcDiscovery) return;
+    if (!newEpoch && now<m_NextNpcDiscovery) return std::nullopt;
     m_NextNpcDiscovery=now+2.;
 
     struct Candidate {
@@ -2605,7 +2605,7 @@ void SdkWorld::TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, doubl
 
     std::vector<std::string> rows;
     const bool birthsHealthy=m_NpcActorBirths.Healthy();
-    unsigned matched=0;
+    std::vector<uint64_t> matched;
     for (const auto& [id,candidate]:candidates) {
         if (!candidate.hasMissionActor) continue;
         std::ostringstream row;
@@ -2621,7 +2621,7 @@ void SdkWorld::TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, doubl
                 row<<" state=stale";
             } else if (const auto birth=birthsHealthy ? m_NpcActorBirths.Find(actor) : 0) {
                 row<<" state=matched birth="<<birth<<" slot="<<actor->m_nActorRuntimeId;
-                ++matched;
+                matched.push_back(id);
             } else {
                 row<<" state=untracked";
             }
@@ -2631,14 +2631,15 @@ void SdkWorld::TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, doubl
     std::ostringstream summary;
     summary<<"room="<<std::hex<<status->session<<std::dec<<" epoch="<<status->epoch
            <<" seat="<<unsigned(status->self)<<" scene="<<m_Scene.scene
-           <<" ids="<<rows.size()<<" matched="<<matched<<" missing-id="<<missingId
+           <<" ids="<<rows.size()<<" matched="<<matched.size()<<" missing-id="<<missingId
            <<" birth-book="<<(birthsHealthy?"healthy":"unavailable");
     rows.insert(rows.begin(),summary.str());
-    if (!newEpoch && rows==m_LastNpcDiscovery) return;
+    if (!newEpoch && rows==m_LastNpcDiscovery) return std::nullopt;
     m_NpcDiscoverySession=status->session;
     m_NpcDiscoveryEpoch=status->epoch;
     m_LastNpcDiscovery=std::move(rows);
     for (const auto& row:m_LastNpcDiscovery) CoopLog::Info("npc-scan",row);
+    return matched;
 }
 #endif
 uint64_t SdkWorld::CurrentPartyNpcBirth(uint64_t id) const {

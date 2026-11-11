@@ -91,7 +91,13 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,npcOptions);
 #elif defined(COOP_PARTY_GUEST_START)
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,
-                            coop::PartyNpcOptions{},true,true,static_cast<coop::IPartyFreeformLaunch*>(this));
+                            coop::PartyNpcOptions{},true,true,static_cast<coop::IPartyFreeformLaunch*>(this),
+#ifdef COOP_PARTY_NPC_DISCOVERY
+                            true
+#else
+                            false
+#endif
+                        );
 #elif defined(COOP_PARTY_NATIVE_RESTART)
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,coop::PartyNpcOptions{},true,kAutoInitialLoad);
 #else

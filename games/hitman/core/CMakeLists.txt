@@ -11,6 +11,7 @@ endif ()
 add_library(coop_core STATIC
         src/PartyNpcAuthority.cpp
         src/PartyNpcSync.cpp
+        src/PartyNpcRoster.cpp
         src/PartyReplayClient.cpp
         src/PartyAvatarPlayback.cpp
         src/PartyPreviewRuntime.cpp

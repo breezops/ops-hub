@@ -20,3 +20,16 @@ those within a PC across the restart to identify reused or replaced
 instances. A prior snapshot is never valid for a later mission epoch.
 For the first Freeform run, check both the size of the common set and
 the specific dispositions of escort and target IDs.
+
+## Two-PC result
+
+Both PCs recorded the same 99 template IDs and states before and after a
+same-room restart. On each PC and in each epoch, 83 IDs had a unique
+active actor with a verified slot and construction record, including the
+mission target. The other 16 IDs were inactive. Neither scan reported
+missing, ambiguous, stale or untracked IDs.
+
+All 83 matched IDs kept their local actor slots, and every construction
+stamp changed on each PC after restart. Retire previous bindings by
+mission epoch and verify the new construction stamp before reusing a
+slot. These logs establish matching and replacement for Freeform.
