@@ -449,6 +449,7 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         options.confirmInitialGuestBaselines=true;
         options.fixedCatalog={npc};
         options.streamPoses=true;
+        options.nearbyNpcPoses=true;
         unsigned hostHolds=0, guestHolds=0;
         NetworkNpc room(count,881,options);
         REQUIRE(room.Begin());
@@ -468,10 +469,10 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         REQUIRE(room.worlds[0].running[npc]);
 
         room.Step(options.minimumHold);
-        REQUIRE(room.worlds[guest].presentedPoses.contains(npc));
         REQUIRE(room.sync[0]->ObservePlayer(hostId,{30,0,0},room.now));
         REQUIRE(room.sync[0]->ObservePlayer(guestId,{0,0,0},room.now));
         room.Step(.6);
+        REQUIRE(room.worlds[guest].presentedPoses.contains(npc));
         CHECK(room.worlds[0].running[npc] && !room.worlds[guest].running[npc]);
         CHECK(!room.sync[guest]->Propose(npc,guestId,room.now));
 
@@ -510,6 +511,7 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         CHECK(!room.sync[0]->Propose(npc,hostId,room.now));
         guestState.engaged=false;
         room.Step(.3);
+        REQUIRE(room.sync[0]->ObservePlayer(guestId,{45,0,0},room.now));
         REQUIRE(room.sync[0]->Propose(npc,hostId,room.now));
         room.Step(.7);
         CHECK(room.worlds[0].running[npc] && !room.worlds[guest].running[npc]);

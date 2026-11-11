@@ -147,6 +147,47 @@ rehearsal authorized only Reeves to run on the guest. Extending reactions
 to nearby guards requires a general ownership policy and shared alert
 handling.
 
+In 0.1.35, both players saw smooth pursuit and recovery. The guest
+captured Reeves's 231-bone pose, and the host confirmed writing it.
+After the return to the host, the host resumed AI in about 200 ms but
+its first pose capture came about four seconds later. The testers
+reported a snap at the return. The next candidate prioritizes recently
+returned actors for 1.5 seconds within the existing moving-pose range
+and slot cap. This addresses the observed stream gap. The snap still
+needs a live retest.
+
+### Drawn weapon visibility
+
+The same test reported invisible drawn weapons on remote players and
+guards. The current party animation carries bones and transforms. It
+does not carry equipment identity or drawn state. The original mod
+already identifies the local player's held item by repository ID and
+attaches a native presentation copy to its legacy stand-in using the
+inventory handler. Reuse that path with a slot per party avatar and
+reject callbacks from a replaced actor or retired mission.
+
+For guards, first verify the owner-side inventory handler's main-weapon
+and unholstered fields during draw, holster, and ownership transfer.
+Prefer showing the replica's matching native item when present.
+Scope the visual state to the current actor and ownership generation.
+Verify draw and holster on both PCs before connecting the separate
+gameplay paths for shots, damage, pickups and inventory.
+
+### Order for the next playtests
+
+1. Retest the returning guard's pose and keep the successful chase as a
+   baseline. The same run can compare the native guard's main weapon and
+   drawn state against its held copy. The rehearsal logs both values
+   when they change on either PC.
+2. Add player weapon visibility using the original stand-in attachment
+   path. Use the guard readback to decide whether replicas can show
+   their existing weapon or need a presentation copy.
+3. Check Escape and tutorial interruptions separately using the same
+   build. The rehearsal logs menu requests and the native `UI_Menus`
+   hold while the party tick runs. Use that evidence for a small native
+   menu experiment before wiring unanimous pause. Keep NPC handoff and
+   retirement independent of menu and pause state.
+
 ## Next native milestones
 
 Native bridge progress on this branch:

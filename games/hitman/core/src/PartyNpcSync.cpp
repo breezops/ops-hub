@@ -1,6 +1,6 @@
 #include "coop/PartyNpcSync.h"
 #include <cmath>
-#include <tuple>
+#include <compare>
 
 namespace coop {
 namespace {
@@ -16,6 +16,7 @@ constexpr float kMovingPoseRadius=40.f;
 constexpr float kPoseRetentionRadius=5.f;
 constexpr float kPoseRetentionBias=3.f;
 constexpr double kRecentMotionSeconds=0.75;
+constexpr double kHandoffPoseSeconds=1.5;
 constexpr size_t kNearbyPoseLimit=12;
 struct NpcPresentationPacket {
     uint64_t generation=0;
@@ -155,7 +156,13 @@ void PartyNpcSync::SendPoses(double now) {
     if(now<m_NextPose) return;
     if(m_NextPose==0 || now-m_NextPose>=kPoseInterval) m_NextPose=now;
     m_NextPose+=kPoseInterval;
-    std::vector<std::tuple<bool,float,uint64_t,uint64_t>> candidates;
+    struct Candidate {
+        bool outsideHandoff, stationary;
+        float distance;
+        uint64_t npc, generation;
+        auto operator<=>(const Candidate&) const = default;
+    };
+    std::vector<Candidate> candidates;
     for(const auto npc:m_Known) {
         const auto generation=m_Replica->RunningNpcGeneration(npc);
         if(!generation) continue;
@@ -164,10 +171,12 @@ void PartyNpcSync::SendPoses(double now) {
             record->generation!=generation || record->state.life!=PartyNpcLife::Alive || record->state.stripped)) continue;
         float nearest=0.f;
         bool moving=false;
+        bool recentHandoff=false;
         if (record && m_Options.nearbyNpcPoses) {
             moving=record->lastMovement>=0. && now-record->lastMovement<=kRecentMotionSeconds;
+            recentHandoff=record->generation>1 && now-record->changed<=kHandoffPoseSeconds;
             const bool wasStreaming=std::find(m_PoseSources.begin(),m_PoseSources.end(),npc)!=m_PoseSources.end();
-            const float radius=(moving ? kMovingPoseRadius : kNearbyPoseRadius) +
+            const float radius=(moving || recentHandoff ? kMovingPoseRadius : kNearbyPoseRadius) +
                 (wasStreaming ? kPoseRetentionRadius : 0.f);
             nearest=radius;
             for (const auto& [seat,player]:m_Locations) {
@@ -177,7 +186,7 @@ void PartyNpcSync::SendPoses(double now) {
             if (nearest>=radius) continue;
             if (wasStreaming) nearest=std::max(0.f,nearest-kPoseRetentionBias);
         }
-        candidates.emplace_back(!moving,nearest,npc,generation);
+        candidates.push_back({!recentHandoff,!moving,nearest,npc,generation});
     }
     if (m_Options.nearbyNpcPoses || !m_Host) {
         std::sort(candidates.begin(),candidates.end());
@@ -185,17 +194,17 @@ void PartyNpcSync::SendPoses(double now) {
     }
     std::vector<uint64_t> ids;
     ids.reserve(candidates.size());
-    for (const auto& candidate:candidates) ids.push_back(std::get<2>(candidate));
+    for (const auto& candidate:candidates) ids.push_back(candidate.npc);
     m_World.SetNpcPoseSources(ids);
     m_PoseSources=std::move(ids);
     for (const auto& candidate:candidates) {
-        const auto npc=std::get<2>(candidate);
+        const auto npc=candidate.npc;
         Pose pose;
         PartyNpcState state;
         if (!m_World.CaptureNpcPose(npc,pose) || !ValidFullPose(pose) || !m_World.CaptureNpc(npc,state) ||
             !ValidPartyNpcState(state) || state.life!=PartyNpcLife::Alive || state.stripped) continue;
         NpcPresentationPacket frame;
-        frame.generation=std::get<3>(candidate);
+        frame.generation=candidate.generation;
         frame.transform=state.xf;
         auto& packet=frame.pose;
         packet.epoch=m_Scope.epoch;

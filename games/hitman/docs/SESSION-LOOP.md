@@ -80,6 +80,14 @@ the current movement preview or the experimental NPC action primitive.
 
 ### Bounded native pause investigation
 
+In the 0.1.35 two-PC rehearsal, players reported that Escape and tutorial
+popups froze gameplay on the PC that opened them. The party runtime has
+no shared pause vote. When the host's simulation stops, its NPCs can also
+appear frozen to guests because there are no new simulated positions to
+display. Test that separately from whether the guest's own player can
+still move. Include a guest-owned guard in the check so the two
+simulation owners can be observed independently.
+
 Use the existing `GamePause` named-request binding for shared pause rather than
 freezing individual NPCs. It already locates the native request list, adds a
 mod-owned request and releases that request through the SDK. The plugin's

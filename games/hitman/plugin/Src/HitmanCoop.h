@@ -244,6 +244,10 @@ private:
     std::recursive_mutex m_SessionMutex;
     SdkWorld m_World;
     std::unique_ptr<coop::PartyPreviewRuntime> m_PartyPreview;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    bool m_PartyMenuSampled=false, m_PartyMenuPause=false;
+    int m_PartyMenuRequest=-1;
+#endif
     std::string HandlePartyPreview(const coop::LauncherRequest& request, double now);
 #ifdef COOP_NPC_GUEST_HANDOFF_TEST
     void RunNpcHandoffTest(double now);

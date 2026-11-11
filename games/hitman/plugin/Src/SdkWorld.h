@@ -667,6 +667,10 @@ private:
         double blendStarted=0;
         bool blendPending=false;
         int32_t observedTension=-1;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+        bool observedWeaponDrawn=false, observedMainWeapon=false;
+        std::optional<bool> observedWeaponRunning;
+#endif
 #endif
     };
     CatalogActor* FindCatalogActor(uint64_t id);

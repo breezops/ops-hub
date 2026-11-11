@@ -3332,6 +3332,25 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
         const bool owns=NpcHoldArbiter::OwnsHold(ticket);
         const bool drained=sample.native.held() && sample.native.drained() && !jobs.outstanding && owns;
 #ifdef COOP_NPC_AGREED_CATALOG
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+        const auto* nativeActor=static_cast<ZActor*>(ticket.actor);
+        const bool running=actor.phase==Phase::Running;
+        if (sampleTension && (running || (actor.phase==Phase::Held && drained)) && IsHandoffGuard(*nativeActor)) {
+            const bool drawn=nativeActor->m_bWeaponUnholstered;
+            const auto* inventory=nativeActor->m_pInventoryHandler;
+            const bool hasMain=inventory && inventory->m_rMainWeapon.m_pInterfaceRef;
+            if (actor.observedWeaponRunning!=running || drawn!=actor.observedWeaponDrawn || hasMain!=actor.observedMainWeapon) {
+                CoopLog::Fmt(coop::LogLevel::Info,"npc-weapon",
+                    "Equipment role=%s running=%d entity=%016llx drawn=%d main=%d repository=%s",
+                    m_CatalogHost?"host":"guest",running?1:0,
+                    static_cast<unsigned long long>(ticket.npc),drawn?1:0,hasMain?1:0,
+                    inventory?inventory->m_rWeaponID.ToString().c_str():"-");
+            }
+            actor.observedWeaponDrawn=drawn;
+            actor.observedMainWeapon=hasMain;
+            actor.observedWeaponRunning=running;
+        }
+#endif
         if (sampleTension && (actor.phase==Phase::Running || (!m_CatalogHost && actor.phase==Phase::Held && drained))) {
             ++sampledTension;
             const auto tension=CrashGuards::TensionOf(static_cast<ZActor*>(ticket.actor)->m_pKnowledge);

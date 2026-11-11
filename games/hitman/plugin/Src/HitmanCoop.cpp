@@ -1723,6 +1723,22 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     m_World.ProcessPartyNpcEvents();
     if (m_PartyPreview)
         m_PartyPreview->Tick(s_Now);
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    if (m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing) {
+        const auto& party=m_PartyPreview->Status();
+        const int requestedMenu=m_LastMenu.load();
+        const bool readable=GamePause::Available();
+        const bool menuPause=readable && GamePause::MenuOpen();
+        if (!m_PartyMenuSampled || menuPause!=m_PartyMenuPause || requestedMenu!=m_PartyMenuRequest) {
+            CoopLog::Fmt(coop::LogLevel::Info,"party-pause",
+                "Menu sample seat=%u epoch=%u request=%d readable=%d ui-menus-hold=%d",
+                static_cast<unsigned>(party.self),static_cast<unsigned>(party.epoch),requestedMenu,readable?1:0,menuPause?1:0);
+            m_PartyMenuSampled=true;
+            m_PartyMenuPause=menuPause;
+            m_PartyMenuRequest=requestedMenu;
+        }
+    } else m_PartyMenuSampled=false;
+#endif
 #ifdef COOP_PARTY_NPC_DISCOVERY
     if (auto ids=m_World.TracePartyNpcDiscovery(m_PartyPreview ? &m_PartyPreview->Status() : nullptr,s_Now))
         m_PartyPreview->ObserveNpcRoster(*ids);

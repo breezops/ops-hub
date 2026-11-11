@@ -1,5 +1,14 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.36 — Guard return, weapon and pause observations
+
+- Give recently returned NPCs brief animation priority within the
+  existing moving range and pose budget.
+- Log whether a guard's main weapon is available and drawn on each PC.
+- Log native menu requests and the local menu pause hold during play.
+- The two-PC Freeform rehearsal uses the existing F8 guard handoff.
+  Weapon and pause entries in this release are diagnostic.
+
 ## 0.1.35 — NPC animation during guard handoff
 
 - Restore nearby NPC pose streaming for the host's actors.
