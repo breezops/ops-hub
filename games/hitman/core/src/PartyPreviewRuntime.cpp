@@ -36,6 +36,7 @@ void PartyPreviewRuntime::ObserveNpcRoster(std::span<const uint64_t> ids) {
 }
 
 PartyPreviewRuntime::~PartyPreviewRuntime() {
+    m_Sink.SetPartyPause(false,false);
     CancelGuestLaunch();
     CancelRestart();
     if (m_NpcCatalogStarted) StopNpcs();
@@ -246,6 +247,7 @@ void PartyPreviewRuntime::UpdateRestart(double now,bool native) {
     }
 }
 void PartyPreviewRuntime::Leave(double now) {
+    m_Sink.SetPartyPause(false,false);
     CancelGuestLaunch();
     CancelRestart();
     StopNpcs();
@@ -254,6 +256,7 @@ void PartyPreviewRuntime::Leave(double now) {
     m_Message="Leaving preview. Reload the mission before creating a new room.";
 }
 void PartyPreviewRuntime::SceneCleared() {
+    m_Sink.SetPartyPause(false,false);
     const bool restarting=m_FollowHostRestart && Status().phase==LobbyRoster::Phase::Restarting;
     if (restarting) {
         m_RestartCleared=Status().epoch;
@@ -336,9 +339,65 @@ void PartyPreviewRuntime::UpdateGuestLaunch(double now,bool native) {
         m_Room->ReportSceneLost();
     }
 }
-void PartyPreviewRuntime::Tick(double now) {
+void PartyPreviewRuntime::UpdatePartyPause(const PartyRoomStatus& status,bool localMenuPause) {
+    const auto epoch=status.phase==LobbyRoster::Phase::Playing ? status.epoch : 0;
+    if (epoch!=m_PauseEpoch) {
+        m_PauseEpoch=epoch;
+        m_PauseVotes={};
+        m_NextPauseVote=0;
+    }
+    bool remote=false;
+    if (epoch) {
+        for (const auto& member:status.members) {
+            if (member.id==status.self || !member.loaded || member.id<1 || member.id>m_PauseVotes.size()) continue;
+            const auto& vote=m_PauseVotes[member.id-1];
+            remote|=vote.incarnation==member.incarnation && vote.paused;
+        }
+    }
+    const bool local=epoch && localMenuPause;
+    if (local!=m_LocalPause || remote!=m_RemotePause)
+        m_Source.Log(LogLevel::Info,"party-pause","Menu holds epoch="+std::to_string(epoch)+
+            " local="+std::to_string(local)+" remote="+std::to_string(remote));
+    m_LocalPause=local;
+    m_RemotePause=remote;
+    m_PartyPaused=m_LocalPause || m_RemotePause;
+    m_Sink.SetPartyPause(m_LocalPause,m_RemotePause);
+}
+
+bool PartyPreviewRuntime::ReceivePartyPause(const PartyGameEvent& event) {
+    const auto& status=m_Room->Status();
+    if (!m_PauseEpoch || event.epoch!=m_PauseEpoch || status.phase!=LobbyRoster::Phase::Playing ||
+        event.source==status.self || event.source<1 || event.source>m_PauseVotes.size()) return false;
+    const auto member=std::find_if(status.members.begin(),status.members.end(),[&](const PartyMember& value) {
+        return value.id==event.source && value.incarnation==event.incarnation && value.loaded;
+    });
+    if (member==status.members.end()) return false;
+    ByteReader reader(event.payload);
+    uint8_t kind=0;
+    uint32_t sequence=0;
+    bool paused=false;
+    if (!reader.U8(kind) || kind!=uint8_t(MsgType::Pause) || !reader.U32(sequence) ||
+        !reader.Bool(paused) || !reader.AtEnd()) return false;
+    auto& vote=m_PauseVotes[event.source-1];
+    if (vote.incarnation==event.incarnation && static_cast<int32_t>(sequence-vote.sequence)<=0) return false;
+    vote={event.incarnation,sequence,paused};
+    return true;
+}
+
+void PartyPreviewRuntime::Tick(double now,bool localMenuPause) {
     if (!std::isfinite(now)) return;
     m_Room->Tick(now);
+    if (m_PartyPaused && m_PauseTick>=0) m_PauseElapsed+=std::max(0.,now-m_PauseTick);
+    m_PauseTick=now;
+    const double npcNow=now-m_PauseElapsed;
+    const bool previousLocalPause=m_LocalPause;
+    UpdatePartyPause(Status(),localMenuPause);
+    if (m_PauseEpoch && (m_LocalPause!=previousLocalPause || now>=m_NextPauseVote)) {
+        m_NextPauseVote=now+0.25;
+        ByteWriter writer;
+        writer.U8(uint8_t(MsgType::Pause)); writer.U32(++m_PauseSequence); writer.Bool(m_LocalPause);
+        m_Room->SendGame(PartyChannel::Avatar,writer.Data(),false);
+    }
     if (m_NpcWorld && m_NpcRetirementPending && m_NpcRetirement &&
         m_NpcWorld->ConfirmNpcSceneRetired(m_NpcRetirement)) {
         m_NpcRetirementPending=false;
@@ -383,28 +442,33 @@ void PartyPreviewRuntime::Tick(double now) {
         status=m_Room->Status();
     }
     const bool presenting=m_Playback.UpdateRoster(status);
-    const bool npcs=UpdateNpcs(now,presenting);
+    const bool npcs=UpdateNpcs(npcNow,presenting);
     const bool observeLocations=npcs && status.host &&
         (m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer || m_NpcOptions.nearbyNpcPoses);
     if (observeLocations) {
         Transform local;
         if (m_Source.GetLocalAvatar(local)) {
             for (const auto& member:status.members)
-                if (member.id==status.self) m_Npcs->ObservePlayer({member.id,member.incarnation},local.pos,now);
+                if (member.id==status.self) m_Npcs->ObservePlayer({member.id,member.incarnation},local.pos,npcNow);
         }
     }
     PartyGameEvent event;
     while (m_Room->PopGame(event)) {
+        if (event.channel==PartyChannel::Avatar && !event.payload.empty() && event.payload.front()==uint8_t(MsgType::Pause)) {
+            ReceivePartyPause(event);
+            continue;
+        }
         const bool npcChannel=event.channel==PartyChannel::HostWorld || event.channel==PartyChannel::Interaction;
         std::optional<Vec3> acceptedPosition;
         const bool rosterPacket=m_NpcRoster && npcChannel && !event.payload.empty() && event.payload.front()==PartyNpcRoster::Packet;
         const bool accepted=native && (rosterPacket ? m_NpcRoster->Receive(event) :
-            presenting && (npcChannel ? npcs && m_Npcs->Receive(event,now) :
+            presenting && (npcChannel ? npcs && m_Npcs->Receive(event,npcNow) :
                 m_Playback.Receive(event,now,observeLocations?&acceptedPosition:nullptr)));
-        if (acceptedPosition) m_Npcs->ObservePlayer({event.source,event.incarnation},*acceptedPosition,now);
+        if (acceptedPosition) m_Npcs->ObservePlayer({event.source,event.incarnation},*acceptedPosition,npcNow);
         if (accepted) ++m_Accepted;
         else ++m_Rejected;
     }
+    UpdatePartyPause(Status(),localMenuPause);
     if (m_NpcRoster) {
         m_NpcRoster->Tick();
         const auto& shared=m_NpcRoster->Shared();
@@ -415,7 +479,7 @@ void PartyPreviewRuntime::Tick(double now) {
         }
     }
     if (npcs && m_Npcs) {
-        m_Npcs->Tick(now);
+        m_Npcs->Tick(npcNow);
         if (!m_Npcs->Active()) InterruptNpcs("Shared NPC synchronization stopped.");
     }
     status=m_Room->Status();

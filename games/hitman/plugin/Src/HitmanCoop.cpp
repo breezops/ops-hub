@@ -1721,24 +1721,13 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     m_World.TracePartyNpcIdentity();
 #endif
     m_World.ProcessPartyNpcEvents();
-    if (m_PartyPreview)
-        m_PartyPreview->Tick(s_Now);
-#ifdef COOP_PARTY_PAUSE_MENU_TEST
-    const bool playing=m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing;
-    DWORD pauseTestForeground=0;
-    GetWindowThreadProcessId(GetForegroundWindow(),&pauseTestForeground);
-    const bool pauseTestKey=pauseTestForeground==GetCurrentProcessId() && (GetAsyncKeyState(VK_F9)&0x8000);
-    const bool wasPlaying=m_PauseTestPlaying.exchange(playing);
-    if (!playing || !wasPlaying) m_AcceptedPauseMenu=false;
-    if (pauseTestKey && !m_PreviousPauseTestKey && playing) {
-        const bool accepted=m_AcceptedPauseMenu.exchange(false) &&
-            m_LastMenu.load()==static_cast<int>(EGameUIMenu::eUIMenu_PauseMenu);
-        const bool released=accepted && GamePause::ReleaseMenuHoldForTest();
-        CoopLog::Fmt(coop::LogLevel::Info,"party-pause","F9 Escape hold test seat=%u accepted=%d released=%d",
-            static_cast<unsigned>(m_PartyPreview->Status().self),accepted?1:0,released?1:0);
+    if (m_PartyPreview) {
+        const auto menu=static_cast<EGameUIMenu>(m_LastMenu.load());
+        const bool localPause=(menu==EGameUIMenu::eUIMenu_PauseMenu ||
+            menu==EGameUIMenu::eUIMenu_SplashHintMenu) && GamePause::MenuOpen();
+        m_PartyPreview->Tick(s_Now,localPause);
     }
-    m_PreviousPauseTestKey=pauseTestKey;
-#endif
+    m_PartyPlaying=m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing;
 #ifdef COOP_NPC_GUEST_HANDOFF_TEST
     if (m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing) {
         const auto& party=m_PartyPreview->Status();
@@ -2386,6 +2375,7 @@ void HitmanCoop::PublishStatus() {
     m_OverlayCanReconnect = m_LastJoin.has_value() && s_Status.state == coop::SessionState::Failed;
     m_OverlayPartnerHold = m_World.IsInScene() && m_World.WantPartnerHold() && GamePause::Available();
     m_OverlayOwnMenu = m_World.IsInScene() && GamePause::MenuOpen();
+    m_OverlayPartyHold = m_PartyPreview && m_PartyPreview->WaitingForPartyMenu() && GamePause::Available();
     m_OverlayPauseFor = m_World.PartnerPausedFor();
     m_OverlayPauseLeft = SdkWorld::c_PauseHoldMax - m_OverlayPauseFor;
     m_InMission = m_World.IsInScene();
@@ -2831,20 +2821,19 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnSetGameState, ZLevelManager* th, ZLevel
 }
 
 DEFINE_PLUGIN_DETOUR(HitmanCoop, bool, OnTryOpenMenu, ZGameUIManagerEntity* th, EGameUIMenu p_Menu, bool p_Force) {
-    if (coop::BlockLauncherFocusPause(m_WindowActive, Now() - m_LauncherLastContact.load() < 5.0,
-        p_Menu == EGameUIMenu::eUIMenu_PauseMenu)) {
-        CoopLog::Info("launcher", "blocked automatic pause menu while launcher is active and game is unfocused");
-        return HookResult<bool>(HookAction::Return(), false);
+    bool focused=m_WindowActive;
+    const bool partyPlaying=m_PartyPlaying;
+    if (partyPlaying && p_Menu==EGameUIMenu::eUIMenu_PauseMenu) {
+        DWORD foreground=0;
+        GetWindowThreadProcessId(GetForegroundWindow(),&foreground);
+        focused=focused && foreground==GetCurrentProcessId();
     }
-    m_LastMenu = static_cast<int>(p_Menu);
-#ifdef COOP_PARTY_PAUSE_MENU_TEST
-    m_AcceptedPauseMenu=false;
-    if (m_PauseTestPlaying && m_WindowActive && p_Menu==EGameUIMenu::eUIMenu_PauseMenu) {
-        const bool accepted=p_Hook->CallOriginal(th,p_Menu,p_Force);
-        m_AcceptedPauseMenu=accepted;
-        return HookResult<bool>(HookAction::Return(),accepted);
+    if (coop::BlockLauncherFocusPause(focused,partyPlaying || Now()-m_LauncherLastContact.load()<5.0,
+        p_Menu==EGameUIMenu::eUIMenu_PauseMenu)) {
+        CoopLog::Info("launcher","blocked automatic pause menu while game is unfocused");
+        return HookResult<bool>(HookAction::Return(),false);
     }
-#endif
+    m_LastMenu=static_cast<int>(p_Menu);
     return HookResult<bool>(HookAction::Continue());
 }
 

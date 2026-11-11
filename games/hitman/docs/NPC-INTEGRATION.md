@@ -199,7 +199,9 @@ avatar. The testers saw the pistol move between the front and back of
 the character while remaining held. The mod follows the streamed hand
 pose and uses a fixed right-hand attachment. Record this as likely native
 concealment motion. Weapon attachment after a mission restart remains
-unverified.
+unverified in 0.1.37. The 0.1.38 test then confirmed both players could
+draw and holster after a host-led restart, with a pistol attachment
+logged on each PC in the new mission epoch.
 
 ### Order for the next playtests
 

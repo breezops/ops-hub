@@ -17,6 +17,7 @@ public:
     virtual bool SetPartySkeleton(uint8_t, uint64_t, uint32_t, const std::vector<int16_t>&) = 0;
     virtual std::string LocalPartyHeldItem() const { return {}; }
     virtual void SetPartyHeldItem(uint8_t, uint64_t, uint32_t, const std::string&) {}
+    virtual void SetPartyPause(bool, bool) {}
     virtual bool HidePartyAvatar(uint8_t, uint64_t, uint32_t) = 0;
     virtual void HidePartyAvatars() = 0;
 };

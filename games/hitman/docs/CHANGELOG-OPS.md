@@ -1,5 +1,15 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.39 — Shared pause and waiting overlay
+
+- Pause the party when an admitted player opens Escape or a blocking
+  tutorial. Other PCs show the original waiting overlay.
+- Resume after the last blocking menu closes. Clear pause state on
+  disconnect and mission transitions.
+- Block automatic focus-loss Escape menus during a party mission.
+- Exclude deliberate pause time from NPC watchdogs and handoff deadlines.
+- Remove the one-shot F9 diagnostic.
+
 ## 0.1.38 — Native Escape menu rehearsal
 
 - Add a one-shot F9 test that releases the native menu pause request

@@ -52,45 +52,20 @@ development tools, not the intended session lifecycle.
   extraction, results and progression need their own verified implementation;
   guest vanilla menus/results alone are not completion proof.
 
-## Preferred shared pause policy
+## Shared pause policy
 
-Pause the shared mission only while every connected, admitted player currently
-in that mission has explicitly opened their pause menu. For two players this
-requires both; for four it requires all four. Resume when any one player closes
-their pause menu. Other players can keep their own menus open while play resumes.
-One player's open menu therefore leaves the shared mission running.
+Use the original two-player behavior as the reference. An Escape
+menu or a blocking tutorial on any admitted PC pauses the party.
+The player who opened the menu or received the tutorial keeps their
+native screen. The other players see a waiting overlay. Play resumes
+when the last open menu or tutorial that caused the pause is closed.
 
-Keep each player's native menu under their own control. Do not force a pause
-overlay onto a player because somebody else opened a menu. Focus loss, tutorial
-popups, map/inventory screens and technical loading/recovery states are not
-automatic party-pause votes.
-
-The host coordinates pause from current mission/roster identities. Count guests
-only after admission, remove departed players, and recompute on joins, departures
-or reconnects. Old-epoch, old-incarnation and stale votes cannot pause a new
-mission. The game-update/network path must keep running while shared simulation
-is paused so an unpause can always reach the host and other PCs.
-
-Keep this separate from NPC authority holds, preparation and retirement. A
-player unpausing does not release guest NPC simulation or validate a pending
-world baseline. This policy is a product requirement; it is not implemented by
-the current movement preview or the experimental NPC action primitive.
-
-### Fallback if the native Escape menu requires a simulation pause
-
-Use the original two-player behavior as the reference. A native Escape
-menu or blocking tutorial on any admitted PC pauses the party. The
-player who opened the menu or received the tutorial keeps their native
-screen. The other players see a waiting overlay and remain in their
-current screen. Resume when all admitted players have dismissed the
-menus or tutorials that caused the pause. Clear a departed player's
-hold and recompute after a restart or reconnect. Keep networking and
-menu input available while the simulation is paused.
-
-Reuse the named game-loop pause request and the original waiting
-overlay. Track the source of each hold so focus loss and non-blocking
-menus do not become party-wide pauses. A tutorial can keep the party
-paused while it is being read, even when nobody opened Escape.
+Only current mission epochs and admitted player incarnations can
+contribute a pause. Disconnection, mission restart and scene clear
+release the relevant holds. Focus loss and non-blocking menus do not
+cause a shared pause. The party's network updates continue while
+paused. Native NPC watchdogs and network handoff deadlines exclude
+time spent paused.
 
 ## Reuse and implementation order
 
@@ -118,34 +93,18 @@ mod-owned request and releases that request through the SDK. The plugin's
 `eUpdateAlways` path is intended to keep networking alive while paused. These
 are reusable mechanisms, not proof of the unanimous policy in-game.
 
-The remaining native question is whether the local pause menu can stay open
-with its simulation-pause request suppressed. Verify that separately before
-building party pause coordination. `UI_Menus` covers other menus too; its
-presence alone is not an explicit pause-menu vote. Likewise, `m_LastMenu` is
-recorded before `TryOpenMenu` succeeds and can be stale, so it is not sufficient
-as the authoritative vote. Identify accepted menu open/close state, preserve
-menu input blocking, and keep unrelated loading/script pause requests intact.
+The 0.1.38 F9 rehearsal stopped after Escape opened. The host's NPC
+watchdog timed out after about five seconds and the room hid both
+remote players. No F9 release was logged. The weapon check passed
+after both PCs reloaded. The new party path uses the original overlay
+behavior and leaves Escape and tutorials in control of their native
+pause requests.
 
-The F9 rehearsal tests one Escape menu at a time. In a playing party,
-open Escape while HITMAN is focused, then press F9 once with that menu
-still visible. The build checks that the native open succeeded and
-releases the existing `UI_Menus` hold once through the SDK. Watch for
-menu closure, NPC motion, and whether menu input still works. Repeat
-with the other PC opening its menu. The probe does not act on tutorial
-popups or replace the game's other pause requests. A successful
-release in the log verifies only the request was removed. The two-PC
-observation verifies whether the menu and simulation can coexist.
-
-If that narrow native binding is verified, route current, admitted-player votes
-through the host and drive one dedicated party pause request. Validate one-menu
-open (world runs), all menus open (world stops), any menu closed (world resumes),
-then departure/reconnect and restart. Do not use the legacy partner-pause path,
-whose rule pauses for any one partner, as the party coordinator.
-
-If keeping menus open requires substantial UI replacement or broad engine
-patches, use the fallback above. The native
-NPC hold/resume work below remains necessary for shared world authority and
-must not be presented as work required merely to pause the game.
+Verify host and guest Escape separately, two menus overlapping, and
+a blocking tutorial if it occurs naturally. Keep one menu open longer
+than the previous five-second timeout. Test Alt-Tab while both PCs
+are in gameplay. Follow with a native restart and confirm that the
+party and NPCs recover normally.
 
 The legacy backend already has native RestartLevel discovery, deferred restart
 execution, restart-event observation and echo suppression. Reuse those helpers

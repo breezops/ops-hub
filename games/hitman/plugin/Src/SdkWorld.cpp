@@ -2949,7 +2949,7 @@ SdkWorld::CatalogPreparation SdkWorld::PrepareNpcCatalog(const std::set<uint64_t
             m_CatalogPoseBindings.resize(ids.size());
         }
         m_CatalogPhase=CatalogPhase::Binding;
-        m_CatalogStartedAt=GetTickCount64();
+        m_CatalogStartedAt=NpcCatalogClock();
     } else if (!std::equal(ids.begin(),ids.end(),m_CatalogIds.begin(),m_CatalogIds.end())) {
         return CatalogPreparation::Refused;
     }
@@ -2998,13 +2998,17 @@ void SdkWorld::RefuseNpcCatalog(const char* reason) {
     StopNpcCatalog();
 }
 
+uint64_t SdkWorld::NpcCatalogClock() const {
+    return m_PartyPauseStarted.value_or(GetTickCount64())-m_PartyPauseElapsed;
+}
+
 std::string SdkWorld::NpcCatalogError() const {
     if (m_CatalogPhase==CatalogPhase::Idle) return {};
     if (m_CatalogPhase==CatalogPhase::Stopped) return "Shared NPC session ended. Quit HITMAN before starting another test.";
     const auto observer=NpcActionObserver::Diagnostics();
     if (!observer.active || !observer.healthy || !m_NpcActorBirths.Healthy())
         return "Shared NPC hooks are unavailable. Quit HITMAN and save the log.";
-    const auto now=GetTickCount64();
+    const auto now=NpcCatalogClock();
     if (m_CatalogPhase!=CatalogPhase::Active && now-m_CatalogStartedAt>8000)
         return "Shared NPCs could not prepare. Quit HITMAN and save the log.";
     for (const auto& actor:m_CatalogActors) {
@@ -3057,7 +3061,7 @@ bool SdkWorld::FreezeNpc(uint64_t id) {
         actor->released.reset();
         actor->captureRelease=false;
         actor->phase=CatalogActorPhase::Hold;
-        actor->deadline=GetTickCount64()+5000;
+        actor->deadline=NpcCatalogClock()+5000;
     }
     return false;
 }
@@ -3110,7 +3114,7 @@ bool SdkWorld::ResumeNpc(uint64_t id) {
         actor->released.reset();
         actor->captureRelease=false;
         actor->phase=CatalogActorPhase::Resume;
-        actor->deadline=GetTickCount64()+5000;
+        actor->deadline=NpcCatalogClock()+5000;
     }
     return actor->phase==CatalogActorPhase::Running;
 }
@@ -3292,7 +3296,7 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
         return;
     }
     if (const auto error=NpcCatalogError(); !error.empty()) { RefuseNpcCatalog(error.c_str()); return; }
-    const auto now=GetTickCount64();
+    const auto now=NpcCatalogClock();
     if (m_CatalogPhase==CatalogPhase::Binding) {
         for (const auto id:m_CatalogIds) {
             auto* actor=FindFreshPartyNpc(id);
@@ -3899,6 +3903,21 @@ void SdkWorld::SetNpcTransform(uint64_t p_Id, const coop::Transform& p_Xf) {
 
     if (auto* s_Spatial = s_Ref.QueryInterface<ZSpatialEntity>())
         s_Spatial->SetObjectToWorldMatrixFromEditor(ToMatrix(p_Xf));
+}
+
+void SdkWorld::SetPartyPause(bool local,bool remote) {
+    const bool held=GamePause::SetPartyPause(remote && m_InScene);
+#ifdef COOP_NPC_CATALOG
+    const bool paused=m_InScene && (local || held);
+    if (paused && !m_PartyPauseStarted) m_PartyPauseStarted=GetTickCount64();
+    else if (!paused && m_PartyPauseStarted) {
+        m_PartyPauseElapsed+=GetTickCount64()-*m_PartyPauseStarted;
+        m_PartyPauseStarted.reset();
+    }
+#else
+    (void)local;
+    (void)held;
+#endif
 }
 
 bool SdkWorld::IsLocallyPaused() const {

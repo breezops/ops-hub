@@ -58,6 +58,7 @@ public:
     bool SetPartyOutfit(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::OutfitDesc& outfit) override;
     std::string LocalPartyHeldItem() const override { return LocalHeldItem(); }
     void SetPartyHeldItem(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::string& item) override;
+    void SetPartyPause(bool local,bool remote) override;
     bool SetPartySkeleton(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::vector<int16_t>& parents) override;
     void HidePartyAvatars() override;
     bool HidePartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch) override;
@@ -691,6 +692,9 @@ private:
     bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&,bool presentation);
     void RefuseNpcCatalog(const char* reason);
     std::string NpcCatalogError() const;
+    uint64_t NpcCatalogClock() const;
+    std::optional<uint64_t> m_PartyPauseStarted;
+    uint64_t m_PartyPauseElapsed=0;
     std::vector<CatalogActor> m_CatalogActors;
 #ifdef COOP_NPC_AGREED_CATALOG
     uint64_t m_NextCatalogTensionSample=0;

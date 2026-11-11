@@ -730,6 +730,8 @@ TEST(PartyNpcSync_HostOnlyLateNativeActorGetsLatestDeathBaseline) {
 namespace {
 struct RuntimeNpcSink:IPartyAvatarWorld {
     size_t shown=0;
+    bool localPause=false, remotePause=false;
+    void SetPartyPause(bool local,bool remote) override { localPause=local; remotePause=remote; }
     bool ApplyPartyRoster(const PartyRoomStatus&) override { return true; }
     bool ShowPartyAvatar(uint8_t,uint64_t,uint32_t,const Transform&) override { ++shown; return true; }
     bool ShowPartyPose(uint8_t,uint64_t,uint32_t,const Pose&) override { return true; }
@@ -752,6 +754,7 @@ struct RuntimeNpcLab {
     std::array<World,4> natives;
     std::array<RuntimeNpcSink,4> sinks;
     std::array<std::unique_ptr<PartyPreviewRuntime>,4> games;
+    std::array<bool,4> menuPause{};
     size_t count;
     double now=0;
     explicit RuntimeNpcLab(size_t players=4,bool enable=true,PartyNpcOptions options={},
@@ -790,7 +793,7 @@ struct RuntimeNpcLab {
         const auto end=now+seconds;
         while(now<end) {
             now+=1./60.; net->SetTime(now);
-            for(size_t i=0;i<count;++i) games[i]->Tick(now);
+            for(size_t i=0;i<count;++i) games[i]->Tick(now,menuPause[i]);
         }
     }
     bool Begin() {
@@ -896,6 +899,40 @@ TEST(PartyNpcRuntime_PreparesAgreedCatalogAndWaitsForGuestBaselinesAcrossRestart
     CHECK(!lab.natives[0].running[55]);
     CHECK(lab.natives[0].running[56]);
     for (size_t i=1;i<lab.count;++i) CHECK(!lab.natives[i].running[56]);
+}
+
+TEST(PartyNpcRuntime_MenuHoldsPauseTheWholePartyUntilTheLastMenuCloses) {
+    RuntimeNpcLab lab(4);
+    REQUIRE(lab.Begin());
+    lab.menuPause[0]=true;
+    lab.Step(.5);
+    CHECK(lab.sinks[0].localPause && !lab.sinks[0].remotePause);
+    for (size_t i=1;i<lab.count;++i) {
+        CHECK(lab.sinks[i].remotePause);
+        CHECK(lab.games[i]->WaitingForPartyMenu());
+    }
+    lab.menuPause[2]=true;
+    lab.Step(7.);
+    for (size_t i=0;i<lab.count;++i) {
+        CHECK(lab.games[i]->SharedNpcsActive());
+        CHECK(lab.sinks[i].remotePause);
+    }
+    lab.menuPause[0]=false;
+    lab.Step(.5);
+    CHECK(lab.games[0]->WaitingForPartyMenu());
+    CHECK(lab.sinks[2].localPause && !lab.sinks[2].remotePause);
+    lab.menuPause[2]=false;
+    lab.Step(.5);
+    for (size_t i=0;i<lab.count;++i) {
+        CHECK(!lab.sinks[i].localPause && !lab.sinks[i].remotePause);
+        CHECK(lab.games[i]->SharedNpcsActive());
+    }
+    lab.menuPause[2]=true;
+    lab.Step(.5);
+    REQUIRE(lab.sinks[0].remotePause);
+    lab.games[2]->Leave(lab.now);
+    lab.Step(2.);
+    CHECK(!lab.sinks[0].remotePause);
 }
 
 TEST(PartyNpcRuntime_OptionalAdapterKeepsMovementAndNpcPacketsOnOneLifecycle) {

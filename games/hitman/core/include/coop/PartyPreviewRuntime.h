@@ -24,7 +24,7 @@ public:
                         IPartyFreeformLaunch* launcher = nullptr, bool exchangeNpcRoster = false,
                         bool prepareAgreedNpcCatalog = false);
     ~PartyPreviewRuntime();
-    void Tick(double now);
+    void Tick(double now, bool localMenuPause=false);
     bool Ready();
     bool Start();
     bool Lobby();
@@ -43,8 +43,10 @@ public:
         return m_NpcStopFault ? "NPC simulation did not confirm it stopped. Reload Freeform Training on this PC." : m_Message;
     }
     bool SharedNpcsActive() const { return m_Npcs && m_Npcs->Active(); }
+    bool WaitingForPartyMenu() const { return m_RemotePause && !m_LocalPause; }
     bool RequestNpcHandoff(uint64_t npc, PartyIdentity next, double now) {
-        return m_NpcOptions.policy==PartyNpcPolicy::Explicit && m_Npcs && m_Npcs->Propose(npc,next,now);
+        return !m_PartyPaused && m_NpcOptions.policy==PartyNpcPolicy::Explicit && m_Npcs &&
+            m_Npcs->Propose(npc,next,now-m_PauseElapsed);
     }
     uint8_t ConfirmedNpcOwner(uint64_t npc) const {
         const auto* authority=m_Npcs && m_Npcs->Active() ? m_Npcs->Authority() : nullptr;
@@ -80,6 +82,13 @@ private:
     bool NativeSceneAvailable() const;
     bool RegisterFixedCatalog(double now);
     bool UpdateNpcs(double now, bool presenting);
+    void UpdatePartyPause(const PartyRoomStatus&,bool localMenuPause);
+    bool ReceivePartyPause(const PartyGameEvent&);
+    struct PauseVote { uint64_t incarnation=0; uint32_t sequence=0; bool paused=false; };
+    std::array<PauseVote,4> m_PauseVotes{};
+    uint32_t m_PauseEpoch=0, m_PauseSequence=0;
+    double m_NextPauseVote=0, m_PauseTick=-1, m_PauseElapsed=0;
+    bool m_LocalPause=false, m_RemotePause=false, m_PartyPaused=false;
     uint32_t m_Epoch = 0;
     double m_NextSend = 0, m_NextMetadata = 0, m_NextLoaded = 0;
     std::string m_Message;
