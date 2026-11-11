@@ -1724,6 +1724,7 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     if (m_PartyPreview) {
         const auto menu=static_cast<EGameUIMenu>(m_LastMenu.load());
         const bool localPause=(menu==EGameUIMenu::eUIMenu_PauseMenu ||
+            menu==EGameUIMenu::eUIMenu_TutorialMenu ||
             menu==EGameUIMenu::eUIMenu_SplashHintMenu) && GamePause::MenuOpen();
         m_PartyPreview->Tick(s_Now,localPause);
     }
