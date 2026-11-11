@@ -232,6 +232,8 @@ void HitmanCoop::SaveBugReport(const std::string& p_Diagnostics) {
     }).detach();
 }
 
+void CheckLauncherPluginLayout(LauncherPluginLayout<sizeof(HitmanCoop),sizeof(SdkWorld)>) {}
+
 HitmanCoop::~HitmanCoop() {
 #ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
     NpcSceneClearObserver::Stop();

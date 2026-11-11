@@ -42,6 +42,7 @@ bool Live(const coop::PartyRoomStatus& s) {
 }
 
 std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request, double now) {
+    CheckLauncherPluginLayout({});
     bool ok=true;
     std::string message;
     if (request.action=="preview_host" || request.action=="preview_join") {

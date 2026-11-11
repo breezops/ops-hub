@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <fstream>
 #include <memory>
@@ -463,5 +464,10 @@ private:
     std::atomic<bool> m_CorrectNpcsSetting { true };
     std::atomic<float> m_LocalBubbleSetting { 8.f };
 };
+
+// Reject a launcher handler built against a stale plugin or world layout.
+template<std::size_t PluginBytes,std::size_t WorldBytes>
+struct LauncherPluginLayout {};
+void CheckLauncherPluginLayout(LauncherPluginLayout<sizeof(HitmanCoop),sizeof(SdkWorld)>);
 
 DECLARE_ZHM_PLUGIN(HitmanCoop)

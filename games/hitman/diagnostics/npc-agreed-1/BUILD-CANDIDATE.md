@@ -2,6 +2,9 @@
 
 Use HITMAN 3.290.1 and ZHMModSDK 4.2.1. Set the native build identity
 to `0.13.94-four-player.preview.4.npc-agreed.1`.
+Configure a fresh build directory after finalizing the source. Preserve
+the linker map with the build. Run a live launcher status request at
+the main menu before publishing a multiplayer candidate.
 
 ```text
 COOP_NPC_AGREED_CATALOG=ON
