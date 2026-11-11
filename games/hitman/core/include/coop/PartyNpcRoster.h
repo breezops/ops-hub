@@ -13,7 +13,7 @@ public:
     void Update(std::span<const uint64_t> localIds);
     void Tick();
     bool Receive(const PartyGameEvent& event);
-    const std::optional<std::vector<uint64_t>>& Shared() const { return m_Shared; }
+    const std::optional<std::vector<uint64_t>>& Shared() const;
 private:
     static constexpr size_t IdsPerPage = 120;
     static constexpr size_t MaxIds = 500;

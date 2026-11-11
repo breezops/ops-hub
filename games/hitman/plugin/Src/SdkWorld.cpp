@@ -116,6 +116,11 @@ void SdkWorld::OnSceneCleared() {
 #ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
     m_NpcRestartBindingAttempted=false;
 #endif
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    m_NpcBindingRoom={};
+    m_NpcBindingIds.clear();
+    m_NpcBindingScope=0;
+#endif
     if (const auto scope=NpcMutationGate::CurrentScope()) {
         m_NpcRetiringScope=scope;
         NpcMutationGate::Clear(scope); // Retry on a later frame if a native call is still pinned.
@@ -3448,23 +3453,59 @@ bool SdkWorld::ObservePartyNpcDestructionReturn(const void* actor,uint64_t birth
     return completed;
 }
 
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+void SdkWorld::UpdatePartyNpcBindingAgreement(const coop::PartyPreviewRuntime* party) {
+    coop::PartyNpcScope room;
+    const std::vector<uint64_t>* ids=nullptr;
+    if (party && party->NpcRoster() && coop::PartyNpcScope::FromRoom(party->Status(),room)) {
+        const auto& shared=party->NpcRoster()->Shared();
+        if (shared && !shared->empty()) ids=&*shared;
+    }
+    if (m_NpcBindingScope) {
+        if (ids && room==m_NpcBindingRoom &&
+            std::includes(ids->begin(),ids->end(),m_NpcBindingIds.begin(),m_NpcBindingIds.end())) return;
+        m_NpcRetiringScope=m_NpcBindingScope;
+        NpcMutationGate::Clear(m_NpcBindingScope);
+        m_NpcBindingScope=0;
+        m_NpcRestartBindingAttempted=false;
+        CoopLog::Info("npc-bind","Revoked mission bindings after the party agreement changed");
+    }
+    if (ids) {
+        if (room!=m_NpcBindingRoom || *ids!=m_NpcBindingIds) {
+            m_NpcBindingRoom=room;
+            m_NpcBindingIds=*ids;
+        }
+    } else {
+        m_NpcBindingRoom={};
+        m_NpcBindingIds.clear();
+    }
+}
+#endif
+
 #ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
 void SdkWorld::ObservePartyNpcRestartBindings(const NpcActionObserver::View& view) {
     if (m_NpcRestartBindingAttempted || m_NpcRetiringScope || !m_InScene ||
         !coop::IsFreeformTrainingScene(m_Scene.scene) || PartyGameThread()!=GetCurrentThreadId() ||
         !m_NpcActorBirths.Healthy() || NpcMutationGate::CurrentScope() || NpcHoldArbiter::PoolScope()) return;
 
-    // Reuse the original mod's entire mission catalog and validate each
-    // physical instance against the fresh slot and action-boundary view.
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    const auto& ids=m_NpcBindingIds;
+#else
+    // Reuse the original mod's active catalog in the solo build.
+    std::vector<uint64_t> ids;
     std::vector<coop::NpcState> npcs;
     ListNpcs(npcs);
-    if (npcs.empty() || npcs.size()>NpcHoldArbiter::Capacity) return;
+    ids.reserve(npcs.size());
+    for (const auto& npc:npcs) ids.push_back(npc.id);
+#endif
+    if (ids.empty() || ids.size()>NpcHoldArbiter::Capacity) return;
     std::vector<NpcMutationGate::Ticket> tickets;
-    for (const auto& npc:npcs) {
-        auto* actor=FindFreshPartyNpc(npc.id);
+    tickets.reserve(ids.size());
+    for (const auto id:ids) {
+        auto* actor=FindFreshPartyNpc(id);
         const auto birth=actor?m_NpcActorBirths.Find(actor):0;
-        if (!birth || !view.Observe(actor,npc.id,birth).valid) return;
-        tickets.push_back({0,npc.id,birth,1,actor});
+        if (!birth || !view.Observe(actor,id,birth).valid) return;
+        tickets.push_back({0,id,birth,1,actor});
     }
     const auto scope=NpcMutationGate::Begin();
     if (!scope) return;
@@ -3480,6 +3521,11 @@ void SdkWorld::ObservePartyNpcRestartBindings(const NpcActionObserver::View& vie
             return;
         }
     }
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    m_NpcBindingScope=scope;
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-bind","Party catalog bound epoch=%u scope=%llu count=%zu",
+        m_NpcBindingRoom.epoch,static_cast<unsigned long long>(scope),tickets.size());
+#endif
     CoopLog::Fmt(coop::LogLevel::Info,"npc-bind","Watched mission catalog scope=%llu count=%zu constructor-mark=%llu; local ownership; no native hold calls",
         static_cast<unsigned long long>(scope),tickets.size(),static_cast<unsigned long long>(m_NpcActorBirths.Mark()));
     for (const auto& ticket:tickets)

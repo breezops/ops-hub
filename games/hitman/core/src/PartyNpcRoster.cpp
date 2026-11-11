@@ -26,6 +26,13 @@ bool PartyNpcRoster::RefreshScope() {
     return active;
 }
 
+const std::optional<std::vector<uint64_t>>& PartyNpcRoster::Shared() const {
+    static const std::optional<std::vector<uint64_t>> unavailable;
+    PartyNpcScope scope;
+    if (!PartyNpcScope::FromRoom(m_Room.Status(),scope) || scope!=m_Scope) return unavailable;
+    return m_Shared;
+}
+
 void PartyNpcRoster::Replace(Outgoing& outgoing, std::vector<uint64_t> ids) {
     if (outgoing.ids==ids) return;
     outgoing.ids=std::move(ids);

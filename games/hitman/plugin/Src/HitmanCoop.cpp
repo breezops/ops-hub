@@ -1530,6 +1530,9 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
                 if (lock.owns_lock()) {
                     self.m_World.TracePartyNpcAction(view);
 #ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+                    self.m_World.UpdatePartyNpcBindingAgreement(self.m_PartyPreview.get());
+#endif
                     self.m_World.ObservePartyNpcRestartBindings(view);
 #endif
                 }
@@ -1698,6 +1701,9 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
 #ifdef COOP_PARTY_NPC_DISCOVERY
     if (auto ids=m_World.TracePartyNpcDiscovery(m_PartyPreview ? &m_PartyPreview->Status() : nullptr,s_Now))
         m_PartyPreview->ObserveNpcRoster(*ids);
+#endif
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    m_World.UpdatePartyNpcBindingAgreement(m_PartyPreview.get());
 #endif
 #ifdef COOP_PARTY_FREEFORM_PROBE
     UpdateFreeformLaunchProbe(s_Now);

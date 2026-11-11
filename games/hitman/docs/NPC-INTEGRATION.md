@@ -811,3 +811,18 @@ Native fixtures cover exact receipt requirements, stale receipts at reused
 addresses, three reloads of 500 bindings, and a controller continuation
 overlapping teardown. Multiplayer NPC startup still requires its native
 scene preparation, baseline application, and simulation-ownership wiring.
+
+The `npc-party-bind.1` development profile also enables
+`COOP_NPC_PARTY_BINDING_DIAGNOSTICS` with the restart binding and party NPC
+discovery diagnostics. Each PC admits its initial watched catalog from
+the current room's agreed NPC IDs after the room enters Playing. Admission
+still validates each local actor at the native action boundary. A change
+in room, epoch, seat incarnation, or loss of an admitted ID revokes the
+local mutation scope. Scene clear drops the agreement and the next
+mission uses fresh reports and constructor stamps.
+
+This profile retains local NPC simulation and interaction ownership.
+The four-player roster regression covers paged agreement, immediate
+invalidation at host restart, and a different agreed set in the next
+epoch. Connecting host simulation requires confirming that remote
+simulators are stopped and can apply the host's baseline.

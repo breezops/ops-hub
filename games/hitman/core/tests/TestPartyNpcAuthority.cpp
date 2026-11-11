@@ -526,7 +526,8 @@ struct RuntimeNpcLab {
     size_t count;
     double now=0;
     explicit RuntimeNpcLab(size_t players=4,bool enable=true,PartyNpcOptions options={},
-                           std::optional<PartyNpcOptions> guestOptions={},bool exchangeNpcRoster=false):count(players) {
+                           std::optional<PartyNpcOptions> guestOptions={},bool exchangeNpcRoster=false,
+                           bool followHostRestart=false):count(players) {
         for(size_t i=0;i<count;++i) {
             sources[i].inScene=true;
             sources[i].scene.scene="assembly:/_PRO/Scenes/Missions/TheFacility/_Scene_Mission_Polarbear_Module_002_B.entity";
@@ -545,7 +546,7 @@ struct RuntimeNpcLab {
             auto room=i==0?PartyRoom::Host(net->Open(host),config):
                 PartyRoom::Join(net->Open({uint32_t(0x0a000001+i),uint16_t(50001+i)}),host,config,now);
             games[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i],
-                enable?&natives[i]:nullptr,i && guestOptions?*guestOptions:options,false,false,nullptr,exchangeNpcRoster);
+                enable?&natives[i]:nullptr,i && guestOptions?*guestOptions:options,followHostRestart,false,nullptr,exchangeNpcRoster);
         }
     }
     void AddNpc(uint64_t id) {
@@ -574,7 +575,7 @@ struct RuntimeNpcLab {
 }
 
 TEST(PartyNpcRoster_IntersectsFourPagedReportsAndDropsAgreementAtSceneChange) {
-    RuntimeNpcLab lab(4,false,{},std::nullopt,true);
+    RuntimeNpcLab lab(4,false,{},std::nullopt,true,true);
     REQUIRE(lab.Begin());
     std::vector<uint64_t> all;
     for (uint64_t id=1;id<=500;++id) all.push_back(id);
@@ -595,12 +596,26 @@ TEST(PartyNpcRoster_IntersectsFourPagedReportsAndDropsAgreementAtSceneChange) {
     }
 
     const auto epoch=lab.games[0]->Status().epoch;
-    REQUIRE(lab.games[0]->Lobby());
-    lab.Step(1);
-    for (const auto& game:lab.games) CHECK(!game->NpcRoster()->Shared());
-    REQUIRE(lab.Begin());
+    REQUIRE(lab.games[0]->HostMissionRestarted());
+    CHECK(!lab.games[0]->NpcRoster()->Shared()); // Scope changes before the next roster tick.
+    lab.Step(.5);
+    for (const auto& game:lab.games) {
+        REQUIRE(game->Status().phase==LobbyRoster::Phase::Restarting);
+        CHECK(!game->NpcRoster()->Shared());
+        game->SceneCleared();
+    }
+    lab.Step(2);
     CHECK(lab.games[0]->Status().epoch>epoch);
-    for (const auto& game:lab.games) CHECK(!game->NpcRoster()->Shared());
+    for (const auto& game:lab.games) {
+        REQUIRE(game->Status().phase==LobbyRoster::Phase::Playing);
+        CHECK(!game->NpcRoster()->Shared());
+        game->ObserveNpcRoster(withoutLast);
+    }
+    lab.Step(1);
+    for (const auto& game:lab.games) {
+        REQUIRE(game->NpcRoster()->Shared());
+        CHECK(*game->NpcRoster()->Shared()==withoutLast);
+    }
 }
 
 TEST(PartyNpcRuntime_OptionalAdapterKeepsMovementAndNpcPacketsOnOneLifecycle) {

@@ -90,6 +90,9 @@ public:
 #ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
     void ObservePartyNpcRestartBindings(const NpcActionObserver::View&);
 #endif
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    void UpdatePartyNpcBindingAgreement(const coop::PartyPreviewRuntime*);
+#endif
     void MarkPartyNpcJobAttachment() { m_NpcJobAttachmentMark=m_NpcActorBirths.Mark(); }
     void ArmSoloNpcHold() { m_SoloHoldRequested=true; }
     void StepSoloNpcHold(NpcActionPhase::Boundary&);
@@ -685,6 +688,11 @@ private:
     NpcMutationGate::Scope m_NpcRetiringScope=0;
 #ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
     bool m_NpcRestartBindingAttempted=false;
+#endif
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    coop::PartyNpcScope m_NpcBindingRoom;
+    std::vector<uint64_t> m_NpcBindingIds;
+    NpcMutationGate::Scope m_NpcBindingScope=0;
 #endif
     bool m_SoloHoldRequested=false,m_SoloHoldUsed=false,m_SoloHoldOwned=false;
     unsigned m_SoloHoldPhase=0;
