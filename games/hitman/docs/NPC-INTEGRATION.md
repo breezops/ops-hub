@@ -221,6 +221,27 @@ automatic handoff, so the original owner's navigation can continue.
 The recovery regression test keeps an ambient guard moving past the
 old transfer deadline, then confirms handoff after it settles.
 
+### Original two-player reference
+
+Jordan Rodrigues's legacy `Session::UpdateSharedNpcs` keeps alert NPCs
+on the PC running them, refreshes a two-second guest chase window
+from native alert packets, and uses a five-second ownership cooldown
+with an eight-metre proximity margin. Its `SdkWorld::ApplyPeerAlerts`
+also sets short-lived tension floors for nearby matching NPCs. The
+party policy already preserves active chases and proximity handoff,
+but its recovery gate is based on observed movement. Use the original
+alert packets and floors as the reference for the shared alert work.
+
+For player weapons, the legacy adapter uses separate hand and back
+slots and the native inventory finalizer. Its `Coop_BackItem` event
+updates the back slot independently, and the renderer suppresses a
+duplicate during the transition. The party adapter currently streams
+only the hand slot. Reuse the legacy slot and attachment semantics
+when working on rifle presentation. No equivalent guard-weapon
+attachment was found in the legacy NPC snapshot and pose paths
+reviewed here. Compare the live behavior before choosing a native
+attachment path for those guards.
+
 ### Drawn weapon visibility
 
 The same test reported invisible drawn weapons on remote players and
