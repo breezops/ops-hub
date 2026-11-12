@@ -191,6 +191,26 @@ The simulated four-player test covers three separate assignments,
 competition for the same guard, and independent recovery. Native
 simultaneous encounters still require a multiplayer test.
 
+The 0.1.43 coverage test follows the legacy Session ownership policy's
+proximity and active-pursuit principles. The party adapter can assign
+up to three eligible guards per guest and starts at most one new
+assignment per guest on each policy update. It counts transfers
+against that cap until the host confirms the return. The two-player
+simulation checks that two calm guards return as the guest moves away,
+new guards take the freed slots, and a pursuing guard stays with the
+guest throughout. The live Freeform run should use normal movement
+through separate areas, then check patrols, aggro and recovery after a
+host restart. Fold the 0.1.42 weapon check into the same run.
+
+This stage still assigns only eligible guards using player proximity.
+The original mod also distributes other NPCs, uses native contact and
+pursuit events to influence assignment, and relays alert floors. Those
+are separate gaps in party gameplay. In particular, a guard owned by
+the host still cannot natively see a guest stand-in when the two
+players travel together. Test that case explicitly as perception
+improves. Mission-wide alert propagation, shared interactions and
+objectives remain separate steps toward the full mission loop.
+
 ### Drawn weapon visibility
 
 The same test reported invisible drawn weapons on remote players and

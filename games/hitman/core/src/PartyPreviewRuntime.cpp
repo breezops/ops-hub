@@ -444,7 +444,7 @@ void PartyPreviewRuntime::Tick(double now,bool localMenuPause) {
     const bool presenting=m_Playback.UpdateRoster(status);
     const bool npcs=UpdateNpcs(npcNow,presenting);
     const bool observeLocations=npcs && status.host &&
-        (m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer || m_NpcOptions.nearbyNpcPoses || m_NpcOptions.automaticGuardHandoffs);
+        (m_NpcOptions.policy==PartyNpcPolicy::NearestPlayer || m_NpcOptions.nearbyNpcPoses || m_NpcOptions.automaticGuardsPerGuest);
     if (observeLocations) {
         Transform local;
         if (m_Source.GetLocalAvatar(local)) {

@@ -1,5 +1,14 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.43 — Nearby guard coverage
+
+- Let each guest's game run up to three nearby eligible guards using
+  the same host-confirmed NPC handoff and synchronized presentation.
+- Keep a guard with its current player through pursuit and recovery.
+  Return calm guards independently as the guest moves to another area.
+- Use ordinary Freeform traversal for the two-player test. Check
+  guard patrols, reactions, recovery and behavior after a restart.
+
 ## 0.1.42 — Guard weapon visibility test
 
 - Send the guard's native main-weapon visibility switch from the

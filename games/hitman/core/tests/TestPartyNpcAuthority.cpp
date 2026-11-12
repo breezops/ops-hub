@@ -588,7 +588,7 @@ TEST(PartyNpcSync_AutomaticGuardFollowsGuestProximityAndStaysThroughRecovery) {
     PartyNpcOptions options;
     options.policy=PartyNpcPolicy::Explicit;
     options.confirmInitialGuestBaselines=true;
-    options.automaticGuardHandoffs=true;
+    options.automaticGuardsPerGuest=1;
     options.fixedCatalog={55,77};
     NetworkNpc room(2,982,options);
     REQUIRE(room.Begin());
@@ -635,7 +635,7 @@ TEST(PartyNpcSync_AutomaticGuardsSupportThreeIndependentGuests) {
     PartyNpcOptions options;
     options.policy=PartyNpcPolicy::Explicit;
     options.confirmInitialGuestBaselines=true;
-    options.automaticGuardHandoffs=true;
+    options.automaticGuardsPerGuest=1;
     options.fixedCatalog={55,56,77,99};
     NetworkNpc room(4,983,options);
     REQUIRE(room.Begin());
@@ -679,6 +679,48 @@ TEST(PartyNpcSync_AutomaticGuardsSupportThreeIndependentGuests) {
     CHECK(room.worlds[2].running[77]);
     CHECK(room.worlds[3].running[99]);
     CHECK(room.worlds[0].running[56]);
+}
+
+TEST(PartyNpcSync_AutomaticGuardsFollowGuestAcrossPatrolAreas) {
+    PartyNpcOptions options;
+    options.policy=PartyNpcPolicy::Explicit;
+    options.confirmInitialGuestBaselines=true;
+    options.automaticGuardsPerGuest=kMaxAutomaticGuardsPerGuest;
+    options.fixedCatalog={11,12,13,14,21,22};
+    NetworkNpc room(2,986,options);
+    REQUIRE(room.Begin());
+    for (const auto npc:options.fixedCatalog) {
+        PartyNpcState state;
+        state.xf.pos.x=npc<20 ? static_cast<float>(npc-10) : static_cast<float>(npc+10);
+        REQUIRE(room.sync[0]->Register(npc,state,room.now));
+    }
+    room.Step(options.minimumHold+.5);
+    const auto observe=[&](float x) {
+        REQUIRE(room.sync[0]->ObservePlayer(room.Identity(0),{70,0,0},room.now));
+        REQUIRE(room.sync[0]->ObservePlayer(room.Identity(1),{x,0,0},room.now));
+    };
+    observe(0.f);
+    room.Step(.85);
+    REQUIRE(room.worlds[1].running[11] && room.worlds[1].running[12] && room.worlds[1].running[13]);
+    CHECK(room.worlds[0].running[14]);
+
+    room.worlds[1].states[11].engaged=true;
+    room.Step(.3);
+    for (unsigned i=0;i<5;++i) {
+        observe(30.f);
+        room.Step(.65);
+    }
+    CHECK(room.worlds[1].running[11]);
+    CHECK(room.worlds[0].running[12] && room.worlds[0].running[13] && room.worlds[0].running[14]);
+    CHECK(room.worlds[1].running[21] && room.worlds[1].running[22]);
+
+    room.worlds[1].states[11].engaged=false;
+    for (unsigned i=0;i<4;++i) {
+        observe(30.f);
+        room.Step(.7);
+    }
+    CHECK(room.worlds[0].running[11]);
+    CHECK(room.worlds[1].running[21] && room.worlds[1].running[22]);
 }
 
 TEST(PartyNpcSync_FourPlayersPrepareTheFullFreeformSizedCatalog) {

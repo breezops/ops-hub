@@ -45,7 +45,7 @@ public:
     bool SharedNpcsActive() const { return m_Npcs && m_Npcs->Active(); }
     bool WaitingForPartyMenu() const { return m_RemotePause && !m_LocalPause; }
     bool RequestNpcHandoff(uint64_t npc, PartyIdentity next, double now) {
-        return !m_PartyPaused && !m_NpcOptions.automaticGuardHandoffs && m_NpcOptions.policy==PartyNpcPolicy::Explicit && m_Npcs &&
+        return !m_PartyPaused && !m_NpcOptions.automaticGuardsPerGuest && m_NpcOptions.policy==PartyNpcPolicy::Explicit && m_Npcs &&
             m_Npcs->Propose(npc,next,now-m_PauseElapsed);
     }
     uint8_t ConfirmedNpcOwner(uint64_t npc) const {

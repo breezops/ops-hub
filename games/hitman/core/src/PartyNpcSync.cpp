@@ -56,7 +56,7 @@ bool PartyNpcSync::Start() {
     if(m_Room.Status().host) m_Host=std::make_unique<PartyNpcAuthority>(m_Scope,m_Options);
     if(m_Replica->Stopped() || (m_Host && m_Host->Failed())) { Fail(); return false; }
     m_Known.clear(); m_Locations.clear(); m_NextReport=m_NextPolicy=m_NextRefresh=m_NextPose=0; m_Active=true;
-    m_AutomaticGuards.fill(0);
+    m_AutomaticGuards={};
     return true;
 }
 void PartyNpcSync::Fail() {
@@ -285,21 +285,24 @@ void PartyNpcSync::ConsiderAutomaticGuards(double now) {
             (record.lastBusy<0. || now-record.lastBusy>=m_Options.minimumHold);
     };
 
+    std::array<uint64_t*,4> freeSlots {};
     for (size_t seat=1;seat<guests.size();++seat) {
-        auto& npc=m_AutomaticGuards[seat];
-        if (!npc) continue;
-        const auto* record=m_Host->Find(npc);
-        if (!record || record->phase!=PartyNpcAuthority::Phase::Active || !record->confirmed) continue;
-        if (record->owner.id==1) {
-            npc=0;
-            continue;
-        }
         const auto* guest=guests[seat];
-        if (!guest || record->owner.id!=guest->peer.id || !canTransfer(*record)) continue;
-        const float fromGuest=Distance(guest->position,record->state.xf.pos);
-        const float fromHost=Distance(host->position,record->state.xf.pos);
-        if (fromGuest>kGuardReleaseRadius || fromHost+kGuardDistanceMargin<fromGuest)
-            m_Host->Propose(npc,host->peer,now);
+        for (auto& npc:std::span(m_AutomaticGuards[seat]).first(m_Options.automaticGuardsPerGuest)) {
+            if (npc) {
+                const auto* record=m_Host->Find(npc);
+                if (!record || record->phase!=PartyNpcAuthority::Phase::Active || !record->confirmed) continue;
+                if (record->owner.id==1) {
+                    npc=0;
+                } else if (guest && record->owner.id==guest->peer.id && canTransfer(*record)) {
+                    const float fromGuest=Distance(guest->position,record->state.xf.pos);
+                    const float fromHost=Distance(host->position,record->state.xf.pos);
+                    if (fromGuest>kGuardReleaseRadius || fromHost+kGuardDistanceMargin<fromGuest)
+                        m_Host->Propose(npc,host->peer,now);
+                }
+            }
+            if (!npc && !freeSlots[seat]) freeSlots[seat]=&npc;
+        }
     }
 
     struct Candidate {
@@ -320,13 +323,13 @@ void PartyNpcSync::ConsiderAutomaticGuards(double now) {
             nearestSeat=seat;
             nearestDistance=distance;
         }
-        // A guest already handling a guard still takes precedence over farther guests.
-        if (nearestSeat && !m_AutomaticGuards[nearestSeat] && nearestDistance<candidates[nearestSeat].distance)
+        // The closest guest still takes precedence when all their slots are occupied.
+        if (nearestSeat && freeSlots[nearestSeat] && nearestDistance<candidates[nearestSeat].distance)
             candidates[nearestSeat]={npc,nearestDistance};
     }
     for (size_t seat=1;seat<guests.size();++seat) {
         const auto npc=candidates[seat].npc;
-        if (npc && m_Host->Propose(npc,guests[seat]->peer,now)) m_AutomaticGuards[seat]=npc;
+        if (npc && m_Host->Propose(npc,guests[seat]->peer,now)) *freeSlots[seat]=npc;
     }
 }
 
@@ -342,7 +345,7 @@ void PartyNpcSync::Tick(double now,bool allowOwnershipChanges) {
     }
     if(m_Host) {
         m_Host->Tick(now);
-        if(allowOwnershipChanges && now>=m_NextPolicy && m_Options.automaticGuardHandoffs) {
+        if(allowOwnershipChanges && now>=m_NextPolicy && m_Options.automaticGuardsPerGuest) {
             m_NextPolicy=now+0.2;
             ConsiderAutomaticGuards(now);
         } else if(allowOwnershipChanges && now>=m_NextPolicy && m_Options.policy==PartyNpcPolicy::NearestPlayer) {

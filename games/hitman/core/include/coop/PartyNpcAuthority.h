@@ -46,6 +46,7 @@ struct PartyNpcDelivery {
 };
 struct PartyNpcLocation { PartyIdentity peer; Vec3 position; double observed = 0; };
 enum class PartyNpcPolicy : uint8_t { HostOnly, NearestPlayer, Explicit };
+inline constexpr size_t kMaxAutomaticGuardsPerGuest=3;
 struct PartyNpcOptions {
     // The native adapter uses HostOnly. Explicit allows a controlled handoff
     // without running the proximity policy.
@@ -59,9 +60,10 @@ struct PartyNpcOptions {
     bool streamPoses = false;
     bool nearbyNpcPoses = false;
     bool confirmInitialGuestBaselines = false;
-    bool automaticGuardHandoffs = false;
+    size_t automaticGuardsPerGuest = 0;
     bool ValidCatalog() const {
-        if (automaticGuardHandoffs && policy!=PartyNpcPolicy::Explicit) return false;
+        if (automaticGuardsPerGuest>kMaxAutomaticGuardsPerGuest ||
+            (automaticGuardsPerGuest && policy!=PartyNpcPolicy::Explicit)) return false;
         if (confirmInitialGuestBaselines && policy==PartyNpcPolicy::NearestPlayer) return false;
         if (nearbyNpcPoses && !streamPoses) return false;
         return fixedCatalog.empty() ? !streamPoses : (policy!=PartyNpcPolicy::NearestPlayer &&
