@@ -622,9 +622,13 @@ TEST(PartyNpcSync_AutomaticGuardFollowsGuestProximityAndStaysThroughRecovery) {
     room.Step(.6);
     CHECK(room.worlds[1].running[77]);
     room.worlds[1].states[77].engaged=false;
-    room.Step(.8);
-    CHECK(room.worlds[1].running[77]);
-    for (unsigned i=0;i<3;++i) {
+    for (unsigned i=0;i<8;++i) {
+        room.worlds[1].states[77].xf.pos.x+=.5f;
+        locations(40.f);
+        room.Step(.4);
+        CHECK(room.worlds[1].running[77]);
+    }
+    for (unsigned i=0;i<5;++i) {
         locations(40.f);
         room.Step(.7);
     }
@@ -715,7 +719,7 @@ TEST(PartyNpcSync_AutomaticGuardsFollowGuestAcrossPatrolAreas) {
     CHECK(room.worlds[1].running[21] && room.worlds[1].running[22]);
 
     room.worlds[1].states[11].engaged=false;
-    for (unsigned i=0;i<4;++i) {
+    for (unsigned i=0;i<5;++i) {
         observe(30.f);
         room.Step(.7);
     }

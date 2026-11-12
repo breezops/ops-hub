@@ -258,6 +258,9 @@ void SdkWorld::OnSceneCleared() {
     // The scene owns the copies the stand-in carries and frees them with the stand-in (the slots
     // were reset above, keeping only what the partner holds: asked for again in the next mission).
     m_HeldItem.clear();
+    m_PartyHeldSampleAt=0.0;
+    m_PartyHeldCandidate.clear();
+    m_PartyHeldItem.clear();
     m_Doors.clear();
     m_DoorsFound = false;
     m_DoorsSearchAt = 0.0;
@@ -3391,11 +3394,17 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
             if (actor.observedWeaponRunning!=running || drawn!=actor.observedWeaponDrawn ||
                 hasMain!=actor.observedMainWeapon || geometry!=actor.observedWeaponGeometry ||
                 visibleSwitch!=actor.observedWeaponVisibleSwitch) {
+                const auto* itemSpatial=weaponRef ? weaponRef.QueryInterface<ZSpatialEntity>() : nullptr;
+                const auto actorRef=inventory ? inventory->m_rActor.m_entityRef : ZEntityRef{};
+                const auto* actorSpatial=actorRef ? actorRef.QueryInterface<ZSpatialEntity>() : nullptr;
+                const float itemDistance=itemSpatial && actorSpatial ? coop::Distance(
+                    ToTransform(itemSpatial->GetObjectToWorldMatrix()).pos,
+                    ToTransform(actorSpatial->GetObjectToWorldMatrix()).pos) : -1.f;
                 CoopLog::Fmt(coop::LogLevel::Info,"npc-weapon",
-                    "Equipment role=%s running=%d entity=%016llx drawn=%d main=%d geometry=%d visible-switch=%d repository=%s",
+                    "Equipment role=%s running=%d entity=%016llx drawn=%d main=%d geometry=%d visible-switch=%d repository=%s actor-distance=%.2f",
                     m_CatalogHost?"host":"guest",running?1:0,
                     static_cast<unsigned long long>(ticket.npc),drawn?1:0,hasMain?1:0,geometry,visibleSwitch,
-                    inventory?inventory->m_rWeaponID.ToString().c_str():"-");
+                    inventory?inventory->m_rWeaponID.ToString().c_str():"-",itemDistance);
             }
             actor.observedWeaponDrawn=drawn;
             actor.observedMainWeapon=hasMain;
@@ -5910,6 +5919,17 @@ std::string SdkWorld::LocalHeldItem() const {
 
     // Drawn on the back and nothing else: on the back it is.
     return m_HeldItem;
+}
+
+std::string SdkWorld::LocalPartyHeldItem() const {
+    const auto observed=LocalHeldItem();
+    if (m_PartyHeldSampleAt!=m_HeldCheckAt) {
+        m_PartyHeldSampleAt=m_HeldCheckAt;
+        // Ignore a single missed or misclassified sample during native grip changes.
+        if (observed==m_PartyHeldCandidate) m_PartyHeldItem=observed;
+        m_PartyHeldCandidate=observed;
+    }
+    return m_PartyHeldItem;
 }
 
 std::string SdkWorld::HeldItemsTest() const {

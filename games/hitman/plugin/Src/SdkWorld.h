@@ -56,7 +56,7 @@ public:
     bool ShowPartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Transform& xf) override;
     bool ShowPartyPose(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Pose& pose) override;
     bool SetPartyOutfit(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::OutfitDesc& outfit) override;
-    std::string LocalPartyHeldItem() const override { return LocalHeldItem(); }
+    std::string LocalPartyHeldItem() const override;
     void SetPartyHeldItem(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::string& item) override;
     void SetPartyPause(bool local,bool remote) override;
     bool SetPartySkeleton(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::vector<int16_t>& parents) override;
@@ -543,6 +543,8 @@ public:
     bool m_StandInWeapon = false;
     mutable double m_HeldCheckAt = 0.0;
     mutable std::string m_HeldItem;
+    mutable double m_PartyHeldSampleAt=0.0;
+    mutable std::string m_PartyHeldCandidate, m_PartyHeldItem;
     mutable std::string m_BackItem; // on our 47's back (see LocalHeldItem)
     std::string m_BackItemSent;
     double m_BackItemSentAt = -100.0;

@@ -169,6 +169,8 @@ bool PartyNpcAuthority::Receive(PartyIdentity source,const PartyNpcMessage& mess
             message.sequence<=record.reportSequence || (!message.state.engaged && !message.state.interacting && message.state.life==PartyNpcLife::Alive) ||
             !Adopt(record,message.state)) return false;
         record.reportSequence=message.sequence; record.confirmed=true;
+        record.lastBusy=now;
+        record.recovering=record.recovering || record.state.engaged;
         record.phase=Phase::Active; record.next={}; record.nextGeneration=0; record.changed=now;
         return Emit(0,message.npc,PartyNpcKind::Canonical,record);
     }
@@ -178,10 +180,15 @@ bool PartyNpcAuthority::Receive(PartyIdentity source,const PartyNpcMessage& mess
         if (m_Options.confirmInitialGuestBaselines && record.generation==1 && !InitialGuestsPrepared(message.npc)) return false;
         const auto previous=record.revision;
         const bool moved=Distance(record.state.xf.pos,message.state.xf.pos)>=0.02f;
-        const bool busy=record.state.engaged || record.state.interacting || message.state.engaged || message.state.interacting;
+        const bool engaged=record.state.engaged || message.state.engaged;
+        const bool busy=engaged || record.state.interacting || message.state.interacting;
         if (!Adopt(record,message.state)) return false;
         if (moved) record.lastMovement=now;
         if (busy) record.lastBusy=now;
+        if (engaged) record.recovering=true;
+        if (record.recovering && !busy && now-record.lastBusy>=m_Options.minimumHold &&
+            (record.lastMovement<0. || now-record.lastMovement>=m_Options.minimumHold))
+            record.recovering=false;
         record.reportSequence=message.sequence; record.confirmed=true;
         return previous==record.revision || Emit(0,message.npc,PartyNpcKind::Canonical,record);
     }

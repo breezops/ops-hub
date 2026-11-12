@@ -1,5 +1,15 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.44 — Guard recovery and held-item stability
+
+- Keep a guard's current owner while the guard is still moving after
+  an alert. Wait for two seconds of calm and settled movement before
+  an automatic handoff.
+- Require two matching local held-item samples before changing the
+  remote player's displayed item.
+- Log the native weapon's distance from its guard on both PCs to
+  investigate invisible guard weapons despite a replicated switch.
+
 ## 0.1.43 — Nearby guard coverage
 
 - Let each guest's game run up to three nearby eligible guards using

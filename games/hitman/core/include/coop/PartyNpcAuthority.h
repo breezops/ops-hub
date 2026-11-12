@@ -91,6 +91,7 @@ public:
         double changed=0, deadline=0, retryAt=0, snapshotAt=0;
         double lastMovement=-1.;
         double lastBusy=-1.;
+        bool recovering=false;
         bool confirmed=false;
         uint8_t preparedGuests=0;
     };

@@ -280,7 +280,7 @@ void PartyNpcSync::ConsiderAutomaticGuards(double now) {
     }
     const auto canTransfer=[&](const PartyNpcAuthority::Record& record) {
         return record.phase==PartyNpcAuthority::Phase::Active && record.confirmed &&
-            record.state.life==PartyNpcLife::Alive && !record.state.engaged && !record.state.interacting &&
+            record.state.life==PartyNpcLife::Alive && !record.state.engaged && !record.state.interacting && !record.recovering &&
             now-record.changed>=m_Options.minimumHold &&
             (record.lastBusy<0. || now-record.lastBusy>=m_Options.minimumHold);
     };

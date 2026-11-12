@@ -211,6 +211,16 @@ players travel together. Test that case explicitly as perception
 improves. Mission-wide alert propagation, shared interactions and
 objectives remain separate steps toward the full mission loop.
 
+The 0.1.43 two-PC logs confirmed three guest-owned guards progressed
+from warning into combat and back to ambient. Two returned to host
+ownership about four seconds after reaching ambient. One returned
+around 33 metres from its initial position. The logs cannot establish
+its intended post at that moment. The 0.1.44 policy waits until the
+guard has been calm and its movement settled for two seconds before
+automatic handoff, so the original owner's navigation can continue.
+The recovery regression test keeps an ambient guard moving past the
+old transfer deadline, then confirms handoff after it settles.
+
 ### Drawn weapon visibility
 
 The same test reported invisible drawn weapons on remote players and
@@ -250,6 +260,20 @@ reports. In the two-PC test, check whether the gun appears in the
 right hand and clears on recovery. Check again after a native restart.
 If the weapon is still invisible or appears detached, report what
 each player sees and save both logs.
+
+During the 0.1.43 run, the remote PC applied both visibility values
+and read them back for the matching guard item. The geometry flag
+was already on. The other player still saw empty hands. The next
+build logs the distance from the item to its actor to distinguish a
+weapon remaining at its spawn from one following the actor while
+invisible. This diagnostic does not yet reconstruct weapon attachment.
+
+The same run repeatedly attached and recreated player item copies,
+sometimes alternating repository IDs about a quarter-second apart.
+The party sender now requires two matching samples before changing
+what the receiver sees. This filters isolated sample errors and adds
+one sampling interval to intentional changes. Rifle grip and
+attachment alignment remain open.
 
 The player-weapon candidate sends the held item's repository ID with
 the avatar frame. Empty frames clear the held item. Playback rejects
