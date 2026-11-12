@@ -3317,7 +3317,7 @@ void SdkWorld::ApplyCatalogWeaponVisibility(const NpcMutationGate::Ticket& ticke
     if (!weapon || !weapon->m_pItemConfigDescriptor) return;
     const auto& id=weapon->m_pItemConfigDescriptor->m_ItemID;
     if (id.m_nHigh!=state.repositoryHigh || id.m_nLow!=state.repositoryLow) return;
-    const auto visible=weapon->m_rItemVisible.m_entityRef;
+    auto visible=weapon->m_rItemVisible.m_entityRef;
     if (!visible || visible.GetProperty<bool>("m_bValue").Get()==state.visible) return;
     if (visible.SetProperty("m_bValue",state.visible)) {
         CoopLog::Fmt(coop::LogLevel::Info,"npc-weapon","Replica visibility applied role=%s entity=%016llx visible=%d",
