@@ -163,11 +163,17 @@ struct MsgSceneReady {
     bool Read(ByteReader& r);
 };
 
+struct PartyEquipment {
+    std::string hand;
+    std::string back;
+    bool operator==(const PartyEquipment&) const = default;
+};
+
 struct MsgAvatarState {
     uint32_t epoch = 0;
     uint32_t timeMs = 0; // sender clock
     Transform xf;
-    std::string heldItem; // Party visual attachment; empty means holstered.
+    PartyEquipment equipment; // Repository IDs for the two visual attachment slots.
 
     void Write(ByteWriter& w) const;
     bool Read(ByteReader& r);

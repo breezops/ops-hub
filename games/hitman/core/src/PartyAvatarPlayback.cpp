@@ -69,7 +69,7 @@ bool PartyAvatarPlayback::Receive(const PartyGameEvent& event, double now, std::
         peer.hasTransform = true;
         peer.transformMs = message.timeMs;
         peer.lastTransform = now;
-        m_World.SetPartyHeldItem(event.source,event.incarnation,event.epoch,message.heldItem);
+        m_World.SetPartyEquipment(event.source,event.incarnation,event.epoch,message.equipment);
         if (acceptedPosition) *acceptedPosition=message.xf.pos;
         return true;
     }

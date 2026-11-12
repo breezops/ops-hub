@@ -15,8 +15,8 @@ public:
     virtual bool ShowPartyPose(uint8_t, uint64_t, uint32_t, const Pose&) = 0;
     virtual bool SetPartyOutfit(uint8_t, uint64_t, uint32_t, const OutfitDesc&) = 0;
     virtual bool SetPartySkeleton(uint8_t, uint64_t, uint32_t, const std::vector<int16_t>&) = 0;
-    virtual std::string LocalPartyHeldItem() const { return {}; }
-    virtual void SetPartyHeldItem(uint8_t, uint64_t, uint32_t, const std::string&) {}
+    virtual PartyEquipment LocalPartyEquipment() const { return {}; }
+    virtual void SetPartyEquipment(uint8_t, uint64_t, uint32_t, const PartyEquipment&) {}
     virtual void SetPartyPause(bool, bool) {}
     virtual bool HidePartyAvatar(uint8_t, uint64_t, uint32_t) = 0;
     virtual void HidePartyAvatars() = 0;

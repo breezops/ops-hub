@@ -56,8 +56,8 @@ public:
     bool ShowPartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Transform& xf) override;
     bool ShowPartyPose(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Pose& pose) override;
     bool SetPartyOutfit(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::OutfitDesc& outfit) override;
-    std::string LocalPartyHeldItem() const override;
-    void SetPartyHeldItem(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::string& item) override;
+    coop::PartyEquipment LocalPartyEquipment() const override;
+    void SetPartyEquipment(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::PartyEquipment&) override;
     void SetPartyPause(bool local,bool remote) override;
     bool SetPartySkeleton(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::vector<int16_t>& parents) override;
     void HidePartyAvatars() override;
@@ -536,7 +536,7 @@ public:
     void UpdateStandInSlot(RemoteAvatarState& avatar, StandInSlot& p_Slot, const char* p_Where);
     void DropStandInItem(RemoteAvatarState& avatar, StandInSlot& p_Slot);
     void DropStandInItem(StandInSlot& p_Slot) { DropStandInItem(m_LegacyAvatar,p_Slot); }
-    void ClearPartyHeldItem(RemoteAvatarState& avatar);
+    void ClearPartyEquipment(RemoteAvatarState& avatar);
     void DropStandInItem() { DropStandInItem(m_LegacyAvatar.handSlot); }
     void OnStandInItemCreated(uint32_t p_Ticket, TEntityRef<IItemBase> p_Item);
     int m_StandInAttach = 0; // EAttachLocation (test: other places)
@@ -544,7 +544,7 @@ public:
     mutable double m_HeldCheckAt = 0.0;
     mutable std::string m_HeldItem;
     mutable double m_PartyHeldSampleAt=0.0;
-    mutable std::string m_PartyHeldCandidate, m_PartyHeldItem;
+    mutable coop::PartyEquipment m_PartyEquipmentCandidate, m_PartyEquipment;
     mutable std::string m_BackItem; // on our 47's back (see LocalHeldItem)
     std::string m_BackItemSent;
     double m_BackItemSentAt = -100.0;

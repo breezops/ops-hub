@@ -1,5 +1,13 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.45 — Player hand and back equipment
+
+- Carry both equipment slots in one party avatar frame. Use the
+  original mod's native hand and back attachment locations.
+- Suppress duplicate copies during draw and holster transitions.
+  Clear both slots when an avatar leaves or its scene restarts.
+- Keep the two-sample filter for brief native classification changes.
+
 ## 0.1.44 — Guard recovery and held-item stability
 
 - Keep a guard's current owner while the guard is still moving after

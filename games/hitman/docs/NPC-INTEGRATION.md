@@ -235,9 +235,13 @@ alert packets and floors as the reference for the shared alert work.
 For player weapons, the legacy adapter uses separate hand and back
 slots and the native inventory finalizer. Its `Coop_BackItem` event
 updates the back slot independently, and the renderer suppresses a
-duplicate during the transition. The party adapter currently streams
-only the hand slot. Reuse the legacy slot and attachment semantics
-when working on rifle presentation. No equivalent guard-weapon
+duplicate during the transition. The 0.1.45 party adapter
+streams both slots together and uses the same native finalizer and
+attachment locations per remote avatar. The same item ID is suppressed
+on the back while drawn. The live test should verify a stowed rifle
+stays visible while a different item is held, and check both slots
+after a restart. Two-handed rifle grip still needs verification.
+No equivalent guard-weapon
 attachment was found in the legacy NPC snapshot and pose paths
 reviewed here. Compare the live behavior before choosing a native
 attachment path for those guards.

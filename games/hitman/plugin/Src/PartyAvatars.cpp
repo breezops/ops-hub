@@ -182,8 +182,11 @@ bool SdkWorld::SetPartySkeleton(uint8_t id, uint64_t incarnation, uint32_t epoch
     return true;
 }
 
-void SdkWorld::SetPartyHeldItem(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::string& item) {
-    if (auto* avatar=PartyAvatar(id,incarnation,epoch)) avatar->handSlot.wanted=item;
+void SdkWorld::SetPartyEquipment(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::PartyEquipment& equipment) {
+    if (auto* avatar=PartyAvatar(id,incarnation,epoch)) {
+        avatar->handSlot.wanted=equipment.hand;
+        avatar->backSlot.wanted=equipment.back==equipment.hand ? std::string{} : equipment.back;
+    }
 }
 
 void SdkWorld::HidePartyAvatars() {
@@ -226,8 +229,10 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
             DetachAvatarPose(avatar);
             continue;
         }
-        if (avatar.actor->m_pInventoryHandler && Globals::WorldInventory)
+        if (avatar.actor->m_pInventoryHandler && Globals::WorldInventory) {
             UpdateStandInSlot(avatar,avatar.handSlot,"hand");
+            UpdateStandInSlot(avatar,avatar.backSlot,"back");
+        }
         void* animator = avatar.actor->m_pMorphemeEntity.m_entityRef.QueryInterface<IBoneAnimator>();
         if (!animator) {
             DetachAvatarPose(avatar);

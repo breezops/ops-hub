@@ -259,8 +259,8 @@ void SdkWorld::OnSceneCleared() {
     // were reset above, keeping only what the partner holds: asked for again in the next mission).
     m_HeldItem.clear();
     m_PartyHeldSampleAt=0.0;
-    m_PartyHeldCandidate.clear();
-    m_PartyHeldItem.clear();
+    m_PartyEquipmentCandidate={};
+    m_PartyEquipment={};
     m_Doors.clear();
     m_DoorsFound = false;
     m_DoorsSearchAt = 0.0;
@@ -2146,7 +2146,7 @@ void SdkWorld::HideRemoteAvatar() {
 
 void SdkWorld::HideRemoteAvatar(RemoteAvatarState& avatar) {
     avatar.appearance.Hide();
-    if (avatar.playerId) ClearPartyHeldItem(avatar);
+    if (avatar.playerId) ClearPartyEquipment(avatar);
     if (!avatar.entity || avatar.partnerHidden)
         return;
 
@@ -5921,15 +5921,16 @@ std::string SdkWorld::LocalHeldItem() const {
     return m_HeldItem;
 }
 
-std::string SdkWorld::LocalPartyHeldItem() const {
-    const auto observed=LocalHeldItem();
+coop::PartyEquipment SdkWorld::LocalPartyEquipment() const {
+    auto hand=LocalHeldItem();
     if (m_PartyHeldSampleAt!=m_HeldCheckAt) {
         m_PartyHeldSampleAt=m_HeldCheckAt;
-        // Ignore a single missed or misclassified sample during native grip changes.
-        if (observed==m_PartyHeldCandidate) m_PartyHeldItem=observed;
-        m_PartyHeldCandidate=observed;
+        // Accept both slots together after two matching native samples.
+        const coop::PartyEquipment observed{hand,hand==m_BackItem ? std::string{} : m_BackItem};
+        if (observed==m_PartyEquipmentCandidate) m_PartyEquipment=observed;
+        m_PartyEquipmentCandidate=observed;
     }
-    return m_PartyHeldItem;
+    return m_PartyEquipment;
 }
 
 std::string SdkWorld::HeldItemsTest() const {
@@ -5982,15 +5983,16 @@ void SdkWorld::DropStandInItem(RemoteAvatarState& avatar, StandInSlot& p_Slot) {
     p_Slot.shown.clear();
 }
 
-void SdkWorld::ClearPartyHeldItem(RemoteAvatarState& avatar) {
-    auto& slot=avatar.handSlot;
-    slot.ticket=0;
-    slot.requestedEntity=0;
-    if (m_InScene && avatar.actor && avatar.actor->m_pAnimatedActor && Globals::WorldInventory)
-        DropStandInItem(avatar,slot);
-    else {
-        slot.item={};
-        slot.shown.clear();
+void SdkWorld::ClearPartyEquipment(RemoteAvatarState& avatar) {
+    const bool canDestroy=m_InScene && avatar.actor && avatar.actor->m_pAnimatedActor && Globals::WorldInventory;
+    for (auto* slot:{&avatar.handSlot,&avatar.backSlot}) {
+        slot->ticket=0;
+        slot->requestedEntity=0;
+        if (canDestroy) DropStandInItem(avatar,*slot);
+        else {
+            slot->item={};
+            slot->shown.clear();
+        }
     }
 }
 
@@ -6071,8 +6073,10 @@ void SdkWorld::UpdateStandInSlot(RemoteAvatarState& avatar, StandInSlot& p_Slot,
 void SdkWorld::OnStandInItemCreated(uint32_t p_Ticket, TEntityRef<IItemBase> p_Item) {
     if (p_Ticket) {
         for (auto& avatar:m_PlayerAvatars) {
-            auto& slot=avatar.handSlot;
-            if (slot.ticket!=p_Ticket) continue;
+            auto* matched=avatar.handSlot.ticket==p_Ticket ? &avatar.handSlot :
+                (avatar.backSlot.ticket==p_Ticket ? &avatar.backSlot : nullptr);
+            if (!matched) continue;
+            auto& slot=*matched;
             if (!p_Item.m_entityRef) return; // Allow the request to expire.
             const auto* type=p_Item.m_entityRef->GetType();
             if (!type || type->m_nEntityID!=slot.requestedEntity) {
@@ -6092,13 +6096,13 @@ void SdkWorld::OnStandInItemCreated(uint32_t p_Ticket, TEntityRef<IItemBase> p_I
                 ZActorInventoryHandler::SPendingItemInfo pending{};
                 pending.m_nTicket=p_Ticket;
                 pending.m_rItem=TEntityRef<IItem>(p_Item.m_entityRef);
-                pending.m_eAttachLocation=EAttachLocation::eALRightHand;
+                pending.m_eAttachLocation=static_cast<EAttachLocation>(slot.attach);
                 pending.m_eMaxTension=EGameTension::EGT_Undefined;
                 inventory->m_aPendingItems.push_back(pending);
                 slot.item=pending.m_rItem;
                 Functions::ZActorInventoryHandler_FinalizePendingItems->Call(inventory);
-                CoopLog::Fmt(coop::LogLevel::Info,"party-item","Attached item seat=%u repository=%s",
-                    static_cast<unsigned>(avatar.playerId),slot.shown.c_str());
+                CoopLog::Fmt(coop::LogLevel::Info,"party-item","Attached item seat=%u slot=%s repository=%s",
+                    static_cast<unsigned>(avatar.playerId),matched==&avatar.backSlot?"back":"hand",slot.shown.c_str());
             } else {
                 if (p_Item.m_entityRef && Globals::WorldInventory)
                     Functions::ZWorldInventory_DestroyItem->Call(Globals::WorldInventory,p_Item);

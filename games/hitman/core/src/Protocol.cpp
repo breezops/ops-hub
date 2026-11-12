@@ -290,13 +290,19 @@ void MsgAvatarState::Write(ByteWriter& w) const {
     w.U32(epoch);
     w.U32(timeMs);
     WriteTransform(w, xf);
-    if (ValidHeldItem(heldItem)) w.Str(heldItem);
+    const bool hand=ValidHeldItem(equipment.hand);
+    const bool back=ValidHeldItem(equipment.back);
+    if (hand || back) w.Str(hand ? equipment.hand : std::string{});
+    if (back) w.Str(equipment.back);
 }
 
 bool MsgAvatarState::Read(ByteReader& r) {
-    heldItem.clear();
+    equipment={};
     if (!r.U32(epoch) || !r.U32(timeMs) || !ReadTransform(r, xf)) return false;
-    return r.AtEnd() || (r.Str(heldItem,36) && ValidHeldItem(heldItem));
+    if (r.AtEnd()) return true;
+    if (!r.Str(equipment.hand,36) || (!equipment.hand.empty() && !ValidHeldItem(equipment.hand))) return false;
+    if (r.AtEnd()) return !equipment.hand.empty();
+    return r.Str(equipment.back,36) && ValidHeldItem(equipment.back) && r.AtEnd();
 }
 
 void MsgVictimPose::Write(ByteWriter& w) const {
