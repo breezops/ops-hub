@@ -145,7 +145,7 @@ std::string HitmanCoop::Hide(const std::string& p_Secret) const {
 // ---- Over the game ------------------------------------------------------------------------------
 
 void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::SessionStatus& p_Status) {
-    if (!p_Overlay.inMission || p_Overlay.hidden || !p_Status.synced)
+    if (!p_Overlay.inMission || p_Overlay.hidden)
         return;
 
     ImDrawList* s_List = ImGui::GetBackgroundDrawList();
@@ -159,7 +159,7 @@ void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::Ses
 
     // The partner: their name over their head, or an arrow to them when they are off screen. Shown
     // even with name tags off while one of us looks for the other.
-    if ((m_ShowNameTag || p_Overlay.pulse) && p_Overlay.partnerShown) {
+    if (p_Status.synced && (m_ShowNameTag || p_Overlay.pulse) && p_Overlay.partnerShown) {
         ImVec2 s_At;
         bool s_OnScreen = false;
 
@@ -212,12 +212,11 @@ void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::Ses
         }
     }
 
-    if (!m_ShowMarks)
-        return;
-
     const uint32_t s_Ours = m_ColourSetting;
 
     for (const auto& s_Mark : p_Overlay.marks) {
+        if (!s_Mark.catalog && (!p_Status.synced || !m_ShowMarks))
+            continue;
         ImVec2 s_At;
         bool s_OnScreen = false;
 
@@ -226,7 +225,7 @@ void HitmanCoop::DrawOverlay(const SdkWorld::Overlay& p_Overlay, const coop::Ses
 
         // Fades over its last 3 s; pulses as it appears (a danger mark keeps pulsing).
         const float s_Left = p_Overlay.markSeconds - s_Mark.age;
-        const int s_Alpha = static_cast<int>(255.f * std::clamp(s_Left / 3.f, 0.f, 1.f));
+        const int s_Alpha = s_Mark.catalog ? 255 : static_cast<int>(255.f * std::clamp(s_Left / 3.f, 0.f, 1.f));
         const ImU32 s_Colour = s_Mark.danger ? WithAlpha(s_Palette.danger, s_Alpha) : s_Mark.ours ? FromRgb(s_Ours ? s_Ours : 0x6EC8FF, s_Alpha) :
             PartnerColour(p_Status, s_Alpha);
         const std::string s_Text = std::string(s_Mark.danger ? "DANGER: " : s_Mark.target ? "TARGET: " : "") + s_Mark.label + "  " + Dist(s_Mark.distance);
@@ -469,7 +468,7 @@ namespace {
 }
 
 void HitmanCoop::DrawPauseScreen(const coop::SessionStatus& p_Status) {
-    bool s_Held, s_Waiting, s_OwnMenu;
+    bool s_Held, s_Waiting, s_OwnMenu, s_Party;
     double s_For, s_Left, s_WaitLeft;
 
     {
@@ -477,6 +476,7 @@ void HitmanCoop::DrawPauseScreen(const coop::SessionStatus& p_Status) {
         s_Held = m_OverlayPartnerHold;
         s_Waiting = m_OverlayWaiting;
         s_OwnMenu = m_OverlayOwnMenu;
+        s_Party = m_OverlayPartyHold;
         s_For = m_OverlayPauseFor;
         s_Left = m_OverlayPauseLeft;
         s_WaitLeft = m_OverlayWaitLeft;
@@ -486,6 +486,7 @@ void HitmanCoop::DrawPauseScreen(const coop::SessionStatus& p_Status) {
     const bool s_Preview = s_Now < m_PausePreviewUntil;
 
     if (s_Preview) {
+        s_Party = false;
         s_Held = true;
         s_Waiting = false;
         s_OwnMenu = false;
@@ -494,19 +495,25 @@ void HitmanCoop::DrawPauseScreen(const coop::SessionStatus& p_Status) {
     }
 
     // Our own pause menu is on screen over it: the game's own then.
-    const bool s_Want = (s_Held || s_Waiting) && !s_OwnMenu && (s_Preview || p_Status.state == coop::SessionState::Connected);
+    const bool s_Want = !s_OwnMenu &&
+        (s_Party || ((s_Held || s_Waiting) && (s_Preview || p_Status.state == coop::SessionState::Connected)));
     const float s_Dt = std::clamp(ImGui::GetIO().DeltaTime, 0.f, 0.1f);
 
     // What it says, kept while it fades out.
     if (s_Want) {
         const int s_Menu = p_Status.peerStateKnown ? p_Status.peerState.menu : 0;
         const std::string s_Name = Upper(s_Preview || p_Status.peerName.empty() ? std::string("your partner") : p_Status.peerName);
-        m_PauseWaiting = !s_Held && s_Waiting;
+        m_PauseWaiting = !s_Party && !s_Held && s_Waiting;
 
         if (m_PauseWaiting) {
             m_PauseTitle = "MISSION ON HOLD";
             m_PauseLine = "WAITING FOR " + s_Name + " TO LOAD IN";
             m_PauseFoot = "Starting without them in " + Clock(std::max(0.0, s_WaitLeft));
+        }
+        else if (s_Party) {
+            m_PauseTitle = "GAME PAUSED";
+            m_PauseLine = "WAITING FOR OTHER PLAYERS";
+            m_PauseFoot = "The mission resumes when everyone closes their menus.";
         }
         else {
             m_PauseTitle = "GAME PAUSED";

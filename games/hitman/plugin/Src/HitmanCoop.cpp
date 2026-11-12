@@ -2,6 +2,13 @@
 #include "CoopText.h"
 #include "CrashTrace.h"
 #include "CrashGuards.h"
+#include "ContractLaunchTrace.h"
+#include "NpcMutationGate.h"
+#include "NpcActionObserver.h"
+#include "NpcActionProbe.h"
+#include "NpcActorDestructionObserver.h"
+#include "NpcSceneClearObserver.h"
+#include "NpcHoldArbiter.h"
 #include "GamePause.h"
 #include "Log.h"
 #include "PoseHook.h"
@@ -20,6 +27,16 @@
 #include <thread>
 #include <vector>
 
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+namespace {
+std::atomic<unsigned> g_HoldDiagnosticFrameDepth=0;
+struct HoldFrameScope {
+    HoldFrameScope() { ++g_HoldDiagnosticFrameDepth; }
+    ~HoldFrameScope() { --g_HoldDiagnosticFrameDepth; }
+};
+}
+#endif
+
 #include "Functions.h"
 #include "Globals.h"
 #include "Hooks.h"
@@ -32,6 +49,9 @@
 #include <Glacier/ZApplicationEngineWin32.h>
 #include <Glacier/ZGameLoopManager.h>
 #include <Glacier/ZScene.h>
+#ifdef COOP_PARTY_INITIAL_LOAD
+#include <Glacier/ZContract.h>
+#endif
 
 #ifndef COOP_DEFAULT_RELAY
 #define COOP_DEFAULT_RELAY ""
@@ -212,7 +232,14 @@ void HitmanCoop::SaveBugReport(const std::string& p_Diagnostics) {
     }).detach();
 }
 
+void CheckLauncherPluginLayout(LauncherPluginLayout<sizeof(HitmanCoop),sizeof(SdkWorld)>) {}
+
 HitmanCoop::~HitmanCoop() {
+#ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
+    NpcSceneClearObserver::Stop();
+#endif
+    NpcActionObserver::Stop(); // Deactivate/drain native control while birth invalidation still runs.
+    NpcActorDestructionObserver::Stop(); // Then detach pointer callbacks before destroying the birth book.
     PoseHook::Uninstall();
     CrashGuards::Uninstall();
 
@@ -234,11 +261,16 @@ void HitmanCoop::Init() {
     m_LanAddress = coop::LocalLanAddress();
     m_TailscaleAddress = coop::LocalTailscaleAddress();
     LoadSettings();
+#if defined(COOP_NPC_IDENTITY_DIAGNOSTICS) || defined(COOP_NPC_ACTION_DIAGNOSTICS)
+    if (!CoopLog::On(coop::LogLevel::Info)) CoopLog::SetLevel(coop::LogLevel::Info);
+#endif
     const int s_Patches = CrashGuards::Install();
     Logger::Info("[HitmanCoop] Game patches applied: {} of {} ({}).", s_Patches, CrashGuards::Count(), CrashGuards::Report());
 
     Hooks::ZEntitySceneContext_LoadScene->AddDetour(this, &HitmanCoop::OnLoadScene);
     Hooks::ZEntitySceneContext_ClearScene->AddDetour(this, &HitmanCoop::OnClearScene);
+    if (m_GameVersion=="3.290.1" && Hooks::ZActor_ZActor)
+        Hooks::ZActor_ZActor->AddDetour(this,&HitmanCoop::OnActorConstructing);
     Hooks::ZActor_YouGotHit->AddDetour(this, &HitmanCoop::OnActorHit);
     Hooks::ZActor_SetOutfit->AddDetour(this, &HitmanCoop::OnActorSetOutfit);
     if (Hooks::ZClothBundleEntity_CreateClothBundle && Hooks::ZEntityManager_DeleteEntity && Functions::ZEntityManager_DeleteEntity->Exists()) {
@@ -292,6 +324,21 @@ void HitmanCoop::Init() {
     const std::string s_CrashHeader = "HITMAN Co-op " + std::string(c_ModVersion) + " (" + c_BuildMark + "), game " + m_GameVersion;
     CrashTrace::Install(m_Test.Enabled() ? m_Test.Path() + ".crash" : s_Crash, s_CrashHeader);
     WriteLogHeader(s_Patches);
+#ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
+    const bool clearObserver=m_GameVersion=="3.290.1" &&
+        NpcSceneClearObserver::Install(this,[](void* context,uint64_t token) {
+            auto& self=*static_cast<HitmanCoop*>(context);
+            self.m_NpcSceneEvidence.ObserveDispatchReturn(token,&self.m_World.PartyNpcBirthBook());
+        });
+    CoopLog::Info("npc-life",clearObserver ? "Scene-clear dispatch return observer installed" :
+        "Scene-clear dispatch return observer unavailable");
+#ifdef COOP_NPC_AGREED_CATALOG
+    m_NpcClearObserverInstalled=clearObserver;
+#endif
+#endif
+#ifdef COOP_PARTY_CONTRACT_TRACE
+    if (m_GameVersion=="3.290.1") ContractLaunchTrace::Install();
+#endif
 }
 
 // The first lines of every log: everything about this PC and install a bug report needs, so nobody
@@ -1427,11 +1474,163 @@ void HitmanCoop::ProcessCommands(double p_Now) {
 
 void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     std::lock_guard s_Lock(m_SessionMutex);
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    AuditNpcSceneEvidence();
+#endif
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+    HoldFrameScope frameScope;
+#endif
+    m_World.ObservePartyGameThread(GetCurrentThreadId());
 
     const double s_Now = Now();
     const double s_FrameGap = m_LastFrame > 0.0 ? s_Now - m_LastFrame : 0.0;
     m_LastFrame = s_Now;
     m_World.SetClock(s_Now);
+#ifdef COOP_NPC_ACTION_DIAGNOSTICS
+    if (!m_NpcActionObserverAttempted
+#ifndef COOP_NPC_AGREED_CATALOG
+        && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene)
+#endif
+    ) {
+        m_NpcActionObserverAttempted=true;
+        const auto sites=m_GameVersion=="3.290.1" && m_Unsupported.empty()
+            ? CrashGuards::VerifiedNpcBehaviorSites() : CrashGuards::NpcBehaviorSites{};
+#ifdef COOP_NPC_DESTRUCTION_DIAGNOSTICS
+        const auto lifetime=m_GameVersion=="3.290.1" && m_Unsupported.empty()
+            ? NpcActorLifetimeSites::ResolveMainModule() : NpcActorLifetimeSites::Sites{};
+        const bool destruction=lifetime && NpcActorDestructionObserver::Install(lifetime,&m_World,
+            [](void* world,void* actor) noexcept {
+                const auto birth=static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionEntry(actor);
+#ifdef COOP_NPC_CATALOG
+                static_cast<SdkWorld*>(world)->InvalidateCatalogNpcPose(actor,birth);
+#endif
+                NpcHoldArbiter::Invalidate(actor,birth);
+                return birth;
+            },
+            [](void* world,const void* actor,uint64_t birth) noexcept { return static_cast<SdkWorld*>(world)->ObservePartyNpcDestructionReturn(actor,birth); });
+        const auto destructionReport=NpcActorDestructionObserver::Installation();
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only destruction observer installed=%d sites=%d stage=%s status=%d; physical retirement UNKNOWN",
+            destruction?1:0,lifetime?1:0,destructionReport.stage,destructionReport.status);
+#endif
+        // Resolve the entire untouched bundle before either entry is patched.
+        const bool jobsInstalled=sites && NpcActionProbe::InstallRetained(sites.actions.job);
+        if (jobsInstalled) m_World.MarkPartyNpcJobAttachment();
+        const auto jobReport=NpcActionProbe::Installation();
+        const auto traceAllocation=[](const char* observer,const MinHookDiagnostics::Report& a,int status) {
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
+                "%s creation allocator backend=%s evidence=%s queries=%llu free-region-queries=%llu query-failures=%llu last-query-error=%u virtual-attempts=%llu virtual-successes=%llu virtual-failures=%llu last-virtual-bytes=%llu last-virtual-error=%u heap-attempts=%llu heap-failures=%llu",
+                observer,MinHookDiagnostics::EntryMode(),status==0?"creation-succeeded":MinHookDiagnostics::AllocationPath(a),a.queries,a.freeRegions,a.queryFailures,a.queryError,
+                a.virtualAttempts,a.virtualSuccesses,a.virtualFailures,a.lastVirtualBytes,a.virtualError,a.heapAttempts,a.heapFailures);
+            if (status==9) CoopLog::Fmt(coop::LogLevel::Info,"npc-mem",
+                "%s read-only near-range scan: complete=%d free-bytes=%llu aligned-4K-candidates=%llu largest-free-extent=%llu query-error=%u; aligned candidates are observations, not successful allocations",
+                observer,a.nearScanComplete?1:0,a.nearFreeBytes,a.nearAlignedCandidates,a.nearLargestFreeExtent,a.nearScanError);
+        };
+        traceAllocation("job",jobReport.allocations,jobReport.hookStatus);
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-job",
+            "READ-ONLY job attachment: installed=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u; pre-existing jobs UNKNOWN; retained until process exit; NPC control OFF",
+            jobsInstalled?1:0,jobReport.stage,jobReport.hookStatus,jobReport.lastError);
+        auto observerConfig=NpcActionObserver::Config{this,
+            [](void* context,const void* actor,uint64_t npc,uint64_t birth,int32_t& runtime) {
+                return static_cast<HitmanCoop*>(context)->m_World.ValidatePartyNpcObservationAtActionBoundary(actor,npc,birth,runtime);
+            },
+            [](void* context,const NpcActionObserver::View& view) {
+                auto& self=*static_cast<HitmanCoop*>(context);
+                std::unique_lock lock(self.m_SessionMutex,std::try_to_lock);
+                if (lock.owns_lock()) {
+                    self.m_World.TracePartyNpcAction(view);
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+                    self.m_World.UpdatePartyNpcBindingAgreement(self.m_PartyPreview.get());
+#endif
+                    self.m_World.ObservePartyNpcRestartBindings(view);
+#endif
+                }
+            },m_World.PartyGameThread()};
+#if defined(COOP_NPC_HOLD_DIAGNOSTICS) || defined(COOP_NPC_RESTART_BINDING_DIAGNOSTICS)
+        const bool arbiter=jobsInstalled
+#ifdef COOP_NPC_AGREED_CATALOG
+            && destruction && m_NpcClearObserverInstalled
+#endif
+            && NpcHoldArbiter::Install(sites);
+        const auto holdReport=NpcHoldArbiter::Installation();
+        traceAllocation("hold-arbiter",holdReport.allocations,holdReport.status);
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-hold","Native hold arbiter installed=%d stage=%s status=%d",arbiter?1:0,holdReport.stage,holdReport.status);
+#endif
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+#ifdef COOP_NPC_AGREED_CATALOG
+        CoopLog::Info("npc-catalog","Native control profile uses the agreed Freeform roster and host baseline receipts");
+#elif defined(COOP_NPC_CATALOG)
+        CoopLog::Info("npc-catalog","Private Freeform catalog enabled for two living NPC transforms under host authority");
+#elif defined(COOP_NPC_POOL_DIAGNOSTICS)
+        CoopLog::Info("npc-pool","Private two-NPC prototype enabled; F8 selects two nearest eligible NPCs after native restart; one cycle per process");
+#else
+        CoopLog::Info("npc-hold","Private solo cycle requires F8 after a fresh native restart");
+#endif
+        if (arbiter) {
+            observerConfig.controlValidate=[](void* context,const NpcMutationGate::Ticket& ticket,int32_t& runtime) {
+                return static_cast<HitmanCoop*>(context)->m_World.ValidatePartyNpcAtActionBoundary(ticket,runtime);
+            };
+            observerConfig.control=[](void* context,NpcActionPhase::Boundary& boundary) {
+                auto& self=*static_cast<HitmanCoop*>(context);
+                if (g_HoldDiagnosticFrameDepth.load()) return; // Reject reentry under OnFrameUpdate's outer session lock.
+                {
+                    std::unique_lock lock(self.m_SessionMutex,std::try_to_lock);
+                    if (!lock.owns_lock() || (self.m_Session && self.m_Session->Active())) return;
+#ifndef COOP_NPC_CATALOG
+                    if (self.m_PartyPreview) return;
+#endif
+                } // Release session mutex BEFORE any yielding native control.
+#ifdef COOP_NPC_CATALOG
+                self.m_World.StepPartyNpcCatalog(boundary);
+#else
+                self.m_World.StepSoloNpcHold(boundary);
+#endif
+            };
+            observerConfig.arbitrateHolds=true;
+        }
+#endif
+        const bool installed=sites
+#ifdef COOP_NPC_AGREED_CATALOG
+            && arbiter
+#endif
+            && NpcActionObserver::Install(sites,observerConfig);
+#ifdef COOP_NPC_AGREED_CATALOG
+        CoopLog::Info("npc-act",installed ? "Native NPC adapter installed before mission load" : "Native NPC adapter unavailable");
+#elif defined(COOP_NPC_RESTART_BINDING_DIAGNOSTICS)
+        CoopLog::Info("npc-act",installed
+            ? "Action observer installed for mission binding observations; NPC simulation remains local"
+            : "Action observer unavailable");
+#else
+        CoopLog::Info("npc-act",installed
+            ? "Read-only action observer installed; native controls and mutation scopes OFF; game restart required to reload this diagnostic"
+            : "Read-only action observer unavailable; no NPC controls enabled");
+#endif
+        const auto report=NpcActionObserver::Installation();
+        traceAllocation("action",report.allocations,report.hookStatus);
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-act",
+            "Observer installation: sites-found=%d stage=%s minhook-status=%d last-win32-error-snapshot=%u",
+            sites?1:0,NpcActionObserver::StageName(report.stage),report.hookStatus,report.lastError);
+    }
+#ifdef COOP_NPC_HOLD_DIAGNOSTICS
+    static bool previousHoldKey=false;
+    DWORD foregroundProcess=0; GetWindowThreadProcessId(GetForegroundWindow(),&foregroundProcess);
+    const bool holdKey=foregroundProcess==GetCurrentProcessId() && (GetAsyncKeyState(VK_F8)&0x8000);
+    if (holdKey && !previousHoldKey) {
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+        if (m_PartyPreview) RunNpcHandoffTest(s_Now);
+        else
+#endif
+        if (m_World.IsInScene() && NpcActionObserver::Diagnostics().active && !m_PartyPreview && (!m_Session || !m_Session->Active())) m_World.ArmSoloNpcHold();
+        else CoopLog::Warn("npc-hold","F8 refused: this diagnostic requires a loaded, attached solo game");
+    }
+    previousHoldKey=holdKey;
+#endif
+    if (!m_NpcActionObserverFaultReported && !NpcActionObserver::Diagnostics().healthy) {
+        m_NpcActionObserverFaultReported=true;
+        CoopLog::Warn("npc-act","Read-only action observer faulted; inspection disabled, original native scheduling continues");
+    }
+#endif
+    CrashGuards::FlushNpcReasoning(); // No-op unless a fenced callback deferred publication.
     m_World.ProcessBundleDeletions();
     m_World.SetViewSize(m_ViewWidth, m_ViewHeight);
     m_World.SetPauseTogether(m_PauseTogetherSetting);
@@ -1509,8 +1708,53 @@ void HitmanCoop::OnFrameUpdate(const SGameUpdateEvent& p_UpdateEvent) {
     ProcessCommands(s_Now);
 
     const bool s_JustEntered = m_World.UpdateSceneState();
-    if (m_PartyPreview)
-        m_PartyPreview->Tick(s_Now);
+#ifdef COOP_PARTY_CONTRACT_TRACE
+    ContractLaunchTrace::Drain();
+#endif
+#ifdef COOP_PARTY_INITIAL_LOAD
+    if (s_JustEntered && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene) && Globals::ContractsManager) {
+        const auto& contract=Globals::ContractsManager->m_contractContext.m_sContractId;
+        CoopLog::Info("party-load","Native Freeform contract ID: "+std::string(contract.c_str(),contract.size()));
+    }
+#endif
+#ifdef COOP_NPC_IDENTITY_DIAGNOSTICS
+    m_World.TracePartyNpcIdentity();
+#endif
+    m_World.ProcessPartyNpcEvents();
+    if (m_PartyPreview) {
+        const auto menu=static_cast<EGameUIMenu>(m_LastMenu.load());
+        const bool localPause=(menu==EGameUIMenu::eUIMenu_PauseMenu ||
+            menu==EGameUIMenu::eUIMenu_TutorialMenu ||
+            menu==EGameUIMenu::eUIMenu_SplashHintMenu) && GamePause::MenuOpen();
+        m_PartyPreview->Tick(s_Now,localPause);
+    }
+    m_PartyPlaying=m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    if (m_PartyPreview && m_PartyPreview->Status().phase==coop::LobbyRoster::Phase::Playing) {
+        const auto& party=m_PartyPreview->Status();
+        const int requestedMenu=m_LastMenu.load();
+        const bool readable=GamePause::Available();
+        const bool menuPause=readable && GamePause::MenuOpen();
+        if (!m_PartyMenuSampled || menuPause!=m_PartyMenuPause || requestedMenu!=m_PartyMenuRequest) {
+            CoopLog::Fmt(coop::LogLevel::Info,"party-pause",
+                "Menu sample seat=%u epoch=%u request=%d readable=%d ui-menus-hold=%d",
+                static_cast<unsigned>(party.self),static_cast<unsigned>(party.epoch),requestedMenu,readable?1:0,menuPause?1:0);
+            m_PartyMenuSampled=true;
+            m_PartyMenuPause=menuPause;
+            m_PartyMenuRequest=requestedMenu;
+        }
+    } else m_PartyMenuSampled=false;
+#endif
+#ifdef COOP_PARTY_NPC_DISCOVERY
+    if (auto ids=m_World.TracePartyNpcDiscovery(m_PartyPreview ? &m_PartyPreview->Status() : nullptr,s_Now))
+        m_PartyPreview->ObserveNpcRoster(*ids);
+#endif
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    m_World.UpdatePartyNpcBindingAgreement(m_PartyPreview.get());
+#endif
+#ifdef COOP_PARTY_FREEFORM_PROBE
+    UpdateFreeformLaunchProbe(s_Now);
+#endif
 
     // A new mission (or the same one again): its stats start afresh, and we may wait for the partner.
     if (s_JustEntered) {
@@ -2132,6 +2376,7 @@ void HitmanCoop::PublishStatus() {
     m_OverlayCanReconnect = m_LastJoin.has_value() && s_Status.state == coop::SessionState::Failed;
     m_OverlayPartnerHold = m_World.IsInScene() && m_World.WantPartnerHold() && GamePause::Available();
     m_OverlayOwnMenu = m_World.IsInScene() && GamePause::MenuOpen();
+    m_OverlayPartyHold = m_PartyPreview && m_PartyPreview->WaitingForPartyMenu() && GamePause::Available();
     m_OverlayPauseFor = m_World.PartnerPausedFor();
     m_OverlayPauseLeft = SdkWorld::c_PauseHoldMax - m_OverlayPauseFor;
     m_InMission = m_World.IsInScene();
@@ -2156,6 +2401,26 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, bool, OnLoadScene, ZEntitySceneContext* th, SSc
 
     for (const auto& s_Brick : p_Parameters.m_aAdditionalBrickResources)
         s_Scene.bricks.emplace_back(s_Brick.c_str(), s_Brick.size());
+
+#ifdef COOP_PARTY_INITIAL_LOAD
+    if (coop::IsFreeformTrainingScene(s_Scene.scene)) {
+        void* frames[32]{};
+        const auto count=RtlCaptureStackBackTrace(0,32,frames,nullptr);
+        const auto image=GetModuleHandleW(nullptr);
+        std::ostringstream trace;
+        trace<<"Freeform scene requested, start="<<p_Parameters.m_bStartGame
+             <<" type="<<p_Parameters.m_Type.c_str()<<" codename="<<s_Scene.codename
+             <<" bricks="<<s_Scene.bricks.size()<<" HITMAN3.exe return RVAs:";
+        for (USHORT i=0;i<count;++i) {
+            HMODULE module=nullptr;
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCWSTR>(frames[i]),&module) && module==image) {
+                trace<<" 0x"<<std::hex<<(reinterpret_cast<uintptr_t>(frames[i])-reinterpret_cast<uintptr_t>(image));
+            }
+        }
+        CoopLog::Info("party-load",trace.str());
+    }
+#endif
 
     // A client starting any mission at the host's location is taken to the host's exact mission
     // there. Never to another location: the client only plays locations it started itself.
@@ -2239,6 +2504,9 @@ void HitmanCoop::OnMissionRestarted(const std::string& p_Scene) {
         return;
     }
 
+    if (m_PartyPreview && coop::IsFreeformTrainingScene(p_Scene) && m_PartyPreview->HostMissionRestarted())
+        CoopLog::Info("party", "Host native restart started a new mission epoch.");
+
     if (m_Session) {
         m_Session->OnLocalRestart(p_Scene);
         m_Test.Trace("restart: ours, told to the partner");
@@ -2246,6 +2514,15 @@ void HitmanCoop::OnMissionRestarted(const std::string& p_Scene) {
 }
 
 DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bool p_FullyUnloadScene) {
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    // A cut in observed job entries, not a worker fence or physical retirement.
+    const auto evidence=m_NpcSceneEvidence.Begin(p_FullyUnloadScene,&m_World.PartyNpcBirthBook());
+#ifdef COOP_NPC_CLEAR_RETURN_DIAGNOSTICS
+    const bool observedRoute=NpcSceneClearObserver::AssociatePreClear(th,p_FullyUnloadScene,evidence);
+#else
+    constexpr bool observedRoute=false;
+#endif
+#endif
     std::lock_guard s_Lock(m_SessionMutex);
 
     // A mission cleared but not unloaded is being rebuilt as it was: Restart Mission (3.280.0
@@ -2269,9 +2546,63 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext* th, bo
         m_BusyToldAt = Now();
     }
 
+#ifdef COOP_NPC_AGREED_CATALOG
+    m_World.SetNpcClearEvidenceToken(observedRoute ? evidence : 0);
+#endif
     if (m_PartyPreview)
         m_PartyPreview->SceneCleared();
     m_World.OnSceneCleared();
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    CoopLog::Fmt(coop::LogLevel::Info,"npc-life","Pre-clear observed job cut token=%llu virtual-route=%d",
+        static_cast<unsigned long long>(evidence),observedRoute?1:0);
+#endif
+    return HookResult<void>(HookAction::Continue());
+}
+
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+void HitmanCoop::AuditNpcSceneEvidence() {
+#ifdef COOP_NPC_DESTRUCTION_DIAGNOSTICS
+    const auto destruction=NpcActorDestructionObserver::Diagnostics();
+    if (destruction.entered!=m_NpcDtorLastEntered || destruction.returned!=m_NpcDtorLastReturned) {
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-dtor","Pointer-only audit entered=%llu returned=%llu invalidated=%llu unknown=%llu installed=%d active=%d completed-births=%llu completion-rejected=%llu; body return is not allocation free or scene retirement proof",
+            static_cast<unsigned long long>(destruction.entered),static_cast<unsigned long long>(destruction.returned),
+            static_cast<unsigned long long>(destruction.invalidated),static_cast<unsigned long long>(destruction.unknown),
+            destruction.installed?1:0,destruction.active?1:0,
+            static_cast<unsigned long long>(destruction.completed),static_cast<unsigned long long>(destruction.completionRejected));
+        m_NpcDtorLastEntered=destruction.entered; m_NpcDtorLastReturned=destruction.returned;
+    }
+#endif
+    const auto samples=m_NpcSceneEvidence.Snapshot(&m_World.PartyNpcBirthBook());
+    for (size_t i=0;i<samples.size();++i) {
+        const auto& s=samples[i]; const auto& last=m_NpcSceneLast[i];
+#ifdef COOP_NPC_AGREED_CATALOG
+        m_World.ObserveNpcRetirementEvidence(s);
+#endif
+        if (!s.token || (s.token==last.token && s.dispatchReturned==last.dispatchReturned &&
+            s.bookHealthy==last.bookHealthy && s.jobs.valid==last.jobs.valid &&
+            s.jobs.healthy==last.jobs.healthy && s.jobs.pending==last.jobs.pending &&
+            s.actors.valid==last.actors.valid && s.actors.healthy==last.actors.healthy &&
+            s.actors.captured==last.actors.captured && s.actors.entered==last.actors.entered &&
+            s.actors.returned==last.actors.returned)) continue;
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-life","READ-ONLY clear evidence token=%llu full=%d dispatch-returned=%d book-healthy=%d observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u actor-cut-valid=%d actors-healthy=%d captured=%zu destruction-entered=%zu body-returned=%zu; cuts sampled separately; pre-attachment work UNKNOWN; physical retirement UNKNOWN; readiness OFF",
+            static_cast<unsigned long long>(s.token),s.fullUnload?1:0,s.dispatchReturned?1:0,
+            s.bookHealthy?1:0,s.jobs.valid?1:0,s.jobs.healthy?1:0,s.jobs.pending,
+            s.actors.valid?1:0,s.actors.healthy?1:0,s.actors.captured,s.actors.entered,s.actors.returned);
+        if (s.dispatchReturned && !last.dispatchReturned)
+            CoopLog::Fmt(coop::LogLevel::Info,"npc-life","Return-callback evidence token=%llu observed-cut-valid=%d jobs-healthy=%d old-observed-pending=%u actor-cut-valid=%d actors-healthy=%d captured=%zu destruction-entered=%zu body-returned=%zu; metadata cuts sampled separately before the next SDK frame",
+                static_cast<unsigned long long>(s.token),s.jobsAtReturn.valid?1:0,s.jobsAtReturn.healthy?1:0,
+                s.jobsAtReturn.pending,s.actorsAtReturn.valid?1:0,s.actorsAtReturn.healthy?1:0,
+                s.actorsAtReturn.captured,s.actorsAtReturn.entered,s.actorsAtReturn.returned);
+        m_NpcSceneLast[i]=s;
+    }
+}
+#endif
+
+DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnActorConstructing, ZActor* th, ZComponentCreateInfo* info) {
+    (void)info;
+    // Pointer-only construction stamp. Do not take the session mutex or inspect
+    // the unfinished actor: the game thread may be waiting on this worker.
+    m_World.ObservePartyNpcConstruction(th);
     return HookResult<void>(HookAction::Continue());
 }
 
@@ -2280,6 +2611,16 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, bool, OnActorHit, IBaseCharacter* th, const SHi
     if (m_World.IsPartnerActor(static_cast<ZActor*>(th))) {
         ++m_FriendlyHits;
         return HookResult<bool>(HookAction::Return(), false);
+    }
+
+    if (NpcMutationGate::CurrentScope()) {
+        NpcMutationGate::Hit hit(static_cast<ZActor*>(th));
+        if (hit.Blocked()) return HookResult<bool>(HookAction::Return(), false);
+        // Keep admission stable through the original native operation. Role
+        // changes must retry while a hit is in flight. No active NPC scope
+        // keeps the original detour chain unchanged.
+        const bool result=p_Hook->CallOriginal(th,p_HitInfo);
+        return HookResult<bool>(HookAction::Return(),result);
     }
 
     return HookResult<bool>(HookAction::Continue());
@@ -2342,7 +2683,39 @@ DEFINE_PLUGIN_DETOUR(
 ) {
     std::lock_guard s_Lock(m_SessionMutex);
 
+#ifdef COOP_PARTY_NATIVE_RESTART
+    if (m_PartyPreview && m_PartyPreview->Status().host && m_World.IsInScene() &&
+        coop::IsFreeformTrainingScene(m_World.CurrentScene().scene)) {
+        ZString data;
+        Functions::ZDynamicObject_ToString->Call(const_cast<ZDynamicObject*>(&p_Event),data);
+        const std::string json(data.c_str(),data.size());
+        if (EventName(json)=="ContractFailed" && json.find("OnRestartLevel")!=std::string::npos) {
+            m_RestartTold=true;
+            OnMissionRestarted(m_World.CurrentScene().scene);
+        }
+    }
+#endif
+
     // Read in any session (our mission's stats count from the start, even before the partner is in).
+    if(NpcMutationGate::CurrentScope() && m_GameVersion=="3.290.1") {
+        ZString data;
+        Functions::ZDynamicObject_ToString->Call(const_cast<ZDynamicObject*>(&p_Event),data);
+        const std::string json(data.c_str(),data.size());
+        const auto name=EventName(json);
+        m_World.ObservePartyNpcEvent(name,json);
+#ifdef COOP_NPC_AGREED_CATALOG
+        if (m_PartyPreview) {
+            const auto& party=m_PartyPreview->Status();
+            if (party.phase==coop::LobbyRoster::Phase::Playing) {
+                const auto awareness=coop::GameEvents::Awareness(name,json);
+                if (!awareness.empty()) {
+                    CoopLog::Fmt(coop::LogLevel::Info,"npc-alert","Local awareness seat=%u epoch=%u event=%s",
+                        static_cast<unsigned>(party.self),static_cast<unsigned>(party.epoch),awareness.c_str());
+                }
+            }
+        }
+#endif
+    }
     if (m_Session && m_Session->Active()) {
         const bool s_Connected = m_Session->Status().state == coop::SessionState::Connected;
         ZString s_Data;
@@ -2449,12 +2822,19 @@ DEFINE_PLUGIN_DETOUR(HitmanCoop, void, OnSetGameState, ZLevelManager* th, ZLevel
 }
 
 DEFINE_PLUGIN_DETOUR(HitmanCoop, bool, OnTryOpenMenu, ZGameUIManagerEntity* th, EGameUIMenu p_Menu, bool p_Force) {
-    if (coop::BlockLauncherFocusPause(m_WindowActive, Now() - m_LauncherLastContact.load() < 5.0,
-        p_Menu == EGameUIMenu::eUIMenu_PauseMenu)) {
-        CoopLog::Info("launcher", "blocked automatic pause menu while launcher is active and game is unfocused");
-        return HookResult<bool>(HookAction::Return(), false);
+    bool focused=m_WindowActive;
+    const bool partyPlaying=m_PartyPlaying;
+    if (partyPlaying && p_Menu==EGameUIMenu::eUIMenu_PauseMenu) {
+        DWORD foreground=0;
+        GetWindowThreadProcessId(GetForegroundWindow(),&foreground);
+        focused=focused && foreground==GetCurrentProcessId();
     }
-    m_LastMenu = static_cast<int>(p_Menu);
+    if (coop::BlockLauncherFocusPause(focused,partyPlaying || Now()-m_LauncherLastContact.load()<5.0,
+        p_Menu==EGameUIMenu::eUIMenu_PauseMenu)) {
+        CoopLog::Info("launcher","blocked automatic pause menu while game is unfocused");
+        return HookResult<bool>(HookAction::Return(),false);
+    }
+    m_LastMenu=static_cast<int>(p_Menu);
     return HookResult<bool>(HookAction::Continue());
 }
 

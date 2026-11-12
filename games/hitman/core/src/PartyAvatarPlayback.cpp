@@ -48,7 +48,8 @@ bool PartyAvatarPlayback::UpdateRoster(const PartyRoomStatus& status) {
     return true;
 }
 
-bool PartyAvatarPlayback::Receive(const PartyGameEvent& event, double now) {
+bool PartyAvatarPlayback::Receive(const PartyGameEvent& event, double now, std::optional<Vec3>* acceptedPosition) {
+    if (acceptedPosition) acceptedPosition->reset();
     if (!std::isfinite(now) || !m_Roster.Remote(event.source, event.incarnation, event.epoch) ||
         event.payload.empty() || event.payload.size() > partywire::MaxPayload - 4)
         return false;
@@ -68,6 +69,8 @@ bool PartyAvatarPlayback::Receive(const PartyGameEvent& event, double now) {
         peer.hasTransform = true;
         peer.transformMs = message.timeMs;
         peer.lastTransform = now;
+        m_World.SetPartyEquipment(event.source,event.incarnation,event.epoch,message.equipment);
+        if (acceptedPosition) *acceptedPosition=message.xf.pos;
         return true;
     }
     if (type == MsgType::Pose && event.channel == PartyChannel::Pose) {

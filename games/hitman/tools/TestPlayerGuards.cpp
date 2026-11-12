@@ -1,4 +1,5 @@
 #include "CrashGuards.h"
+#include "NpcMutationGate.h"
 #include "TestFramework.h"
 #include <Windows.h>
 #include <array>
@@ -243,4 +244,33 @@ TEST(PlayerGuards_ActualInteractionStubRejectsOnlyOwnedActorsAndPreservesNormalF
     CHECK(harness.Run(legacy.Ptr())==42);
     CrashGuards::SetActor(nullptr);
     CHECK(harness.Run(legacy.Ptr())==17);
+}
+
+TEST(PlayerGuards_ActualPickerIncludesControlledNpcSlotsWithoutChangingNormalFlags) {
+    Fixture f;
+    PickerActor a,b,c,normal,player;
+    const auto scope=NpcMutationGate::Begin(); REQUIRE(scope);
+    struct Cleanup { uint64_t scope; ~Cleanup(){NpcMutationGate::Clear(scope);} } cleanup{scope};
+    REQUIRE(NpcMutationGate::Bind(scope,51,a.Ptr(),1,1));
+    REQUIRE(NpcMutationGate::Bind(scope,52,b.Ptr(),2,1));
+    REQUIRE(NpcMutationGate::Bind(scope,53,c.Ptr(),3,1));
+    REQUIRE(NpcMutationGate::SetLocalOwner(scope,51,1,1,true)); // First slot is a hole.
+    REQUIRE(CrashGuards::SetPlayerActor(4,104,player.Ptr()));
+    InteractionHarness harness; REQUIRE(harness.code);
+    CHECK(harness.Run(a.Ptr())==17);
+    CHECK(harness.Run(b.Ptr())==42);
+    CHECK(harness.Run(c.Ptr())==42);
+    CHECK(harness.Run(player.Ptr())==42);
+    CHECK(harness.Run(normal.Ptr())==17);
+    normal.Busy(); CHECK(harness.Run(normal.Ptr())==23);
+    auto permit=NpcMutationGate::Canonical(NpcMutationGate::Find(scope,52,2,1));
+    REQUIRE(bool(permit));
+    CHECK(!NpcMutationGate::BlocksDamage(b.Ptr()));
+    CHECK(harness.Run(b.Ptr())==42); // Canonical damage cannot enable player picking.
+    REQUIRE(NpcMutationGate::SetLocalOwner(scope,52,2,1,true));
+    CHECK(harness.Run(b.Ptr())==17);
+    CHECK(harness.Run(c.Ptr())==42);
+    CHECK(NpcMutationGate::Clear(scope));
+    CHECK(harness.Run(c.Ptr())==17);
+    CHECK(harness.Run(player.Ptr())==42); // Player protection is independent.
 }

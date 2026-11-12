@@ -81,6 +81,28 @@ TEST(PlayerPoses_AnimationFrameTravelsWithSourceAndResetsOnRebind) {
     CHECK(!PoseHook::TakeSourcePose(bones,0,&frame));
 }
 
+TEST(NpcPoses_ConsumesFreshSourceAndRequiresMatchingTargetRig) {
+    Fixture f;
+    REQUIRE(f.Install());
+    const std::array<void*,1> source{&f.animators[0]};
+    PoseHook::SetWatched(source);
+    std::vector<PoseHook::Bone> bones;
+    f.Run(0,12);
+    REQUIRE(PoseHook::WatchedPose(&f.animators[0],bones,true));
+    CHECK(!PoseHook::WatchedPose(&f.animators[0],bones,true));
+    REQUIRE(PoseHook::SetPoseFor(&f.animators[1],bones,true));
+    CHECK(f.Run(1,1,5)[0].pos[0]==1);
+    CHECK(!PoseHook::PoseOverrideApplied(&f.animators[1]));
+    CHECK(f.Run(1,1,4)[0].pos[0]==12);
+    CHECK(PoseHook::PoseOverrideApplied(&f.animators[1]));
+    PoseHook::ClearPoseFor(&f.animators[1]);
+    CHECK(!PoseHook::PoseOverrideApplied(&f.animators[1]));
+    CHECK(f.Run(1,1,4)[0].pos[0]==1);
+    PoseHook::SetWatched({});
+    f.Run(0,14);
+    CHECK(!PoseHook::WatchedPose(&f.animators[0],bones,true));
+}
+
 TEST(PlayerPoses_ThreeFramesPreserveFacingStrafingAndLocalChildBones) {
     Fixture f;
     REQUIRE(f.Install());

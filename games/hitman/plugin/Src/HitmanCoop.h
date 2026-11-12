@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <fstream>
 #include <memory>
@@ -23,6 +24,9 @@ class ZTemplateEntityFactory;
 #include "LauncherBridge.h"
 #include "coop/LauncherPolicy.h"
 #include "Updater.h"
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+#include "NpcSceneEvidence.h"
+#endif
 #include "coop/GameEvents.h"
 #include "coop/RelaySocket.h"
 #include "coop/Session.h"
@@ -31,13 +35,18 @@ class ZAchievementManagerSimple;
 class ZDynamicObject;
 class IBaseCharacter;
 class ZKnowledge;
+class ZComponentCreateInfo;
 class ZApplicationEngineWin32;
 struct SHitInfo;
 
 // Two-player co-op for HITMAN World of Assassination. One player hosts from the in-game SDK
 // menu and gets a join code from the co-op relay server (server/relay.py); the other joins with
 // the code, or directly by address. No IOI, Peacock or store servers are involved.
-class HitmanCoop : public IPluginInterface {
+class HitmanCoop : public IPluginInterface
+#ifdef COOP_PARTY_GUEST_START
+    , private coop::IPartyFreeformLaunch
+#endif
+{
 public:
     HitmanCoop();
     ~HitmanCoop() override;
@@ -48,6 +57,30 @@ public:
     void OnDrawUI(bool p_HasFocus) override;
 
 private:
+#if defined(COOP_PARTY_FREEFORM_PROBE) || defined(COOP_PARTY_GUEST_START)
+    coop::IPartyFreeformLaunch::Result PollFreeformLaunch(double now);
+    void CancelFreeformLaunch() { m_FreeformLaunchDeadline=-1.; }
+    TResourcePtr<ZTemplateEntityFactory> m_FreeformStartFactory;
+    double m_FreeformLaunchDeadline=-1.;
+#endif
+#ifdef COOP_PARTY_GUEST_START
+    bool NativeFreeformContract() const override;
+#endif
+#ifdef COOP_PARTY_FREEFORM_PROBE
+    void UpdateFreeformLaunchProbe(double now);
+    bool m_FreeformProbeKey=false, m_FreeformProbeUsed=false;
+#endif
+#ifdef COOP_NPC_LIFETIME_DIAGNOSTICS
+    NpcSceneEvidence::Book m_NpcSceneEvidence;
+    std::array<NpcSceneEvidence::Sample,NpcSceneEvidence::Book::Capacity> m_NpcSceneLast{};
+    void AuditNpcSceneEvidence(); // Session mutex held; pointer-only job evidence.
+#ifdef COOP_NPC_AGREED_CATALOG
+    bool m_NpcClearObserverInstalled=false;
+#endif
+#ifdef COOP_NPC_DESTRUCTION_DIAGNOSTICS
+    uint64_t m_NpcDtorLastEntered=0,m_NpcDtorLastReturned=0;
+#endif
+#endif
     static std::string ModsFolder();
     // A "category: text" line at info level (see Log.h).
     void AppendLog(const std::string& p_Line);
@@ -94,6 +127,7 @@ private:
 
     DECLARE_PLUGIN_DETOUR(HitmanCoop, bool, OnLoadScene, ZEntitySceneContext*, SSceneInitParameters&);
     DECLARE_PLUGIN_DETOUR(HitmanCoop, void, OnClearScene, ZEntitySceneContext*, bool p_FullyUnloadScene);
+    DECLARE_PLUGIN_DETOUR(HitmanCoop, void, OnActorConstructing, ZActor*, ZComponentCreateInfo*);
     // Our mission restarted (or a save of it loaded): the partner's restarts too.
     void OnMissionRestarted(const std::string& p_Scene);
     std::string m_ClearedMission; // the mission a full clear left, until the next scene
@@ -125,6 +159,7 @@ private:
     int m_LevelStateTold = -1;
     std::string m_PartnerHeldTold; // the partner's item in hand, as last given to the stand-in
     std::atomic<int> m_LastMenu { -1 };
+    std::atomic<bool> m_PartyPlaying { false };
     void UpdateLoadStage(double p_Now);
     // Our game's window in front or not (the game's own notice): the partner sees us as away.
     DECLARE_PLUGIN_DETOUR(HitmanCoop, void, OnWindowActivated, ZApplicationEngineWin32* th, bool p_Activated);
@@ -210,12 +245,22 @@ private:
     std::recursive_mutex m_SessionMutex;
     SdkWorld m_World;
     std::unique_ptr<coop::PartyPreviewRuntime> m_PartyPreview;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    bool m_PartyMenuSampled=false, m_PartyMenuPause=false;
+    int m_PartyMenuRequest=-1;
+#endif
     std::string HandlePartyPreview(const coop::LauncherRequest& request, double now);
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    void RunNpcHandoffTest(double now);
+    uint32_t m_NpcHandoffEpoch=0;
+    uint64_t m_NpcHandoffGuard=0;
+#endif
     std::unique_ptr<coop::Session> m_Session;
     std::string m_GameVersion;
     std::string m_LanAddress;
     std::string m_TailscaleAddress;
     bool m_FrameUpdateRegistered = false;
+    bool m_NpcActionObserverAttempted=false,m_NpcActionObserverFaultReported=false;
     std::shared_ptr<const coop::RelayState> m_Relay; // the current session's relay, if any
     bool m_RelayCodeShown = false;
     bool m_WelcomeShown = false;
@@ -312,6 +357,7 @@ private:
     // The partner's menu holds our game: since how long, and how long until it goes on anyway.
     bool m_OverlayPartnerHold = false;
     bool m_OverlayOwnMenu = false; // our own pause menu is open (the game's screen then)
+    bool m_OverlayPartyHold = false;
     double m_OverlayPauseFor = 0.0;
     double m_OverlayPauseLeft = 0.0;
     // Render thread: the pause screen fading in and out, and what it said (kept while it fades).
@@ -429,5 +475,10 @@ private:
     std::atomic<bool> m_CorrectNpcsSetting { true };
     std::atomic<float> m_LocalBubbleSetting { 8.f };
 };
+
+// Reject a launcher handler built against a stale plugin or world layout.
+template<std::size_t PluginBytes,std::size_t WorldBytes>
+struct LauncherPluginLayout {};
+void CheckLauncherPluginLayout(LauncherPluginLayout<sizeof(HitmanCoop),sizeof(SdkWorld)>);
 
 DECLARE_ZHM_PLUGIN(HitmanCoop)

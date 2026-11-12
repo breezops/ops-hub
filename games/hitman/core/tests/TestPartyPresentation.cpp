@@ -120,6 +120,7 @@ struct AvatarSink : IPartyAvatarWorld {
     std::array<Pose, 5> poses;
     std::array<OutfitDesc, 5> outfits;
     std::array<std::vector<int16_t>, 5> skeletons;
+    std::array<PartyEquipment, 5> equipment;
     std::array<int, 5> shown {}, posed {}, hidden {};
     int hiddenAll = 0;
     bool ApplyPartyRoster(const PartyRoomStatus&) override { return accept; }
@@ -131,6 +132,7 @@ struct AvatarSink : IPartyAvatarWorld {
     }
     bool SetPartyOutfit(uint8_t id, uint64_t, uint32_t, const OutfitDesc& outfit) override { outfits[id] = outfit; return true; }
     bool SetPartySkeleton(uint8_t id, uint64_t, uint32_t, const std::vector<int16_t>& parents) override { skeletons[id] = parents; return true; }
+    void SetPartyEquipment(uint8_t id,uint64_t,uint32_t,const PartyEquipment& items) override { equipment[id]=items; }
     bool HidePartyAvatar(uint8_t id, uint64_t, uint32_t) override { ++hidden[id]; return true; }
     void HidePartyAvatars() override { ++hiddenAll; }
 };
@@ -222,6 +224,37 @@ TEST(PartyPlayback_DuplicateOrReorderedPacketsCannotKeepAFrozenAvatarAlive) {
     CHECK(sink.transforms[2].pos.x == 30.f);
 }
 
+TEST(PartyPlayback_HandAndBackFollowTheNewestAvatarFrameAndSeat) {
+    AvatarSink sink;
+    PartyAvatarPlayback playback(sink);
+    REQUIRE(playback.UpdateRoster(Playing()));
+    MsgAvatarState state;
+    state.epoch=4;
+    state.timeMs=1000;
+    state.equipment={"2953E9AC-E25B-41AE-AFBF-4A47F86C4F54","D8AA6EBA-0CB7-4ED4-AB99-975F2793D731"};
+    PartyGameEvent draw{2,102,4,PartyChannel::Avatar,PartyAvatarPacket(state),false};
+    REQUIRE(playback.Receive(draw,1.));
+    CHECK(sink.equipment[2]==state.equipment);
+    CHECK(sink.equipment[3]==PartyEquipment{});
+
+    state.timeMs=1100;
+    state.equipment.hand.clear();
+    auto holster=draw;
+    holster.payload=PartyAvatarPacket(state);
+    REQUIRE(playback.Receive(holster,1.1));
+    CHECK(!playback.Receive(draw,1.2));
+    CHECK(sink.equipment[2]==state.equipment);
+
+    REQUIRE(playback.Receive(AvatarEvent(2,1200,0.f),1.25));
+    CHECK(sink.equipment[2]==PartyEquipment{});
+    auto roster=Playing();
+    ++roster.revision;
+    roster.members[1].incarnation=900;
+    REQUIRE(playback.UpdateRoster(roster));
+    CHECK(!playback.Receive(draw,1.3));
+    CHECK(sink.equipment[2]==PartyEquipment{});
+}
+
 TEST(PartyPlayback_ReconnectAndReplayClearBufferedTransformsAndPoses) {
     AvatarSink sink;
     PartyAvatarPlayback playback(sink);
@@ -285,13 +318,31 @@ TEST(PartyPlayback_NativeSceneRefusalAndRoomClosureDoNotLeaveAnActiveScope) {
 }
 
 namespace {
+struct RestartSource : FakeWorld {
+    using FakeWorld::FakeWorld;
+    unsigned cancelled=0;
+    void CancelRestartMission() override { ++cancelled; }
+};
+struct FreeformLauncher : IPartyFreeformLaunch {
+    bool matching=true;
+    Result result=Result::Waiting;
+    unsigned polls=0, submissions=0, cancellations=0;
+    bool NativeFreeformContract() const override { return matching; }
+    Result PollFreeformLaunch(double) override {
+        ++polls;
+        if (result==Result::Submitted) ++submissions;
+        return result;
+    }
+    void CancelFreeformLaunch() override { ++cancellations; }
+};
 struct PreviewRoom {
     std::shared_ptr<SimNetwork> net=SimNetwork::Create(451);
-    std::array<FakeWorld,4> sources {FakeWorld("Host"),FakeWorld("GuestA"),FakeWorld("GuestB"),FakeWorld("GuestC")};
+    std::array<RestartSource,4> sources {RestartSource("Host"),RestartSource("GuestA"),RestartSource("GuestB"),RestartSource("GuestC")};
     std::array<AvatarSink,4> sinks;
+    std::array<FreeformLauncher,4> launchers;
     std::array<std::unique_ptr<PartyPreviewRuntime>,4> runtime;
     double now=0;
-    PreviewRoom() {
+    explicit PreviewRoom(bool followHostRestart=false, bool autoInitialLoad=false, bool followGuest=false) {
         const Endpoint host {0x0a000001,47047};
         for (size_t i=0;i<4;++i) {
             sources[i].inScene=true;
@@ -304,7 +355,8 @@ struct PreviewRoom {
             PartyRoomConfig config; config.name="Agent"+std::to_string(i);
             auto room=i==0 ? PartyRoom::Host(net->Open(host),config) :
                 PartyRoom::Join(net->Open({uint32_t(0x0a000001+i),uint16_t(50001+i)}),host,config,now);
-            runtime[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i]);
+            runtime[i]=std::make_unique<PartyPreviewRuntime>(std::move(room),sources[i],sinks[i],nullptr,PartyNpcOptions{},
+                followHostRestart,autoInitialLoad,followGuest?&launchers[i]:nullptr);
         }
     }
     void Step(double seconds) {
@@ -393,6 +445,161 @@ TEST(PartyPreview_SceneClearInterruptsEveryPeerAndHostCanOpenANewEpoch) {
     REQUIRE(room.runtime[0]->Start());
     room.Step(1.);
     for(auto& peer:room.runtime) CHECK(peer->Status().phase==LobbyRoster::Phase::Playing);
+}
+
+TEST(PartyPreview_HostRestartKeepsFourSeatsAndWaitsForEveryNativeRebuild) {
+    PreviewRoom room(true);
+    REQUIRE(room.Start());
+    const auto before=room.runtime[0]->Status();
+    CHECK(!room.runtime[2]->HostMissionRestarted());
+    REQUIRE(room.runtime[0]->HostMissionRestarted());
+    CHECK(!room.runtime[0]->HostMissionRestarted());
+    room.Step(1.);
+    for(size_t i=0;i<4;++i) {
+        const auto& status=room.runtime[i]->Status();
+        CHECK(status.phase==LobbyRoster::Phase::Restarting);
+        CHECK(status.epoch==before.epoch+1);
+        CHECK(status.session==before.session);
+        CHECK(room.sources[i].restarts==(i==0?0:1));
+        for(const auto& member:status.members) CHECK(!member.loaded);
+    }
+    for(size_t i=0;i<4;++i) {
+        room.sources[i].inScene=false;
+        room.runtime[i]->SceneCleared();
+    }
+    for(size_t i=0;i<3;++i) room.sources[i].inScene=true;
+    room.Step(1.);
+    for(auto& peer:room.runtime) CHECK(peer->Status().phase==LobbyRoster::Phase::Restarting);
+    room.sources[3].inScene=true;
+    room.Step(1.);
+    for(size_t i=0;i<4;++i) {
+        const auto& status=room.runtime[i]->Status();
+        CHECK(status.phase==LobbyRoster::Phase::Playing);
+        CHECK(status.members.size()==before.members.size());
+        CHECK(room.sources[i].restarts==(i==0?0:1));
+        for(size_t seat=0;seat<status.members.size();++seat)
+            CHECK(status.members[seat].incarnation==before.members[seat].incarnation);
+    }
+    REQUIRE(room.runtime[0]->HostMissionRestarted());
+    room.Step(1.);
+    for(size_t i=1;i<4;++i) CHECK(room.sources[i].restarts==2);
+}
+
+TEST(PartyPreview_HostFreeformEntryStartsTheRoomWithoutManualReadiness) {
+    PreviewRoom room(true,true);
+    for(auto& source:room.sources) source.inScene=false;
+    room.Step(2.);
+    const auto initial=room.runtime[0]->Status();
+    REQUIRE(initial.members.size()==4);
+    CHECK(initial.phase==LobbyRoster::Phase::Lobby);
+    CHECK(!room.runtime[0]->Ready());
+    CHECK(!room.runtime[0]->Start());
+
+    room.sources[0].inScene=true;
+    room.Step(1.);
+    for(auto& peer:room.runtime) CHECK(peer->Status().phase==LobbyRoster::Phase::Loading);
+    for(size_t i=1;i<4;++i) room.runtime[i]->SceneCleared(); // Leaving the main menu is expected.
+    const auto freeform=room.sources[3].scene.scene;
+    room.sources[3].scene.scene="assembly:/_pro/scenes/missions/paris/scene.entity";
+    for(auto& source:room.sources) source.inScene=true;
+    room.Step(1.);
+    CHECK(room.runtime[0]->Status().phase==LobbyRoster::Phase::Loading);
+    room.sources[3].scene.scene=freeform;
+    room.Step(1.);
+    for(auto& peer:room.runtime) {
+        CHECK(peer->Status().phase==LobbyRoster::Phase::Playing);
+        CHECK(peer->Status().session==initial.session);
+        CHECK(peer->Status().epoch==initial.epoch);
+        CHECK(peer->Accepted()>0);
+    }
+    CHECK(room.runtime[0]->HostMissionRestarted());
+}
+
+TEST(PartyPreview_InitialLoadTimesOutAndHostCanRetryInTheSameRoom) {
+    PreviewRoom room(true,true);
+    room.sources[3].inScene=false;
+    room.Step(94.);
+    const auto failed=room.runtime[0]->Status();
+    REQUIRE(failed.phase==LobbyRoster::Phase::Interrupted);
+    REQUIRE(room.runtime[0]->Lobby());
+    room.Step(1.);
+    CHECK(room.runtime[0]->Status().phase==LobbyRoster::Phase::Lobby);
+    room.sources[0].inScene=false;
+    room.runtime[0]->SceneCleared();
+    room.Step(0.25);
+    room.sources[3].inScene=true;
+    room.sources[0].inScene=true;
+    room.Step(1.);
+    CHECK(room.runtime[0]->Status().phase==LobbyRoster::Phase::Playing);
+    CHECK(room.runtime[0]->Status().session==failed.session);
+    CHECK(room.runtime[0]->Status().epoch>failed.epoch);
+}
+
+TEST(PartyPreview_GuestsSubmitOneLaunchAndWaitForExactNativeContract) {
+    PreviewRoom room(true,true,true);
+    for (size_t i=0;i<4;++i) {
+        room.sources[i].inScene=false;
+        room.launchers[i].result=IPartyFreeformLaunch::Result::Submitted;
+    }
+    room.Step(2.);
+    room.launchers[0].matching=false;
+    room.sources[0].inScene=true;
+    room.Step(0.5);
+    CHECK(room.runtime[0]->Status().phase==LobbyRoster::Phase::Lobby);
+    for (const auto& launcher:room.launchers) CHECK(launcher.polls==0);
+
+    room.launchers[0].matching=true;
+    room.Step(1.);
+    CHECK(room.runtime[0]->Status().phase==LobbyRoster::Phase::Loading);
+    CHECK(room.launchers[0].polls==0);
+    for (size_t i=1;i<4;++i) {
+        CHECK(room.launchers[i].submissions==1);
+        room.runtime[i]->SceneCleared();
+        room.sources[i].inScene=true;
+    }
+    room.launchers[3].matching=false;
+    room.Step(1.);
+    CHECK(room.runtime[0]->Status().phase==LobbyRoster::Phase::Loading);
+    room.launchers[3].matching=true;
+    room.Step(1.);
+    for (size_t i=1;i<4;++i) {
+        CHECK(room.launchers[i].submissions==1);
+        CHECK(room.runtime[i]->Status().phase==LobbyRoster::Phase::Playing);
+    }
+    REQUIRE(room.runtime[0]->HostMissionRestarted());
+    room.Step(0.5);
+    for (size_t i=1;i<4;++i) {
+        CHECK(room.launchers[i].submissions==1);
+        CHECK(room.sources[i].restarts==1);
+    }
+}
+
+TEST(PartyPreview_StoppingTheRoomCancelsPendingGuestLaunches) {
+    PreviewRoom room(true,true,true);
+    for (size_t i=1;i<4;++i) room.sources[i].inScene=false;
+    room.Step(2.);
+    REQUIRE(room.runtime[0]->Status().phase==LobbyRoster::Phase::Loading);
+    REQUIRE(room.runtime[0]->Lobby());
+    room.Step(1.);
+    for (size_t i=1;i<4;++i) {
+        CHECK(room.launchers[i].polls>0);
+        CHECK(room.launchers[i].cancellations==1);
+        CHECK(room.launchers[i].submissions==0);
+    }
+}
+
+TEST(PartyPreview_AbortedRestartCancelsEachGuestsQueuedNativeRequest) {
+    PreviewRoom room(true);
+    REQUIRE(room.Start());
+    REQUIRE(room.runtime[0]->HostMissionRestarted());
+    room.Step(1.);
+    REQUIRE(room.runtime[0]->Lobby());
+    room.Step(1.);
+    for(size_t i=1;i<4;++i) {
+        CHECK(room.sources[i].restarts==1);
+        CHECK(room.sources[i].cancelled==1);
+        CHECK(room.runtime[i]->Status().phase==LobbyRoster::Phase::Lobby);
+    }
 }
 
 TEST(PartyPreview_HostClosureHidesGuestsWithoutFabricatingCompletion) {

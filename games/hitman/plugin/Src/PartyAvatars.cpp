@@ -20,6 +20,11 @@ bool Finite(coop::Quat q) {
 }
 
 std::string SdkWorld::PartyPreviewError() const {
+#ifdef COOP_NPC_CATALOG
+    if (auto fault=NpcCatalogError(); !fault.empty()) return fault;
+#endif
+    if(m_NpcEventOverflow)
+        return "Native NPC event queue overflowed. Reload Freeform Training before starting again.";
     if (!CrashGuards::InteractionGuardActive())
         return "Preview protection could not be installed for this game build. Close HITMAN and send the log.";
     if (m_PartyAvatarDamaged)
@@ -110,6 +115,8 @@ bool SdkWorld::ApplyPartyRoster(const coop::PartyRoomStatus& status) {
             avatar.partnerSpeed = 0.;
             avatar.partnerVelocity = {};
             avatar.hasPartnerOutfit = false;
+            avatar.handSlot.wanted.clear();
+            avatar.handSlot.failedFor.clear();
             avatar.playerId = id;
             avatar.incarnation = member->incarnation;
             if (avatar.actor) {
@@ -175,6 +182,13 @@ bool SdkWorld::SetPartySkeleton(uint8_t id, uint64_t incarnation, uint32_t epoch
     return true;
 }
 
+void SdkWorld::SetPartyEquipment(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::PartyEquipment& equipment) {
+    if (auto* avatar=PartyAvatar(id,incarnation,epoch)) {
+        avatar->handSlot.wanted=equipment.hand;
+        avatar->backSlot.wanted=equipment.back==equipment.hand ? std::string{} : equipment.back;
+    }
+}
+
 void SdkWorld::HidePartyAvatars() {
     for (auto& avatar : m_PlayerAvatars) {
         HideRemoteAvatar(avatar);
@@ -214,6 +228,10 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
         if (!m_InScene || !avatar.present || avatar.partnerHidden || !avatar.actor || !avatar.actor->m_pAnimatedActor) {
             DetachAvatarPose(avatar);
             continue;
+        }
+        if (avatar.actor->m_pInventoryHandler && Globals::WorldInventory) {
+            UpdateStandInSlot(avatar,avatar.handSlot,"hand");
+            UpdateStandInSlot(avatar,avatar.backSlot,"back");
         }
         void* animator = avatar.actor->m_pMorphemeEntity.m_entityRef.QueryInterface<IBoneAnimator>();
         if (!animator) {

@@ -1,0 +1,15 @@
+HITMAN CO-OP / NPC DISCOVERY TEST
+OPS 0.1.27 / HITMAN 3.290.1
+
+1. Close HITMAN on both PCs. Use Check for updates and Update & Restart
+   in the OPS HUB launcher. Confirm 0.1.27 on both PCs.
+2. Launch HITMAN, wait at the main menu, then host and join. The host
+   starts Freeform Training through HITMAN's menu.
+3. Walk around for about 15 seconds once you can see each other. Leave
+   NPCs undisturbed for this test so the two scans are easy to compare.
+4. The host selects Restart Mission. Once you can see each other again,
+   walk around for another 15 seconds.
+5. Quit normally. Keep and share both Retail\mods\HitmanCoop.log files.
+
+This build records which NPCs each PC can identify across the whole
+mission, before and after restart. NPC behavior still runs locally.

@@ -7,6 +7,7 @@ namespace GamePause {
     bool Available();
     // Our player has the pause menu (or another menu that pauses) open.
     bool MenuOpen();
+    bool SetPartyPause(bool paused);
     // The partner's: our game is held paused under our own name while they are.
     void SetPartnerPause(bool p_Paused);
     // Held paused until the partner's game is in the mission too ("start together").

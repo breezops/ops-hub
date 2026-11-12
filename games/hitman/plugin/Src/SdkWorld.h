@@ -1,9 +1,12 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <deque>
 #include <functional>
+#include <map>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -19,6 +22,12 @@
 #include "PartnerPuppet.h"
 #include "RemoteAvatarState.h"
 #include "PoseHook.h"
+#include "NpcLifeReceipts.h"
+#include "NpcActorBirths.h"
+#ifdef COOP_NPC_AGREED_CATALOG
+#include "NpcSceneEvidence.h"
+#endif
+#include "NpcActionObserver.h"
 
 #include "Glacier/EntityFactory.h"
 #include "Glacier/Enums.h"
@@ -34,7 +43,11 @@ class IItemBase;
 
 // IGameWorld backed by the running game through ZHMModSDK. Game thread only,
 // except the toast list which the render thread reads under m_ToastMutex.
-class SdkWorld final : public coop::IGameWorld, public coop::IPartyAvatarWorld {
+class SdkWorld final : public coop::IGameWorld, public coop::IPartyAvatarWorld
+#ifdef COOP_NPC_CATALOG
+    , public coop::IPartyNpcWorld
+#endif
+{
 public:
     bool CanOpenPartyPreview() const { return !m_LegacyAvatar.entity && !m_PartyPresentation.Status().session; }
     std::string PartyPreviewError() const override;
@@ -43,6 +56,9 @@ public:
     bool ShowPartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Transform& xf) override;
     bool ShowPartyPose(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::Pose& pose) override;
     bool SetPartyOutfit(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::OutfitDesc& outfit) override;
+    coop::PartyEquipment LocalPartyEquipment() const override;
+    void SetPartyEquipment(uint8_t id, uint64_t incarnation, uint32_t epoch, const coop::PartyEquipment&) override;
+    void SetPartyPause(bool local,bool remote) override;
     bool SetPartySkeleton(uint8_t id, uint64_t incarnation, uint32_t epoch, const std::vector<int16_t>& parents) override;
     void HidePartyAvatars() override;
     bool HidePartyAvatar(uint8_t id, uint64_t incarnation, uint32_t epoch) override;
@@ -53,6 +69,73 @@ public:
     coop::SceneDesc CurrentScene() const override { return m_Scene; }
     bool GetLocalAvatar(coop::Transform& p_Out) const override;
     bool GetLocalOutfit(coop::OutfitDesc& p_Out) const override;
+    // Read-only native NPC binding. Refresh ListNpcs first; no network input
+    // can choose an actor pointer. Unknown engagement/interaction is busy.
+    bool CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const;
+    // Constructor callback may run on workers: pointer-only metadata, no SDK
+    // actor reads and no session lock. Construction entry is not completion.
+    void ObservePartyNpcConstruction(void* actor) noexcept { m_NpcActorBirths.ObserveConstruction(actor); }
+    uint64_t ObservePartyNpcDestructionEntry(void* actor) noexcept { return m_NpcActorBirths.ObserveDestructionEntry(actor); }
+    bool ObservePartyNpcDestructionReturn(const void* actor,uint64_t birth) noexcept;
+    const NpcActorBirths::Book& PartyNpcBirthBook() const { return m_NpcActorBirths; }
+    void ObservePartyGameThread(uint32_t thread) noexcept;
+    uint32_t PartyGameThread() const;
+    uint64_t CurrentPartyNpcBirth(uint64_t id) const;
+    bool PartyNpcBirthsHealthy() const { return m_NpcActorBirths.Healthy(); }
+    // Called only under the action boundary's metadata pin. Checks fresh SDK
+    // lists/slot/identity; actual native lifetime boundary still needs live proof.
+    bool ValidatePartyNpcAtActionBoundary(const NpcMutationGate::Ticket&,int32_t& runtimeId) const;
+    // Read-only identity validation at that same boundary, without a mutation
+    // scope. Used by observation mode; never authorizes actor control.
+    bool ValidatePartyNpcObservationAtActionBoundary(const void* actor,uint64_t npc,uint64_t birth,int32_t& runtimeId) const;
+    void TracePartyNpcIdentity(); // Diagnostic build only; reads/counts, no NPC controls.
+#ifdef COOP_PARTY_NPC_DISCOVERY
+    std::optional<std::vector<uint64_t>> TracePartyNpcDiscovery(const coop::PartyRoomStatus* status, double now);
+#endif
+    void TracePartyNpcAction(const NpcActionObserver::View&);
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+    void ObservePartyNpcRestartBindings(const NpcActionObserver::View&);
+#endif
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    void UpdatePartyNpcBindingAgreement(const coop::PartyPreviewRuntime*);
+#endif
+    void MarkPartyNpcJobAttachment() { m_NpcJobAttachmentMark=m_NpcActorBirths.Mark(); }
+    void ArmSoloNpcHold() { m_SoloHoldRequested=true; }
+    void StepSoloNpcHold(NpcActionPhase::Boundary&);
+    void StepSoloNpcPool(NpcActionPhase::Boundary&);
+#ifdef COOP_NPC_CATALOG
+    std::string ResolveNpcCatalog(std::set<uint64_t>& ids) const;
+    CatalogPreparation PrepareNpcCatalog(const std::set<uint64_t>& ids) override;
+    void StopNpcCatalog() override;
+#ifdef COOP_NPC_AGREED_CATALOG
+    void SetNpcClearEvidenceToken(uint64_t token) { m_CatalogClearEvidence=token; }
+    void ObserveNpcRetirementEvidence(const NpcSceneEvidence::Sample&);
+    void BeginNpcSceneRetirement(uint64_t token) override;
+    bool ConfirmNpcSceneRetired(uint64_t token) override;
+#endif
+    bool FreezeNpc(uint64_t id) override;
+    bool ApplyNpcBaseline(uint64_t id,const coop::PartyNpcState&) override;
+    bool ApplyNpcUpdate(uint64_t id,const coop::PartyNpcState&) override;
+    bool ResumeNpc(uint64_t id) override;
+    bool CaptureNpc(uint64_t id,coop::PartyNpcState&) override;
+    bool CaptureNpcForRelease(uint64_t id,coop::PartyNpcState&) override;
+    bool CaptureNpcPose(uint64_t id,coop::Pose&) override;
+    void SetNpcPoseSources(std::span<const uint64_t> ids) override;
+    bool PresentNpcPose(uint64_t id,const coop::Transform&,const coop::Pose&) override;
+    void ClearNpcPresentationPose(uint64_t id) override;
+    void InvalidateCatalogNpcPose(const void* actor,uint64_t birth) noexcept;
+    void StepPartyNpcCatalog(NpcActionPhase::Boundary&);
+    void SetNpcCatalogHost(bool host) { m_CatalogHost=host; }
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    uint64_t SelectNpcHandoffGuard();
+#endif
+#endif
+    // nativeContract is this PC's native ContractSessionId, never a room/peer
+    // value. The future adapter must obtain it before acknowledging readiness.
+    bool BeginPartyNpcObservation(uint64_t scope,const std::string& nativeContract);
+    bool BindPartyNpcObservation(const NpcMutationGate::Ticket& ticket);
+    void ObservePartyNpcEvent(const std::string& name,const std::string& json);
+    void ProcessPartyNpcEvents();
     void ShowRemoteAvatar(const coop::Transform& p_Xf) override;
     void HideRemoteAvatar() override;
     void SetRemoteOutfit(const coop::OutfitDesc& p_Outfit) override;
@@ -97,6 +180,7 @@ public:
     bool IsLocallyPaused() const override;
     void SetPartnerPaused(bool p_Paused) override;
     void RestartMission() override;
+    void CancelRestartMission() override { m_RestartAskedAt=-1.0; }
     // A restart we made for the partner: not told back to them (see HitmanCoop's scene load).
     bool TakeRestartForPartner() {
         const bool s_Was = m_RestartForPartner;
@@ -214,6 +298,7 @@ public:
             bool ours = false;
             bool danger = false;
             bool target = false;
+            bool catalog = false;
             float age = 0.f;
             float distance = 0.f;
         };
@@ -448,14 +533,18 @@ public:
     // An item made for the stand-in to carry: in its right hand, or on its back.
     using StandInSlot = RemoteAvatarState::ItemSlot;
     void UpdateStandInItem();
-    void UpdateStandInSlot(StandInSlot& p_Slot, const char* p_Where);
-    void DropStandInItem(StandInSlot& p_Slot);
+    void UpdateStandInSlot(RemoteAvatarState& avatar, StandInSlot& p_Slot, const char* p_Where);
+    void DropStandInItem(RemoteAvatarState& avatar, StandInSlot& p_Slot);
+    void DropStandInItem(StandInSlot& p_Slot) { DropStandInItem(m_LegacyAvatar,p_Slot); }
+    void ClearPartyEquipment(RemoteAvatarState& avatar);
     void DropStandInItem() { DropStandInItem(m_LegacyAvatar.handSlot); }
     void OnStandInItemCreated(uint32_t p_Ticket, TEntityRef<IItemBase> p_Item);
     int m_StandInAttach = 0; // EAttachLocation (test: other places)
     bool m_StandInWeapon = false;
     mutable double m_HeldCheckAt = 0.0;
     mutable std::string m_HeldItem;
+    mutable double m_PartyHeldSampleAt=0.0;
+    mutable coop::PartyEquipment m_PartyEquipmentCandidate, m_PartyEquipment;
     mutable std::string m_BackItem; // on our 47's back (see LocalHeldItem)
     std::string m_BackItemSent;
     double m_BackItemSentAt = -100.0;
@@ -561,6 +650,108 @@ private:
     std::string OutfitKitToRepositoryId(ZGlobalOutfitKit* p_Kit) const;
 
     bool m_InScene = false;
+    NpcLifeReceipts::Book m_NpcLifeReceipts;
+    NpcActorBirths::Book m_NpcActorBirths;
+    std::atomic<uint32_t> m_PartyGameThread=0;
+    std::atomic<bool> m_PartyGameThreadChanged=false;
+    ZActor* FindFreshPartyNpc(uint64_t id) const;
+    bool MatchesFreshPartyNpc(uint64_t id, ZActor* actor, const void* entity) const;
+#ifdef COOP_NPC_CATALOG
+    enum class CatalogPhase { Idle, Binding, Preparing, Active, Stopped };
+    enum class CatalogActorPhase { Hold, Drain, Held, Resume, StartJob, Running };
+    struct CatalogActor {
+        NpcMutationGate::Ticket ticket;
+        CatalogActorPhase phase=CatalogActorPhase::Hold;
+        uint64_t observedAt=0, deadline=0;
+        std::optional<coop::PartyNpcState> baseline, receipt;
+        std::optional<coop::PartyNpcState> released;
+        bool captureRelease=false;
+        std::optional<coop::PartyNpcState> canonical;
+        std::optional<coop::Transform> presentation;
+#ifdef COOP_NPC_AGREED_CATALOG
+        std::optional<coop::Transform> lastApplied;
+        coop::Transform blendFrom;
+        double blendStarted=0;
+        bool blendPending=false;
+        int32_t observedTension=-1;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+        bool observedWeaponDrawn=false, observedMainWeapon=false;
+        std::optional<bool> observedWeaponRunning;
+        int observedWeaponGeometry=-1, observedWeaponVisibleSwitch=-1;
+#endif
+#endif
+    };
+    CatalogActor* FindCatalogActor(uint64_t id);
+    struct CatalogPoseBinding {
+        NpcMutationGate::Ticket ticket;
+        void* animator=nullptr;
+        bool source=false, reported=false, overrideReported=false;
+    };
+    CatalogPoseBinding* BindCatalogAnimator(const NpcMutationGate::Ticket&,bool source);
+    void RefreshCatalogPoseSources();
+    std::vector<CatalogPoseBinding> m_CatalogPoseBindings;
+    std::mutex m_CatalogPoseMutex;
+    bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&,bool presentation);
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    void ApplyCatalogWeaponVisibility(const NpcMutationGate::Ticket&,const coop::PartyNpcWeapon&);
+#endif
+    void RefuseNpcCatalog(const char* reason);
+    std::string NpcCatalogError() const;
+    uint64_t NpcCatalogClock() const;
+    std::optional<uint64_t> m_PartyPauseStarted;
+    uint64_t m_PartyPauseElapsed=0;
+    std::vector<CatalogActor> m_CatalogActors;
+#ifdef COOP_NPC_AGREED_CATALOG
+    uint64_t m_NextCatalogTensionSample=0;
+#endif
+    std::vector<uint64_t> m_CatalogIds;
+    NpcMutationGate::Scope m_CatalogScope=0;
+    CatalogPhase m_CatalogPhase=CatalogPhase::Idle;
+    uint64_t m_CatalogStartedAt=0;
+    bool m_CatalogHost=false;
+#ifdef COOP_NPC_AGREED_CATALOG
+    uint64_t m_CatalogClearEvidence=0;
+    uint64_t m_CatalogRetirementToken=0;
+    std::set<uint64_t> m_CatalogPendingEvidence;
+    bool m_CatalogCleared=false;
+#endif
+#endif
+#ifdef COOP_NPC_POOL_DIAGNOSTICS
+    bool CanBeginPartyNpcHold(NpcActionPhase::Boundary&, ZActor*, uint64_t id, uint64_t birth) const;
+    bool BindPartyNpcHoldCatalog(NpcActionPhase::Boundary&, std::span<const uint64_t> ids,
+                                 std::span<NpcMutationGate::Ticket> tickets);
+#endif
+    double m_NextNpcIdentityAudit=0;
+    unsigned m_NpcIdentityAudits=0;
+#ifdef COOP_PARTY_NPC_DISCOVERY
+    coop::PartyNpcScope m_NpcDiscoveryScope;
+    double m_NextNpcDiscovery=0;
+    std::vector<std::string> m_LastNpcDiscovery;
+    uint64_t m_NpcDiscoveryClearMark=0;
+    std::optional<std::map<uint64_t,uint64_t>> m_NpcDiscoveryBirths;
+    std::map<uint64_t,uint64_t> m_NpcDiscoveryBeforeClear;
+#endif
+    double m_NextNpcActionAudit=0;
+    unsigned m_NpcActionAudits=0;
+    uint64_t m_NpcJobAttachmentMark=0; // Never reset on scene clear; diagnostic only.
+    NpcMutationGate::Ticket m_SoloHoldTicket;
+    NpcMutationGate::Scope m_NpcRetiringScope=0;
+#ifdef COOP_NPC_RESTART_BINDING_DIAGNOSTICS
+    bool m_NpcRestartBindingAttempted=false;
+#endif
+#ifdef COOP_NPC_PARTY_BINDING_DIAGNOSTICS
+    coop::PartyNpcScope m_NpcBindingRoom;
+    std::vector<uint64_t> m_NpcBindingIds;
+    NpcMutationGate::Scope m_NpcBindingScope=0;
+#endif
+    bool m_SoloHoldRequested=false,m_SoloHoldUsed=false,m_SoloHoldOwned=false;
+    unsigned m_SoloHoldPhase=0;
+    double m_SoloHoldDeadline=0;
+    std::array<NpcMutationGate::Ticket,2> m_SoloPoolTickets{};
+    std::array<bool,2> m_SoloPoolOwned{};
+    struct NpcNativeEvent { uint64_t scope; uint32_t actor; bool killed; std::string contract; };
+    std::deque<NpcNativeEvent> m_NpcNativeEvents;
+    bool m_NpcEventOverflow=false;
     bool m_SceneLoading = false;
     coop::SceneDesc m_Scene;
 
@@ -668,6 +859,7 @@ private:
     std::unordered_set<std::string> m_PartnerKills; // actor names and repository ids, for this mission
     void KillForPartner(ZActor* p_Actor, EDamageEvent p_Event, EDeathBehavior p_Behavior);
     bool PacifyForPartner(ZActor* p_Actor);
+    bool PacifyFromActor(ZActor* actor, const ZEntityRef& source);
     // Knocks out (alive) or kills the partner's victim here, as it is on their screen.
     void PutDown(ZActor* p_Actor, uint64_t p_Id, uint8_t p_Flags);
     // Its AI held still while the partner has it: standing beside our 47's takedown, it saw that

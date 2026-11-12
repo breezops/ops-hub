@@ -9,6 +9,10 @@ if (NOT CMAKE_CXX_STANDARD)
 endif ()
 
 add_library(coop_core STATIC
+        src/PartyNpcAuthority.cpp
+        src/PartyNpcSync.cpp
+        src/PartyNpcRoster.cpp
+        src/PartyReplayClient.cpp
         src/PartyAvatarPlayback.cpp
         src/PartyPreviewRuntime.cpp
         src/PartyRoom.cpp
@@ -62,6 +66,8 @@ if (COOP_BUILD_TESTS)
             tests/Main.cpp
             tests/TestCore.cpp
             tests/TestPoseFrame.cpp
+            tests/TestPartyNpcAuthority.cpp
+            tests/TestPartyReplayClient.cpp
             tests/TestGameEvents.cpp
             tests/TestCoopFixes.cpp
             tests/TestSession.cpp

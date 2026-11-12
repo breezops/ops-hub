@@ -1,0 +1,21 @@
+HITMAN CO-OP / LOOP-2 CONTRACT LAUNCH DIAGNOSTIC
+Local candidate 0.1.22 / HITMAN 3.290.1
+
+Solo trace
+1. Close HITMAN. Open HITMAN-Coop-Party-Preview.exe in this extracted folder
+   and click Install / Repair. Use Launch HITMAN.
+2. Start Freeform Training using HITMAN's menus. Wait until Agent 47 is
+   controllable, then quit normally. No lobby or friend is needed.
+3. Save Retail\mods\HitmanCoop.log. The launch trace captures the native
+   Freeform contract ID and executable-relative scene launch call stack.
+
+Optional room check on matching builds
+1. Host and join from HITMAN's main menu. Confirm everyone has a seat.
+2. The host opens Freeform Training. After the launcher reports loading,
+   each guest opens Freeform Training from their game menu.
+3. When the last player spawns, verify that movement starts automatically
+   and that the host's in-game Restart Mission still reloads the whole party.
+
+The guest's native launch request is the next integration step. This
+candidate tests room admission and records how the normal game starts a
+contract. Each PC runs its own NPC simulation in this build.

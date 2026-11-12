@@ -1,0 +1,12 @@
+HITMAN CO-OP / LOOP-3 NATIVE MENU TRACE
+Local candidate 0.1.23 / HITMAN 3.290.1
+
+1. Close HITMAN. Open HITMAN-Coop-Party-Preview.exe from this folder.
+2. Click Install / Repair, confirm 0.1.23 and use Launch HITMAN.
+3. Start Freeform Training in the native game menu. Once Agent 47 can move,
+   quit normally. This test uses one PC and does not require a co-op room.
+4. Keep Retail\mods\HitmanCoop.log. The launch lines report whether the game
+   used the suspected contract wrapper and which callback slots it supplied.
+
+Automatic guest launch is pending verification of the native caller. The
+room still uses the same load behavior as Loop-2.

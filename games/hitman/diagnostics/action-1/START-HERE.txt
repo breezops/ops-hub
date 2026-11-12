@@ -1,0 +1,32 @@
+HITMAN CO-OP / PRIVATE ACTION OBSERVATION
+OPS candidate 0.1.5 / native preview.4.action.1 / HITMAN 3.290.1
+
+SOLO check. Your friend does not need to update.
+This checks NPC behavior records inside the native action loop. Unlike the
+previous identity check it installs an observation hook, but does not hold or
+resume NPCs, enable NPC damage guards, or change native scheduling.
+The planned lobby, shared NPC gameplay and unanimous pause remain unimplemented.
+The public OPS HUB release stays at the tested 0.1.3.
+
+1. Close HITMAN and the old launcher. Open this folder's launcher.
+2. Click INSTALL / REPAIR, then LAUNCH HITMAN.
+3. Load Freeform Training normally. Do not host, join, ready or start a room.
+4. Walk around for 20 seconds. Knock out a guard and take his disguise.
+5. Wait another 20 seconds, then use the native Restart Mission option.
+6. Walk around for another 20 seconds and quit HITMAN normally.
+7. Send Retail\mods\HitmanCoop.log from the HITMAN 3 folder.
+
+The mission should play normally. The log should identify preview.4.action.1
+and contain [npc-act] READ-ONLY action audits. Those observations are not proof
+of completed native jobs or shared NPC gameplay; the developer checks the data.
+No screen recording or screenshots are needed.
+
+The observation hook keeps a small pass-through bridge alive until HITMAN exits.
+Restart the whole game to change/reload this diagnostic; do not use SDK hot reload.
+
+To restore the tested multiplayer build, close HITMAN and its launcher, then
+run RESTORE-0.1.3.cmd. It verifies the bundled original package and uses its
+tracked installer. Saves and game archives are not included or changed.
+
+Use this folder's launcher for this private test. CHECK FOR UPDATES on the site
+does not download this candidate; it has not been published.

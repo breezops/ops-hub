@@ -13,9 +13,15 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--base-package', type=Path, required=True)
 parser.add_argument('--native-dll', type=Path, required=True)
 parser.add_argument('--output', type=Path, default=Path('outputs/release'))
+parser.add_argument('--config', type=Path, help='Explicit candidate configuration; never changes the public channel')
+parser.add_argument('--start-here', type=Path, help='Candidate-specific instructions')
+parser.add_argument('--changelog', type=Path, help='Candidate-specific changelog')
+parser.add_argument('--extras-dir', type=Path, help='Additional reviewed top-level candidate files')
+parser.add_argument('--rollback-package', type=Path, help='Verified previous player ZIP kept out of the installed payload')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
-config = json.loads((root/'launcher/updater-config.json').read_text())
+config_path = args.config or root/'launcher/updater-config.json'
+config = json.loads(config_path.read_text())
 version = config['release_version']
 out = args.output.resolve()
 stage = out/'HITMAN-Coop'
@@ -29,9 +35,12 @@ for entry in json.loads((base/'payload-hashes.json').read_text()):
         raise SystemExit('Base package integrity check failed: '+entry['file'])
 if config['mod_build'].encode() not in args.native_dll.read_bytes():
     raise SystemExit('Native DLL does not identify the configured mod build.')
+if args.rollback_package and digest(args.rollback_package)!=config.get('rollback_sha256'):
+    raise SystemExit('Rollback package does not match the candidate configuration.')
 stage.mkdir(parents=True)
 for folder in ('files', 'licenses'):
     shutil.copytree(base/folder, stage/folder)
+shutil.copyfile(root/'third_party/minhook/LICENSE.txt',stage/'licenses/MinHook-1.3.4.txt')
 for file in (root/'distribution').iterdir():
     if file.is_file() and file.name!='Restore-4.1.ps1':
         shutil.copyfile(file, stage/file.name)
@@ -40,7 +49,7 @@ launcher = root/'launcher/bin/HITMAN-Coop-Party-Preview.exe'
 for destination in (stage/'HITMAN-Coop-Party-Preview.exe', stage/'files/HITMAN-Coop-Launcher.exe'):
     shutil.copyfile(launcher, destination)
 for destination in (stage/'updater-config.json', stage/'files/updater-config.json'):
-    shutil.copyfile(root/'launcher/updater-config.json', destination)
+    shutil.copyfile(config_path, destination)
 (stage/'VERSION.txt').write_text(f"OPS HUB {version} / {config['mod_build']} / party protocol 2 / HITMAN 3.290.1\n")
 (stage/'START-HERE.txt').write_text('''HITMAN / CO-OP — OPS HUB
 
@@ -60,7 +69,16 @@ REMOVE MOD removes tracked files while preserving saves. Previous Foundation
 Updater downloads use the canonical OPS HUB host behind opscord.net. The HITMAN
 release manifest is published by the HITMAN release workflow; a missing channel is reported.
 ''', encoding='utf-8')
-shutil.copyfile(root/'docs/CHANGELOG-OPS.md',stage/'CHANGELOG.md')
+if args.start_here:
+    shutil.copyfile(args.start_here,stage/'START-HERE.txt')
+shutil.copyfile(args.changelog or root/'docs/CHANGELOG-OPS.md',stage/'CHANGELOG.md')
+if args.extras_dir:
+    for file in args.extras_dir.iterdir():
+        if file.is_file() and file.name not in {'payload-hashes.json','launcher-mode.json','VERSION.txt'}:
+            shutil.copyfile(file,stage/file.name)
+if args.rollback_package:
+    (stage/'rollback').mkdir()
+    shutil.copyfile(args.rollback_package,stage/'rollback'/args.rollback_package.name)
 (stage/'BUILD-NOTES.md').write_text((root/'docs/LAUNCHER-AND-UPDATES.md').read_text(), encoding='utf-8')
 payload = [{'file': str(p.relative_to(stage)), 'sha256': digest(p)}
            for p in sorted((stage/'files').rglob('*')) if p.is_file()]

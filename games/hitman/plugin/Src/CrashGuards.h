@@ -22,6 +22,34 @@ namespace CrashGuards {
     int Install();
     int Count();
     bool InteractionGuardActive();
+    // Resolves the synchronous reasoning loop from the existing unique caller,
+    // stride and per-unit call target. Does not install a hook or freeze actors.
+    void* VerifiedNpcReasoningLoop();
+    // Resolves the deferred action-job entry through the same table caller,
+    // action loop and job descriptor. Observation only; does not install it.
+    void* VerifiedNpcActionJob();
+    struct NpcActionSites {
+        void* loop=nullptr;
+        void* job=nullptr;
+        void* cancel=nullptr;
+        void* cleanup=nullptr;
+        void* dispatch=nullptr;
+        explicit operator bool() const { return loop && job && cancel && cleanup && dispatch; }
+    };
+    // Resolves the native cancellation/cleanup/dispatcher chain as one bundle.
+    // Addresses alone do not grant a safe invocation point or a completed drain.
+    NpcActionSites VerifiedNpcActionSites();
+    struct NpcBehaviorSites {
+        NpcActionSites actions;
+        void* actorControl=nullptr;
+        void* table=nullptr;
+        explicit operator bool() const { return bool(actions) && actorControl && table; }
+    };
+    NpcBehaviorSites VerifiedNpcBehaviorSites();
+    // Reasoning-only, completed under the optional native loop fence. This is
+    // not a full actor/physics freeze acknowledgement for IPartyNpcWorld.
+    bool TrySetNpcReasoningHeld(void* actor, bool held);
+    bool FlushNpcReasoning();
     // Every place (up to 16) a code pattern (IDA style) matches in HITMAN3.exe.
     std::vector<uintptr_t> FindAll(const char* p_Pattern);
     std::string Report(); // which were found
@@ -69,6 +97,9 @@ namespace CrashGuards {
 #ifdef COOP_GUARD_TESTS
 // Only present in the standalone test executable; never exported by the mod.
 namespace CrashGuardsTest {
+    void* ActionJobInText(uintptr_t from, uintptr_t to);
+    CrashGuards::NpcActionSites ActionSitesInText(uintptr_t from, uintptr_t to);
+    CrashGuards::NpcBehaviorSites BehaviorSitesInText(uintptr_t from, uintptr_t to);
     void Configure(void* p_Units);
     std::vector<void*> SkippedUnits();
     bool Remembered(void* p_Actor);

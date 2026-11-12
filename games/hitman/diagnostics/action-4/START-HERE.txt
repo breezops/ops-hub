@@ -1,0 +1,26 @@
+HITMAN CO-OP / PRIVATE ALLOCATION DIAGNOSTIC / ACTION-4
+OPS 0.1.8 / native preview.4.action.4 / HITMAN 3.290.1
+
+SOLO STARTUP CHECK ONLY. Friends do not need to update.
+Action-3 failed to attach both observation hooks with memory-allocation error 9.
+This build records which allocation path failed and its immediate Windows error.
+It does not change allocation policy or enable NPC control.
+
+1. Close HITMAN and the old launcher. Open this folder's launcher.
+2. Click INSTALL / REPAIR, then LAUNCH HITMAN.
+3. Load Freeform Training alone. Do not host, join, ready or start a preview.
+4. Wait 15 seconds in the mission and tell the developer "in mission".
+5. Leave the game running while the developer checks the log. No knockout,
+   disguise change or restart test is needed until attachment is confirmed.
+
+The developer can read Retail\mods\HitmanCoop.log directly; no screen capture.
+[npc-mem] records actual query/allocation attempts and immediate errors.
+If creation returns error 9, a read-only near-range scan counts free bytes and
+64K-aligned places large enough for a 4K code buffer. These observations do not
+prove allocation will succeed. No fault injection is compiled into this player
+build. All 14 pinned vendor source/header/license files remain unchanged.
+
+Restart the whole game for reload/update; do not use SDK hot reload.
+Close HITMAN and run RESTORE-0.1.3.cmd to return to tested multiplayer.
+The bundled original rollback ZIP is checksum verified. No game files or saves
+are part of this package. CHECK FOR UPDATES does not fetch this private build.

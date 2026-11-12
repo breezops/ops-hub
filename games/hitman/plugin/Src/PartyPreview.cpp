@@ -1,13 +1,28 @@
 #include "HitmanCoop.h"
 #include "CoopText.h"
 #include "CrashGuards.h"
+#include "Log.h"
+#ifdef COOP_NPC_AGREED_CATALOG
+#include "NpcHoldArbiter.h"
+#endif
 #include <sstream>
 
 namespace {
+#ifdef COOP_PARTY_INITIAL_LOAD
+constexpr bool kAutoInitialLoad=true;
+#else
+constexpr bool kAutoInitialLoad=false;
+#endif
+#ifdef COOP_PARTY_GUEST_START
+constexpr bool kGuestLaunch=true;
+#else
+constexpr bool kGuestLaunch=false;
+#endif
 const char* Phase(coop::LobbyRoster::Phase phase) {
     using P=coop::LobbyRoster::Phase;
     switch(phase) {
     case P::Lobby:return "Lobby"; case P::Loading:return "Checking loaded missions";
+    case P::Restarting:return "Waiting for mission restart";
     case P::Playing:return "Movement preview running"; case P::Completing:return "Completing";
     case P::Complete:return "Complete"; case P::Interrupted:return "Interrupted";
     }
@@ -28,15 +43,23 @@ bool Live(const coop::PartyRoomStatus& s) {
 }
 
 std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request, double now) {
+    CheckLauncherPluginLayout({});
     bool ok=true;
     std::string message;
     if (request.action=="preview_host" || request.action=="preview_join") {
+#ifdef COOP_NPC_CATALOG
+        coop::PartyNpcOptions npcOptions;
+#endif
         if (!m_Unsupported.empty()) { ok=false; message=UnsupportedText(); }
         else if (!m_World.PartyPreviewError().empty()) { ok=false; message=m_World.PartyPreviewError(); }
         else if ((m_Session && m_Session->Active()) || (m_PartyPreview && Live(m_PartyPreview->Status()))) {
             ok=false; message="Leave the current session first.";
         } else if (!m_World.CanOpenPartyPreview()) {
             ok=false; message="Reload Freeform Training to clear the previous session, then try again.";
+#if defined(COOP_NPC_CATALOG) && !defined(COOP_NPC_AGREED_CATALOG)
+        } else if (message=m_World.ResolveNpcCatalog(npcOptions.fixedCatalog); !message.empty()) {
+            ok=false;
+#endif
         } else {
             m_Session.reset(); // Inactive legacy sockets must release the host port.
             std::string error;
@@ -50,6 +73,12 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                 else {
                     coop::PartyRoomConfig config;
                     config.build=c_ModVersion; config.game=m_GameVersion; config.name=m_NameBuffer;
+#if defined(COOP_NPC_CATALOG) && !defined(COOP_NPC_AGREED_CATALOG)
+                    std::ostringstream key;
+                    key<<COOP_NPC_CATALOG_ROOM_BUILD<<std::hex;
+                    for (const auto id:npcOptions.fixedCatalog) key<<'/'<<id;
+                    config.build=key.str();
+#endif
                     auto room=host ? coop::PartyRoom::Host(std::move(socket),config) :
                         coop::PartyRoom::Join(std::move(socket),endpoint,config,now);
                     if (!room) { ok=false; message="Could not create the preview room."; }
@@ -60,7 +89,41 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
                         CrashGuards::SetKnowledge(nullptr);
                         CrashGuards::SetActor(nullptr);
                         m_Session.reset(); m_LastJoin.reset(); m_Reconnecting=false; m_Relay.reset(); m_FrameStatus={};
+#ifdef COOP_NPC_AGREED_CATALOG
+                        npcOptions.capacity=NpcHoldArbiter::Capacity;
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+                        npcOptions.policy=coop::PartyNpcPolicy::Explicit;
+#ifdef COOP_NPC_AUTO_HANDOFF_TEST
+                        npcOptions.automaticGuardsPerGuest=coop::kMaxAutomaticGuardsPerGuest;
+#endif
+                        m_NpcHandoffEpoch=0;
+                        m_NpcHandoffGuard=0;
+#endif
+                        npcOptions.streamPoses=true;
+                        npcOptions.nearbyNpcPoses=true;
+                        m_World.SetNpcCatalogHost(host);
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,
+                            npcOptions,true,true,static_cast<coop::IPartyFreeformLaunch*>(this),true,true);
+#elif defined(COOP_NPC_CATALOG)
+                        npcOptions.capacity=npcOptions.fixedCatalog.size();
+                        npcOptions.streamPoses=true;
+                        npcOptions.confirmInitialGuestBaselines=true;
+                        m_World.SetNpcCatalogHost(host);
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,&m_World,npcOptions);
+#elif defined(COOP_PARTY_GUEST_START)
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,
+                            coop::PartyNpcOptions{},true,true,static_cast<coop::IPartyFreeformLaunch*>(this),
+#ifdef COOP_PARTY_NPC_DISCOVERY
+                            true
+#else
+                            false
+#endif
+                        );
+#elif defined(COOP_PARTY_NATIVE_RESTART)
+                        m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World,nullptr,coop::PartyNpcOptions{},true,kAutoInitialLoad);
+#else
                         m_PartyPreview=std::make_unique<coop::PartyPreviewRuntime>(std::move(room),m_World,m_World);
+#endif
                         message=host ? "Preview hosted on UDP 47047. Friends can join by your address." : "Joining the preview host.";
                     }
                 }
@@ -83,7 +146,8 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
     const auto quote=[](const std::string& value) { return "\""+TestChannel::Escape(value)+"\""; };
     const auto status=m_PartyPreview ? m_PartyPreview->Status() : coop::PartyRoomStatus{};
     const bool active=m_PartyPreview && Live(status);
-    const bool native=m_World.PartyPreviewError().empty() && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene);
+    const bool native=m_PartyPreview ? m_PartyPreview->NativeReady() :
+        m_World.PartyPreviewError().empty() && m_World.IsInScene() && coop::IsFreeformTrainingScene(m_World.CurrentScene().scene);
     bool allReady=status.members.size()>=2;
     for (const auto& member:status.members) allReady=allReady && member.available && member.ready;
     const bool legacy=m_Session && m_Session->Active();
@@ -95,12 +159,15 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
        <<",\"role\":"<<quote(m_PartyPreview?(status.host?"Host":"Guest"):"None")
        <<",\"room_message\":"<<quote(status.message)<<",\"message\":"<<quote(message)
        <<",\"presentation_error\":"<<quote(m_World.PartyPreviewError())
+       <<",\"auto_initial_load\":"<<(kAutoInitialLoad?"true":"false")
+       <<",\"guest_launch\":"<<(kGuestLaunch?"true":"false")
+       <<",\"lifecycle_message\":"<<quote(m_PartyPreview?m_PartyPreview->Message():"")
        <<",\"native_ready\":"<<(native?"true":"false")<<",\"capacity\":4,\"epoch\":"<<status.epoch
        <<",\"can_connect\":"<<(!legacy && !active && m_World.PartyPreviewError().empty() && m_World.CanOpenPartyPreview()?"true":"false")
        <<",\"can_leave\":"<<(active?"true":"false")
-       <<",\"can_ready\":"<<(active && native && status.epoch && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
+       <<",\"can_ready\":"<<(!kAutoInitialLoad && active && native && status.epoch && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
        <<",\"local_ready\":"<<(m_PartyPreview && m_PartyPreview->LocalReady()?"true":"false")
-       <<",\"can_start\":"<<(active && native && status.host && allReady && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
+       <<",\"can_start\":"<<(!kAutoInitialLoad && active && native && status.host && allReady && status.phase==coop::LobbyRoster::Phase::Lobby?"true":"false")
        <<",\"can_stop\":"<<(active && status.host && status.phase!=coop::LobbyRoster::Phase::Lobby?"true":"false")
        <<",\"can_reconnect\":"<<(m_PartyPreview && !status.host && status.state==coop::PartyRoomStatus::State::Failed?"true":"false")
        <<",\"accepted\":"<<(m_PartyPreview?m_PartyPreview->Accepted():0)
@@ -115,3 +182,35 @@ std::string HitmanCoop::HandlePartyPreview(const coop::LauncherRequest& request,
     out<<"],\"shared_npcs\":false,\"shared_items\":false,\"shared_extraction\":false}";
     return out.str();
 }
+
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+void HitmanCoop::RunNpcHandoffTest(double now) {
+    const auto& party=m_PartyPreview->Status();
+    if (!party.host || party.members.size()!=2 || !m_PartyPreview->SharedNpcsActive()) {
+        CoopLog::Info("npc-handoff","F8 requires the host of a running two-player mission");
+        return;
+    }
+    if (m_NpcHandoffEpoch!=party.epoch) {
+        m_NpcHandoffEpoch=party.epoch;
+        m_NpcHandoffGuard=0;
+    }
+    const auto guard=m_NpcHandoffGuard ? m_NpcHandoffGuard : m_World.SelectNpcHandoffGuard();
+    if (!guard) {
+        CoopLog::Info("npc-handoff","F8 found no ambient guard within eight metres");
+        return;
+    }
+    const auto owner=m_PartyPreview->ConfirmedNpcOwner(guard);
+    if (!owner) {
+        CoopLog::Info("npc-handoff","F8 is waiting for the guard's current owner to confirm");
+        return;
+    }
+    for (const auto& member:party.members) {
+        if (member.id==owner) continue;
+        const bool requested=m_PartyPreview->RequestNpcHandoff(guard,{member.id,member.incarnation},now);
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-handoff","F8 entity=%016llx to=%u requested=%d",
+            static_cast<unsigned long long>(guard),static_cast<unsigned>(member.id),requested?1:0);
+        if (requested) m_NpcHandoffGuard=guard;
+        return;
+    }
+}
+#endif

@@ -47,7 +47,8 @@ public:
     void Leave(double now);
     bool SelectMission(const std::string& contract);
     bool SetReady(bool available, bool ready);
-    bool BeginLoad();
+    bool BeginLoad(bool requireReady = true);
+    bool BeginRestart();
     bool ReportLoaded();
     bool ReportNativeCompletion();
     bool ReportSceneLost();

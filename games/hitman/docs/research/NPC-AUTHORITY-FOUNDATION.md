@@ -1,5 +1,12 @@
 # Shared NPC authority foundation (development only)
 
+Historical record of the preserved NPC development branch. Its core and tests
+have now been carried onto the tested OPS 0.1.3 / Preview 4 foundation; the
+native preview still does not enable NPC synchronization. Current integration,
+host-only policy, lifecycle tests and remaining engine work are described in
+[NPC-INTEGRATION.md](../NPC-INTEGRATION.md). The old counts and build label below
+refer to that earlier development snapshot.
+
 The working movement preview is frozen separately. Its release ZIP and corresponding source are preserved under preserved/Four-Player-Preview-1-Two-PC-Tested-2026-11-09 and R:/Hitman-Coop-Backups/Four-Player-Preview-1-Two-PC-Tested-2026-11-09. The installed DLL was verified against that release. User-verified scope is two real Steam PCs, smooth movement/crouch/vault, start barrier and remote disguises. Four real PCs and reconnect/restart are not yet verified.
 
 NPC work lives only in dev/HitmanCoop-npc-foundation, build label 0.13.94-four-player.npc-dev.1. No NPC update installer is issued. PartyNpcSync is NOT instantiated by the native preview runtime, and the installed movement preview remains unchanged.
