@@ -287,6 +287,7 @@ TEST(PartyNpc_CodecRejectsInvalidStateTruncationTrailingDataAndFuzz) {
     auto trailing=bytes; trailing.push_back(0); CHECK(!DecodePartyNpc(trailing,decoded));
     command.message.state.xf.pos.x=std::numeric_limits<float>::quiet_NaN(); CHECK(EncodePartyNpc(command.message).empty());
     command.message.state={}; command.message.state.life=PartyNpcLife(99); CHECK(EncodePartyNpc(command.message).empty());
+    command.message.state={}; command.message.state.weapon.visible=true; CHECK(EncodePartyNpc(command.message).empty());
     std::mt19937 random(551);
     for(int i=0;i<10000;++i) {
         std::vector<uint8_t> junk(random()%256); for(auto& value:junk) value=uint8_t(random());
@@ -540,6 +541,47 @@ TEST(PartyNpcSync_ExplicitCatalogHandoffWaitsForInitialReceiptsAndReturnsToHost)
         event={guestId.id,guestId.incarnation,stale.epoch,PartyChannel::Interaction,guestWriter.Data(),false};
         CHECK(!room.sync[0]->Receive(event,room.now));
     }
+}
+
+TEST(PartyNpcSync_GuestWeaponVisibilityFollowsTheCurrentOwner) {
+    PartyNpcOptions options;
+    options.policy=PartyNpcPolicy::Explicit;
+    options.confirmInitialGuestBaselines=true;
+    options.fixedCatalog={55};
+    NetworkNpc room(2,984,options);
+    REQUIRE(room.Begin());
+    PartyNpcState initial;
+    initial.weapon={0x1122334455667788ULL,0x8877665544332211ULL,false};
+    REQUIRE(room.sync[0]->Register(55,initial,room.now));
+    room.Step(.7);
+    CHECK(room.worlds[1].states[55].weapon==initial.weapon);
+    REQUIRE(room.sync[0]->Propose(55,room.Identity(1),room.now));
+    room.Step(.7);
+    REQUIRE(room.worlds[1].running[55]);
+    room.worlds[1].states[55].weapon.visible=true;
+    room.Step(.4);
+    CHECK(room.worlds[0].states[55].weapon==room.worlds[1].states[55].weapon);
+    CHECK(room.worlds[0].states[55].weapon.visible);
+
+    room.worlds[1].states[55].weapon.visible=false;
+    room.Step(.4);
+    CHECK(room.worlds[0].states[55].weapon==initial.weapon);
+    REQUIRE(room.sync[0]->Propose(55,room.Identity(0),room.now));
+    room.Step(.7);
+    REQUIRE(room.worlds[0].running[55]);
+
+    // A retired owner can no longer change the weapon through its old reports.
+    const auto& status=room.rooms[1]->Status();
+    PartyNpcMessage stale{PartyNpcKind::Report,status.session,55,2,2,1000,status.epoch,room.Identity(1),initial};
+    stale.state.weapon.visible=true;
+    REQUIRE(room.rooms[1]->SendGame(PartyChannel::Interaction,EncodePartyNpc(stale),true));
+    room.Step(.4);
+    CHECK(room.worlds[0].states[55].weapon==initial.weapon);
+    CHECK(room.worlds[1].states[55].weapon==initial.weapon);
+
+    room.worlds[0].states[55].weapon.visible=true;
+    room.Step(.4);
+    CHECK(room.worlds[1].states[55].weapon==room.worlds[0].states[55].weapon);
 }
 
 TEST(PartyNpcSync_AutomaticGuardFollowsGuestProximityAndStaysThroughRecovery) {

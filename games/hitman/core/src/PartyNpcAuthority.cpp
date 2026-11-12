@@ -28,12 +28,14 @@ PartyNpcMessage MakeNpcMessage(const PartyNpcScope& scope, uint64_t npc, PartyNp
 bool PartyNpcState::operator==(const PartyNpcState& other) const {
     return xf.pos.x==other.xf.pos.x && xf.pos.y==other.xf.pos.y && xf.pos.z==other.xf.pos.z &&
         xf.rot.x==other.xf.rot.x && xf.rot.y==other.xf.rot.y && xf.rot.z==other.xf.rot.z && xf.rot.w==other.xf.rot.w &&
-        life==other.life && stripped==other.stripped && engaged==other.engaged && interacting==other.interacting;
+        life==other.life && stripped==other.stripped && engaged==other.engaged && interacting==other.interacting && weapon==other.weapon;
 }
 bool ValidPartyNpcState(const PartyNpcState& state) {
     const float length=Dot(state.xf.rot,state.xf.rot);
     return Position(state.xf.pos) && std::isfinite(length) && length>=0.25f && length<=4.f &&
-        uint8_t(state.life)<=uint8_t(PartyNpcLife::Dead);
+        uint8_t(state.life)<=uint8_t(PartyNpcLife::Dead) &&
+        (!state.weapon.HasRepository() || state.life==PartyNpcLife::Alive) &&
+        (!state.weapon.visible || state.weapon.HasRepository());
 }
 bool PartyNpcScope::FromRoom(const PartyRoomStatus& room, PartyNpcScope& result) {
     if (room.phase!=LobbyRoster::Phase::Playing || !room.session || !room.epoch || room.members.size()<2 || room.members.size()>4 ||
@@ -58,24 +60,27 @@ std::vector<uint8_t> EncodePartyNpc(const PartyNpcMessage& message) {
         uint8_t(message.kind)<1 || uint8_t(message.kind)>9 ||
         ((message.kind==PartyNpcKind::Released || message.kind==PartyNpcKind::Report || message.kind==PartyNpcKind::Declined) && !message.sequence)) return {};
     ByteWriter w;
-    w.U32(0x314e3448); // H4N1: experimental NPC codec, distinct from the avatar protocol.
+    w.U32(0x324e3448); // H4N2: NPC state includes the native weapon visibility switch.
     w.U8(uint8_t(message.kind)); w.U64(message.session); w.U32(message.epoch); w.U64(message.npc);
     w.U64(message.generation); w.U64(message.revision); w.U64(message.sequence);
     w.U8(message.owner.id); w.U64(message.owner.incarnation);
     w.F32(message.state.xf.pos.x); w.F32(message.state.xf.pos.y); w.F32(message.state.xf.pos.z);
     w.F32(message.state.xf.rot.x); w.F32(message.state.xf.rot.y); w.F32(message.state.xf.rot.z); w.F32(message.state.xf.rot.w);
     w.U8(uint8_t(message.state.life)); w.Bool(message.state.stripped); w.Bool(message.state.engaged); w.Bool(message.state.interacting);
+    w.U64(message.state.weapon.repositoryHigh); w.U64(message.state.weapon.repositoryLow); w.Bool(message.state.weapon.visible);
     return w.Data();
 }
 bool DecodePartyNpc(const std::vector<uint8_t>& bytes, PartyNpcMessage& result) {
     if (bytes.empty() || bytes.size()>128) return false;
     PartyNpcMessage m; ByteReader r(bytes); uint32_t magic=0; uint8_t kind=0,life=0;
-    if (!r.U32(magic) || magic!=0x314e3448 || !r.U8(kind) || kind<1 || kind>9 ||
+    if (!r.U32(magic) || magic!=0x324e3448 || !r.U8(kind) || kind<1 || kind>9 ||
         !r.U64(m.session) || !r.U32(m.epoch) || !r.U64(m.npc) || !r.U64(m.generation) || !r.U64(m.revision) || !r.U64(m.sequence) ||
         !r.U8(m.owner.id) || !r.U64(m.owner.incarnation) ||
         !r.F32(m.state.xf.pos.x) || !r.F32(m.state.xf.pos.y) || !r.F32(m.state.xf.pos.z) ||
         !r.F32(m.state.xf.rot.x) || !r.F32(m.state.xf.rot.y) || !r.F32(m.state.xf.rot.z) || !r.F32(m.state.xf.rot.w) ||
-        !r.U8(life) || !r.Bool(m.state.stripped) || !r.Bool(m.state.engaged) || !r.Bool(m.state.interacting) || !r.AtEnd()) return false;
+        !r.U8(life) || !r.Bool(m.state.stripped) || !r.Bool(m.state.engaged) || !r.Bool(m.state.interacting) ||
+        !r.U64(m.state.weapon.repositoryHigh) || !r.U64(m.state.weapon.repositoryLow) ||
+        !r.Bool(m.state.weapon.visible) || !r.AtEnd()) return false;
     m.kind=PartyNpcKind(kind); m.state.life=PartyNpcLife(life);
     if (EncodePartyNpc(m).empty()) return false;
     result=m; return true;

@@ -2530,6 +2530,21 @@ static bool IsHandoffGuard(const ZActor& actor) {
     return outfit && outfit->m_eActorType==EActorType::eAT_Guard &&
         !actor.m_bContractTarget && !actor.m_bIsBeingDragged && !actor.m_bIsBeingDumped && !actor.m_bNude;
 }
+
+static ZHM5Item* GuardMainWeapon(const ZActor& actor) {
+    const auto* inventory=actor.m_pInventoryHandler;
+    if (!inventory || !inventory->m_rMainWeapon.m_pInterfaceRef || !inventory->m_rMainWeapon.m_entityRef)
+        return nullptr;
+    return inventory->m_rMainWeapon.m_entityRef.QueryInterface<ZHM5Item>();
+}
+
+static coop::PartyNpcWeapon ReadGuardWeapon(const ZActor& actor) {
+    const auto* weapon=GuardMainWeapon(actor);
+    if (!weapon || !weapon->m_pItemConfigDescriptor || !weapon->m_rItemVisible.m_entityRef) return {};
+    const auto& id=weapon->m_pItemConfigDescriptor->m_ItemID;
+    if (id.IsEmpty()) return {};
+    return {id.m_nHigh,id.m_nLow,weapon->m_rItemVisible.m_entityRef.GetProperty<bool>("m_bValue").Get()};
+}
 #endif
 
 bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
@@ -2565,6 +2580,7 @@ bool SdkWorld::CapturePartyNpc(uint64_t id, coop::PartyNpcState& out) const {
 #ifdef COOP_NPC_GUEST_HANDOFF_TEST
     // Rehearsal only. Both players leave the selected guard untouched.
     state.interacting=!IsHandoffGuard(*actor) || actor==m_LocalVictim;
+    if (state.life==coop::PartyNpcLife::Alive && !state.interacting) state.weapon=ReadGuardWeapon(*actor);
 #endif
     if (!coop::ValidPartyNpcState(state)) return false;
     out=state;
@@ -3289,6 +3305,27 @@ bool SdkWorld::WriteCatalogTransform(const NpcMutationGate::Ticket& ticket,const
     return matches(ToTransform(spatial->GetObjectToWorldMatrix()));
 }
 
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+void SdkWorld::ApplyCatalogWeaponVisibility(const NpcMutationGate::Ticket& ticket,const coop::PartyNpcWeapon& state) {
+    if (!state.HasRepository()) return;
+    NpcMutationGate::Pin pin(ticket);
+    int32_t runtime=-1;
+    if (!pin || !ValidatePartyNpcAtActionBoundary(ticket,runtime)) return;
+    const auto* actor=static_cast<ZActor*>(ticket.actor);
+    if (!IsHandoffGuard(*actor)) return;
+    const auto* weapon=GuardMainWeapon(*actor);
+    if (!weapon || !weapon->m_pItemConfigDescriptor) return;
+    const auto& id=weapon->m_pItemConfigDescriptor->m_ItemID;
+    if (id.m_nHigh!=state.repositoryHigh || id.m_nLow!=state.repositoryLow) return;
+    const auto visible=weapon->m_rItemVisible.m_entityRef;
+    if (!visible || visible.GetProperty<bool>("m_bValue").Get()==state.visible) return;
+    if (visible.SetProperty("m_bValue",state.visible)) {
+        CoopLog::Fmt(coop::LogLevel::Info,"npc-weapon","Replica visibility applied role=%s entity=%016llx visible=%d",
+            m_CatalogHost?"host":"guest",static_cast<unsigned long long>(ticket.npc),state.visible?1:0);
+    }
+}
+#endif
+
 void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
     if (m_CatalogPhase==CatalogPhase::Idle) return;
     if (m_CatalogPhase==CatalogPhase::Stopped) {
@@ -3439,13 +3476,21 @@ void SdkWorld::StepPartyNpcCatalog(NpcActionPhase::Boundary& boundary) {
                 actor.lastApplied=*transform;
                 if (!baseline && !actor.presentation && blend>=1.f) actor.blendPending=false;
 #endif
-                if (!baseline || !actor.baseline) break;
-                const auto& requested=*baseline;
-                if (!actor.receipt) CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","First baseline confirmed entity=%016llx role=%s xyz=(%.2f, %.2f, %.2f)",
-                    static_cast<unsigned long long>(ticket.npc),m_CatalogHost?"host":"guest",requested.xf.pos.x,requested.xf.pos.y,requested.xf.pos.z);
-                actor.receipt=requested;
-                if (actor.baseline && *actor.baseline==requested) actor.baseline.reset();
+                if (baseline && actor.baseline) {
+                    const auto& requested=*baseline;
+                    if (!actor.receipt) CoopLog::Fmt(coop::LogLevel::Info,"npc-catalog","First baseline confirmed entity=%016llx role=%s xyz=(%.2f, %.2f, %.2f)",
+                        static_cast<unsigned long long>(ticket.npc),m_CatalogHost?"host":"guest",requested.xf.pos.x,requested.xf.pos.y,requested.xf.pos.z);
+                    actor.receipt=requested;
+                    if (*actor.baseline==requested) actor.baseline.reset();
+                }
             }
+#if defined(COOP_NPC_GUEST_HANDOFF_TEST) && defined(COOP_NPC_AGREED_CATALOG)
+            if (baseline || sampleTension) {
+                const auto& state=baseline ? baseline : (actor.canonical ? actor.canonical : actor.receipt);
+                if (state) ApplyCatalogWeaponVisibility(ticket,state->weapon);
+                if (m_CatalogPhase==CatalogPhase::Stopped || m_CatalogScope!=ticket.scope) return;
+            }
+#endif
             break;
         }
         case Phase::Resume: {

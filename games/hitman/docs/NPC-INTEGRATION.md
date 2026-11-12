@@ -221,6 +221,16 @@ flag was on throughout, and the unholstered flag stayed off. Use the
 owner's visibility switch as the next candidate signal, and match
 the replica's weapon identity before applying it.
 
+The 0.1.42 candidate carries the main item's full repository ID and
+visibility switch in the existing authoritative NPC snapshots. The
+action boundary applies the switch only to a matching weapon on a
+held guard. The owner retains native weapon handling. The network
+test covers draw, holster, return and rejection of the former owner's
+reports. In the two-PC test, check whether the gun appears in the
+right hand and clears on recovery. Check again after a native restart.
+If the weapon is still invisible or appears detached, report what
+each player sees and save both logs.
+
 The player-weapon candidate sends the held item's repository ID with
 the avatar frame. Empty frames clear the held item. Playback rejects
 old timestamps and stale party identities before changing the avatar.

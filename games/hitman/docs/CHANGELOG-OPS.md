@@ -1,5 +1,13 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.42 — Guard weapon visibility test
+
+- Send the guard's native main-weapon visibility switch from the
+  current NPC owner to held replicas.
+- Apply the switch only to a matching native weapon repository ID.
+- Exercise draw, holster and ownership return with two players in
+  Freeform Training.
+
 ## 0.1.41 — Independent guest guard handoffs
 
 - Allow one nearby guard per guest in a Freeform Training party of up

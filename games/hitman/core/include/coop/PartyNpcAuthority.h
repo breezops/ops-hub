@@ -8,12 +8,19 @@
 
 namespace coop {
 enum class PartyNpcLife : uint8_t { Alive, Unconscious, Dead };
+struct PartyNpcWeapon {
+    uint64_t repositoryHigh=0, repositoryLow=0;
+    bool visible=false;
+    bool HasRepository() const { return repositoryHigh || repositoryLow; }
+    bool operator==(const PartyNpcWeapon&) const = default;
+};
 struct PartyNpcState {
     Transform xf;
     PartyNpcLife life = PartyNpcLife::Alive;
     bool stripped = false;
     bool engaged = false;
     bool interacting = false;
+    PartyNpcWeapon weapon;
     bool operator==(const PartyNpcState&) const;
 };
 struct PartyNpcScope {

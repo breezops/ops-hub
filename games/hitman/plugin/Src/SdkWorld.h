@@ -690,6 +690,9 @@ private:
     std::vector<CatalogPoseBinding> m_CatalogPoseBindings;
     std::mutex m_CatalogPoseMutex;
     bool WriteCatalogTransform(const NpcMutationGate::Ticket&, const coop::Transform&,bool presentation);
+#ifdef COOP_NPC_GUEST_HANDOFF_TEST
+    void ApplyCatalogWeaponVisibility(const NpcMutationGate::Ticket&,const coop::PartyNpcWeapon&);
+#endif
     void RefuseNpcCatalog(const char* reason);
     std::string NpcCatalogError() const;
     uint64_t NpcCatalogClock() const;
