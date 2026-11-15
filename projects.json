@@ -16,5 +16,13 @@
     "source": "games/planet-zoo-2",
     "release_tag_prefix": "planet-zoo-2-v",
     "status": "in-development"
+  },
+  "mw2": {
+    "name": "MW2 Spec Ops 4",
+    "source": "games/mw2",
+    "release_tag_prefix": "mw2-v",
+    "status": "in-development",
+    "launcher_version": "0.1.0-dev.1",
+    "four_player_playable": false
   }
 }

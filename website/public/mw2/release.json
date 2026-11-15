@@ -1,0 +1,14 @@
+{
+  "game": "mw2-2009",
+  "version": "0.1.0-dev.1",
+  "channel": "development-launcher",
+  "mod_status": "in-development",
+  "four_player_playable": false,
+  "supported_steam_build": "25374375",
+  "platform": "windows-x64",
+  "download_url": "https://ops-hub.breezops.chatgpt.site/downloads/mw2/MW2-SpecOps4-Launcher-0.1.0-dev.1-win-x64.zip",
+  "sha256": "498239c0af8205c295f5edcba086f07cc9d9603397968b1fb1920045b3a3aad6",
+  "size_bytes": 338225,
+  "source_url": "https://github.com/breezops/ops-hub/tree/feature/mw2-specops4-launcher/games/mw2",
+  "notes": "Launcher preview and offline diagnostics only. Original Spec Ops remains two-player."
+}

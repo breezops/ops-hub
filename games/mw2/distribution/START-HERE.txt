@@ -1,0 +1,31 @@
+OPS HUB / MW2 SPEC OPS 4 - DEVELOPMENT LAUNCHER
+Version 0.1.0-dev.1 - Windows x64
+
+Extract the complete ZIP to a folder you can write to, then open
+MW2-SpecOps4-Launcher.exe. You do not need to put it inside your game folder.
+No administrator rights, .NET or Python installation is required.
+
+THIS IS A LAUNCHER PREVIEW, NOT A PLAYABLE FOUR-PLAYER MOD.
+The original Spec Ops mode still supports at most two players. Four-player
+launch is disabled. There are no host/join connections in this preview.
+
+1. Install your legally owned MW2 (2009) Singleplayer / Spec Ops through Steam.
+2. The launcher detects Steam libraries. If needed, Browse to the folder
+   containing iw4sp.exe, not the Multiplayer or Remastered installation.
+3. Select Run component checks. These inspect a private memory copy only.
+4. Save report exports diagnostics locally, if you want them.
+5. Launch MW2 via Steam opens the original game; select Spec Ops in its menus.
+
+Do not copy the standalone codec checker into the game as a mod. It is an
+optional developer tool and never patches the installed executable.
+
+Supported research target: Steam build 25374375, x64. A different executable
+is reported as unsupported; no attempt is made to patch it.
+
+Nothing is installed into the game, no firewall rules are added, and no reports
+are uploaded. The selected folder preference is stored in your own Windows
+registry under HKCU\Software\BreezOps\MW2SpecOps4. Reports include a local path.
+
+Website: https://ops-hub.breezops.chatgpt.site/#mw2-project
+Source: https://github.com/breezops/ops-hub/tree/feature/mw2-specops4-launcher/games/mw2
+Community project. Not affiliated with Activision or Infinity Ward.

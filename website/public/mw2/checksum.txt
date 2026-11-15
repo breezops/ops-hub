@@ -1,0 +1,1 @@
+498239c0af8205c295f5edcba086f07cc9d9603397968b1fb1920045b3a3aad6  MW2-SpecOps4-Launcher-0.1.0-dev.1-win-x64.zip

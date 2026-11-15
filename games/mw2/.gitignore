@@ -1,0 +1,6 @@
+launcher/bin/
+_releases/
+test-output/
+*.obj
+*.pdb
+*.ilk
