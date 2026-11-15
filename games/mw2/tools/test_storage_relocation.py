@@ -5,7 +5,8 @@ from struct import pack
 
 import pefile
 from unicorn import Uc, UC_ARCH_X86, UC_HOOK_CODE, UC_MODE_64, UC_PROT_EXEC, UC_PROT_READ
-from unicorn.x86_const import (UC_X86_REG_EFLAGS, UC_X86_REG_R8, UC_X86_REG_RAX,
+from unicorn.x86_const import (UC_X86_REG_EFLAGS, UC_X86_REG_R8, UC_X86_REG_R12,
+                               UC_X86_REG_R14, UC_X86_REG_RAX,
                                UC_X86_REG_RBP, UC_X86_REG_RBX, UC_X86_REG_RCX,
                                UC_X86_REG_RDI, UC_X86_REG_RIP, UC_X86_REG_RSI,
                                UC_X86_REG_RSP)
@@ -70,6 +71,20 @@ def check(executable):
     vm.mem_write(CONNECTION_BASE + CONNECTION_STRIDE + 0x10, pack('<I', 0))
     vm.emu_start(0xA67BB, 0xA67C2, count=1)
     assert vm.reg_read(UC_X86_REG_EFLAGS) & 0x40
+    # Indexed connection reads use a module-base register plus the slot
+    # offset. Exercise slot three while the old address has a stale value.
+    vm.mem_map(0x89000, 0x1000, UC_PROT_READ | UC_PROT_EXEC)
+    vm.mem_write(0x89000, bytes(image[0x89000:0x8A000]))
+    vm.mem_write(bases['connections'] + 3 * CONNECTION_STRIDE + 0x10, pack('<I', 2))
+    vm.reg_write(UC_X86_REG_RCX, 0)
+    vm.reg_write(UC_X86_REG_R14, 3 * CONNECTION_STRIDE)
+    vm.emu_start(0x89E56, 0x89E5F, count=1)
+    assert vm.reg_read(UC_X86_REG_EFLAGS) & 0x40
+    vm.mem_write(bases['clients'] + 3 * CLIENT_STRIDE, pack('<I', 3))
+    vm.reg_write(UC_X86_REG_R12, 0)
+    vm.reg_write(UC_X86_REG_R14, 3 * CLIENT_STRIDE)
+    vm.emu_start(0x22F4C4, 0x22F4CD, count=1)
+    assert vm.reg_read(UC_X86_REG_EFLAGS) & 0x40
     vm.mem_write(bases['connections'], bytes(4 * CONNECTION_STRIDE))
     vm.mem_map(0x22D000, 0x1000, UC_PROT_READ | UC_PROT_EXEC)
     vm.mem_write(0x22D000, bytes(image[0x22D000:0x22E000]))
@@ -117,12 +132,18 @@ def check(executable):
     vm.emu_start(0x1716AF, 0x1716D5, count=6)
     assert vm.reg_read(UC_X86_REG_RCX) == bases['players']
     assert vm.reg_read(UC_X86_REG_R8) == 4 * PLAYER_STRIDE
-    assert vm.mem_read(0xD96EC0, 4) == pack('<I', 4)
+    assert vm.mem_read(0xD96EC0, 4) == pack('<I', 2)
     vm.emu_start(0x1716DA, 0x1716E8, count=2)
     assert vm.mem_read(0xD96E70, 8) == pack('<Q', bases['players'])
     vm.emu_start(0x1716EF, 0x1716FD, count=2)
-    assert vm.mem_read(0xD96EA0, 8) == pack('<Q', bases['players'] + 4 * PLAYER_STRIDE)
+    assert vm.mem_read(0xD96EA0, 8) == pack('<Q', PLAYER_END)
     vm.mem_write(0xD9E000, bytes([0xA5]) * 0x1000)
+    vm.emu_start(0x171707, 0x17173C, count=50)
+    assert all(vm.mem_read(0xD9E070 + slot * 0x2A0 + 0x108, 8)
+               == pack('<Q', bases['players'] + slot * PLAYER_STRIDE)
+               for slot in range(2))
+    assert vm.mem_read(0xD9E070 + 2 * 0x2A0 + 0x108, 8) == bytes([0xA5]) * 8
+    vm.mem_write(0xD96EC0, pack('<I', 4))  # emulate a future admitted four-client session
     vm.emu_start(0x171707, 0x17173C, count=50)
     assert all(vm.mem_read(0xD9E070 + slot * 0x2A0 + 0x108, 8)
                == pack('<Q', bases['players'] + slot * PLAYER_STRIDE)
@@ -162,8 +183,9 @@ def check(executable):
     assert vm.mem_read(AUX_END, 32) == old_aux_neighbor
     print('PASS relocated retail scan recognizes slots 0-3 and ignores old storage')
     print('PASS relocated connection lookup ignores old storage')
+    print('PASS indexed connection and client reads address fourth slots')
     print('PASS four-slot setup and reset walks leave neighboring storage intact')
-    print('PASS four player-state bindings with a fifth entity left untouched')
+    print('PASS retail two-player count and optional four player-state bindings')
     print('PASS record-to-entity callback addresses four distinct slots')
     print('PASS third and fourth auxiliary records initialize without adjacent writes')
     print(f'PASS {sum(counts.values())} verified instruction modifications')

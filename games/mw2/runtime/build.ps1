@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([string]$GameExe)
 $ErrorActionPreference = 'Stop'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $vsRoot = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -28,12 +28,26 @@ $header += '};'
 $asm += 'END'
 Set-Content -LiteralPath (Join-Path $out 'winmm_names.h') -Value $header -Encoding ascii
 Set-Content -LiteralPath (Join-Path $out 'winmm_stubs.asm') -Value $asm -Encoding ascii
+if ($GameExe) {
+    if (!(Test-Path -LiteralPath $GameExe)) { throw 'Game executable not found.' }
+    & python (Join-Path (Split-Path $PSScriptRoot) 'tools\emit_runtime_patch_plan.py') $GameExe (Join-Path $out 'patch_plan.h')
+    if ($LASTEXITCODE) { throw 'Patch plan generation failed.' }
+}
 $command = '@call "' + $vcvars + '" >nul' + "`r`n" +
            'ml64 /nologo /c /Fo"' + (Join-Path $out 'winmm_stubs.obj') + '" "' + (Join-Path $out 'winmm_stubs.asm') + '"' + "`r`n" +
            'if errorlevel 1 exit /b %errorlevel%' + "`r`n" +
            'cl /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /LD /DUNICODE /D_UNICODE /Fe:"' +
            (Join-Path $out 'winmm.dll') + '" /I "' + $out + '" "' + $source + '" "' +
+           $(if ($GameExe) { (Join-Path $PSScriptRoot 'patch.cpp') + '" /DSPECOPS4_PATCH_PLAN "' }) +
            (Join-Path $out 'winmm_stubs.obj') + '" /link /DEF:"' + $def + '" /INCREMENTAL:NO bcrypt.lib' + "`r`n" +
+           'if errorlevel 1 exit /b %errorlevel%' + "`r`n" +
+           $(if ($GameExe) {
+             'cl /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /DUNICODE /D_UNICODE /I "' + $out +
+             '" /Fe:"' + (Join-Path $out 'SpecOps4-Patch-Check.exe') + '" "' +
+             (Join-Path $PSScriptRoot 'patch.cpp') + '" "' +
+             (Join-Path $PSScriptRoot 'patch_check.cpp') +
+             '" /link /INCREMENTAL:NO' + "`r`n"
+           }) +
            'exit /b %errorlevel%'
 $batch = Join-Path $out 'compile.cmd'
 Set-Content -LiteralPath $batch -Value $command -Encoding ascii
