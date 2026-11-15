@@ -4,6 +4,8 @@ import hashlib
 from pathlib import Path
 from struct import pack, unpack
 
+from engine_lifecycle import check_lifecycle
+
 import pefile
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_64, UC_PROT_READ, UC_PROT_EXEC
 from unicorn.x86_const import (
@@ -116,7 +118,8 @@ def check(path):
             vm.mem_write(client, bytes(4))
     finally:
         vm.hook_del(hook)
-    print("PASS retail paired loop body: four isolated records selected and cleared independently")
+    print("PASS retail paired loop body: four isolated records selected by fixture state")
+    check_lifecycle(pe, vm, require)
 
 
 if __name__ == "__main__":

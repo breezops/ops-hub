@@ -9,3 +9,11 @@ Treat the connection-table end address with care. At 0xcd35c and 0xd5487, instru
 The next engine dependency is the allocation, initialization and teardown path for each paired table, followed by the link from an admitted connection to a separately owned game entity. Validate every address consumer by behavior before enabling a running session. The separate lobby slot index supplies no evidence for either dependency.
 
 Run tools/check_engine_routines.py with Python, pefile 2024.8.26, unicorn 2.1.4 and the path to the supported iw4sp.exe. It reads the retail image and executes bounded routines inside an emulator. It checks the actual bit helpers with two-bit widths, the unmodified two-record scan, and the paired loop body with four fixture records. The existing native codec checker covers the call-site changes on a private image.
+
+## Client lifecycle on the supported Steam build
+
+Level setup at 0x1716c5 supplies a count of two and clears 0x15fc0 bytes for two 0xafe0-byte player states. The loop at 0x171707 binds each entity's +0x108 field to its player state using the level count. The server setup at 0x22d05e separately clears 0x2cf0 bytes and limits its traversal to two at 0x22d11e. The callback at 0x22cf90 converts the server-record address back to a slot using the original table base, calls 0x15e350 with the slot and stores the entity address at server-record offset 0x1670. Moving the table requires updating this inverse mapping as well as forward lookups.
+
+Per-player setup at 0x15e350 clears a player state and a separate 0x198-byte auxiliary record, preserving the latter's +0x178 field. It stores the player-state pointer at entity offset 0x108. The auxiliary array also requires independent storage analysis. Bulk reset at 0x231ac0 unlinks two entity pointers and requests a 12-byte clear per server record. Its behavior on an individual mid-mission guest departure remains to be observed.
+
+The emulator verifies selected instruction blocks. It supplies fixture data and models the reset helper's 12-byte clear. The observer samples only the two retail slots, with sequential reads every quarter second. Link flags describe pointer equality, not spawn or local input ownership. A single transitional sample can straddle a game update. Capture stable states before and after guest departure and compare the host and guest rows.
