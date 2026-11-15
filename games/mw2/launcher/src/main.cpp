@@ -5,6 +5,7 @@
 #include "diagnostics.h"
 #include "lobby.h"
 #include "missions.h"
+#include "mission_images.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -70,6 +71,11 @@ HBRUSH fieldBrush{}, occupiedBrush{}, waitingBrush{};
 ULONG_PTR graphicsToken{};
 std::unique_ptr<Gdiplus::Bitmap> artwork;
 IStream *artStream{};
+std::unique_ptr<Gdiplus::Bitmap> brandArtwork;
+IStream *brandStream{};
+std::vector<mw2::MissionRaster> missionPixels;
+std::vector<std::unique_ptr<Gdiplus::Bitmap>> missionPreviews;
+std::size_t missionImageCount=0;
 Tab tab = Tab::Play;
 bool hostMode = true, online = false, initializing = true, closing = false,
      settingsDirty = false;
@@ -102,6 +108,32 @@ std::wstring value(HWND hwnd) {
   GetWindowTextW(hwnd, s.data(), n + 1);
   s.resize(n);
   return s;
+}
+Gdiplus::Bitmap* missionBitmap(std::size_t index){
+  if(index>=std::size(mw2::MissionCatalog))return nullptr;
+  if(mw2::MissionCatalog[index].concept)return artwork.get();
+  return index<missionPreviews.size()?missionPreviews[index].get():nullptr;
+}
+void drawImageFit(HDC dc,Gdiplus::Bitmap* image,const RECT& bounds){
+  if(!image||!image->GetWidth()||!image->GetHeight())return;
+  const auto w=static_cast<float>(bounds.right-bounds.left),h=static_cast<float>(bounds.bottom-bounds.top);
+  const auto originalW=static_cast<float>(image->GetWidth()),originalH=static_cast<float>(image->GetHeight());
+  const auto scale=std::min(w/originalW,h/originalH);
+  const auto imageW=originalW*scale,imageH=originalH*scale;
+  Gdiplus::Graphics graphics(dc);graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+  graphics.DrawImage(image,Gdiplus::RectF(static_cast<float>(bounds.left)+(w-imageW)/2,static_cast<float>(bounds.top)+(h-imageH)/2,imageW,imageH));
+}
+void reloadMissionImages(){
+  missionPreviews.clear();missionPixels.clear();missionImageCount=0;
+  std::vector<std::string> assets;for(const auto& mission:mw2::MissionCatalog)assets.emplace_back(mission.imageAsset);
+  missionPixels=mw2::readMissionImages(std::filesystem::path(value(pathEdit)),assets);
+  missionPreviews.resize(missionPixels.size());
+  for(std::size_t i=0;i<missionPixels.size();i++){
+    auto& image=missionPixels[i];if(!image.available())continue;
+    auto bitmap=std::make_unique<Gdiplus::Bitmap>(image.width,image.height,image.width*4,PixelFormat32bppARGB,image.bgra.data());
+    if(bitmap->GetLastStatus()==Gdiplus::Ok){missionPreviews[i]=std::move(bitmap);++missionImageCount;}
+  }
+  InvalidateRect(missionCombo,nullptr,TRUE);
 }
 void fill(HDC dc, RECT rect, COLORREF color) {
   HBRUSH b = CreateSolidBrush(color);
@@ -241,7 +273,9 @@ void layout() {
   position(Name, 118, 185, 149, 29);
   position(Code, 329, 185, 125, 29);
   position(LobbyButton, 464, 185, 94, 29);
-  position(MissionBox, 125, 407, 433, 220);
+  position(MissionBox, 125, 407, 433, 330);
+  SendMessageW(missionCombo,CB_SETITEMHEIGHT,static_cast<WPARAM>(-1),px(30));
+  SendMessageW(missionCombo,CB_SETITEMHEIGHT,0,px(42));
   for (int i = 0; i < 4; i++)
     position(Diff0 + i, 125 + i * 108, 453, i == 3 ? 109 : 105, 32);
   position(Launch, 24, 516, 550, 61);
@@ -279,6 +313,8 @@ void layout() {
 }
 void inspect(bool component) {
   diagnostics = mw2::inspect(value(pathEdit), component);
+  reloadMissionImages();
+  diagnostics.report+=L"\r\nOriginal mission images found in local game files: "+std::to_wstring(missionImageCount)+L" / 23\r\n";
   SetWindowTextW(reportEdit, diagnostics.report.c_str());
   if (diagnostics.found)
     mw2::saveFolder(value(pathEdit));
@@ -474,15 +510,14 @@ void drawPlay(HDC dc) {
   line(dc, 40, 399, 558, 399, Line);
   text(dc, L"MISSION", 40, 416, 80, 24, 15, Ink);
   text(dc, L"DIFFICULTY", 40, 462, 82, 24, 14, Ink);
-  if (artwork) {
-    Gdiplus::Graphics graphics(dc);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.DrawImage(artwork.get(), Gdiplus::Rect(px(606), px(146),
-                                                    px(right - 20), px(224)));
-  }
+  box(dc,606,146,right-20,224,Field);
+  auto preview=missionBitmap(static_cast<std::size_t>(selectedMission));
+  if(preview)drawImageFit(dc,preview,{px(606),px(146),px(586+right),px(370)});
+  else text(dc,L"MISSION IMAGE UNAVAILABLE\nSelect your installed MW2 folder in Settings.",622,224,right-52,65,16,Muted,FW_NORMAL,DT_CENTER|DT_WORDBREAK|DT_NOPREFIX);
   outline(dc, 606, 146, right - 20, 224, Muted);
   box(dc, 607, 347, right - 22, 22, Field);
-  text(dc, L"MISSION CONCEPT ART / NOT AN IN-GAME CAPTURE", 614, 352,
+  const wchar_t* imageLabel=mw2::MissionCatalog[selectedMission].concept?L"CUSTOM CONCEPT ART / NOT AN IN-GAME CAPTURE":preview?L"ORIGINAL MW2 MISSION IMAGE / LOCAL GAME FILES":L"LOCAL MISSION IMAGE NOT AVAILABLE";
+  text(dc, imageLabel, 614, 352,
        right - 34, 20, 10, Muted, FW_SEMIBOLD);
   const auto &mission = mw2::MissionCatalog[selectedMission];
   std::wstring title = L"MISSION: " + std::wstring(mission.name);
@@ -518,6 +553,10 @@ void drawSettings(HDC dc) {
        48, 494, width() - 96, 22, 13, Amber);
 }
 void drawInfo(HDC dc) {
+  if(brandArtwork){
+    drawImageFit(dc,brandArtwork.get(),{px(width()-258),px(127),px(width()-48),px(337)});
+    text(dc,L"YOUR LAUNCHER ARTWORK",width()-258,343,210,20,10,Muted,FW_NORMAL,DT_CENTER|DT_NOPREFIX);
+  }
   text(dc, L"SPEC OPS / FOUR-PLAYER DEVELOPMENT", 48, 123, width() - 96, 35, 26,
        Ink, FW_SEMIBOLD);
   text(dc, L"BUILD " + std::wstring(mw2::DisplayVersion), 48, 177, width() - 96,
@@ -528,15 +567,15 @@ void drawInfo(HDC dc) {
        L"Create a six-letter code, invite up to three friends, and share a "
        L"mission and difficulty.\nPlayer names and heartbeat status come from "
        L"the OPS HUB service. Only the host can change settings.",
-       48, 268, width() - 96, 66, 16, Muted, FW_NORMAL,
+       48, 268, width() - 370, 66, 16, Muted, FW_NORMAL,
        DT_WORDBREAK | DT_NOPREFIX);
   text(dc, L"GAMEPLAY STATUS", 48, 354, width() - 96, 24, 16, Amber,
        FW_SEMIBOLD);
   text(dc,
        L"Four-player game networking and original mission integration are "
        L"unfinished. Launch Game stays disabled.\nOverkill is a concept, not a "
-       L"shipped MW2 mission. The image is original generated concept "
-       L"artwork.\nThe bottom response time measures the lobby service, not "
+       L"shipped MW2 mission. Original mission images are read from your "
+       L"game files.\nThe bottom response time measures the lobby service, not "
        L"peer-to-peer game ping.",
        48, 385, width() - 96, 90, 16, Muted, FW_NORMAL,
        DT_WORDBREAK | DT_NOPREFIX);
@@ -584,31 +623,35 @@ void paint(HDC dc) {
   text(dc, L"BUILD " + std::wstring(mw2::DisplayVersion), w - 310, h - 19, 285,
        18, 11, Muted, FW_NORMAL, DT_RIGHT | DT_NOPREFIX);
 }
-void loadArt() {
-  auto resource = FindResourceW(nullptr, MAKEINTRESOURCEW(101), RT_RCDATA);
+std::unique_ptr<Gdiplus::Bitmap> loadResourceArt(int id,IStream*& stream) {
+  auto resource = FindResourceW(nullptr, MAKEINTRESOURCEW(id), RT_RCDATA);
   if (!resource)
-    return;
+    return nullptr;
   auto loaded = LoadResource(nullptr, resource);
   if (!loaded)
-    return;
+    return nullptr;
   DWORD size = SizeofResource(nullptr, resource);
   HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size);
   if (!memory)
-    return;
+    return nullptr;
   auto bytes = GlobalLock(memory);
   if (!bytes) {
     GlobalFree(memory);
-    return;
+    return nullptr;
   }
   std::memcpy(bytes, LockResource(loaded), size);
   GlobalUnlock(memory);
-  if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &artStream))) {
+  if (FAILED(CreateStreamOnHGlobal(memory, TRUE, &stream))) {
     GlobalFree(memory);
-    return;
+    return nullptr;
   }
-  artwork.reset(Gdiplus::Bitmap::FromStream(artStream));
-  if (artwork->GetLastStatus() != Gdiplus::Ok)
-    artwork.reset();
+  std::unique_ptr<Gdiplus::Bitmap> image(Gdiplus::Bitmap::FromStream(stream));
+  if(image->GetLastStatus()!=Gdiplus::Ok)return nullptr;
+  return image;
+}
+void loadArt(){
+  artwork=loadResourceArt(101,artStream);
+  brandArtwork=loadResourceArt(102,brandStream);
 }
 LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
                            LPARAM lParam) {
@@ -620,6 +663,11 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
   case WM_CREATE: {
     window = hwnd;
     dpi = GetDpiForWindow(hwnd);
+    auto module=GetModuleHandleW(nullptr);
+    auto big=LoadImageW(module,MAKEINTRESOURCEW(1),IMAGE_ICON,GetSystemMetricsForDpi(SM_CXICON,dpi),GetSystemMetricsForDpi(SM_CYICON,dpi),LR_SHARED);
+    auto smallIcon=LoadImageW(module,MAKEINTRESOURCEW(1),IMAGE_ICON,GetSystemMetricsForDpi(SM_CXSMICON,dpi),GetSystemMetricsForDpi(SM_CYSMICON,dpi),LR_SHARED);
+    SendMessageW(hwnd,WM_SETICON,ICON_BIG,reinterpret_cast<LPARAM>(big));
+    SendMessageW(hwnd,WM_SETICON,ICON_SMALL,reinterpret_cast<LPARAM>(smallIcon));
     BOOL dark = TRUE;
     DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark));
     fieldBrush = CreateSolidBrush(Field);
@@ -638,7 +686,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
     SendMessageW(codeEdit, EM_SETLIMITTEXT, 8, 0);
     missionCombo = CreateWindowExW(
         0, L"COMBOBOX", L"Mission",
-        WS_CHILD | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, 0, 0, 0, 0, hwnd,
+        WS_CHILD | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS, 0, 0, 0, 0, hwnd,
         reinterpret_cast<HMENU>(MissionBox), nullptr, nullptr);
     for (const auto &mission : mw2::MissionCatalog) {
       std::wstring label =
@@ -647,6 +695,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
                    reinterpret_cast<LPARAM>(label.c_str()));
     }
     SendMessageW(missionCombo, CB_SETCURSEL, 0, 0);
+    SendMessageW(missionCombo,CB_SETITEMHEIGHT,static_cast<WPARAM>(-1),px(30));
+    SendMessageW(missionCombo,CB_SETITEMHEIGHT,0,px(42));
     button(ModeHost, L"HOST LOBBY");
     button(ModeJoin, L"JOIN LOBBY");
     button(LobbyButton, L"CREATE");
@@ -866,9 +916,33 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
     SetBkColor(dc, Field);
     return reinterpret_cast<LRESULT>(fieldBrush);
   }
+  case WM_MEASUREITEM:{
+    auto measure=reinterpret_cast<MEASUREITEMSTRUCT*>(lParam);
+    if(measure->CtlID==MissionBox){measure->itemHeight=static_cast<UINT>(px(42));return TRUE;}
+    break;
+  }
   case WM_DRAWITEM: {
     auto item = reinterpret_cast<DRAWITEMSTRUCT *>(lParam);
     int id = static_cast<int>(item->CtlID);
+    if(id==MissionBox){
+      fill(item->hDC,item->rcItem,(item->itemState&ODS_SELECTED)?Header:Field);
+      if(item->itemID<std::size(mw2::MissionCatalog)){
+        const bool closed=(item->itemState&ODS_COMBOBOXEDIT)!=0;
+        const int thumb=px(closed?44:64);
+        RECT imageRect{item->rcItem.left+px(5),item->rcItem.top+px(3),item->rcItem.left+px(5)+thumb,item->rcItem.bottom-px(3)};
+        auto image=missionBitmap(item->itemID);
+        if(image)drawImageFit(item->hDC,image,imageRect);
+        const auto& mission=mw2::MissionCatalog[item->itemID];
+        std::wstring label=std::wstring(mission.name)+(mission.concept?L" [CONCEPT]":L"");
+        RECT labelRect=item->rcItem;labelRect.left=imageRect.right+px(9);labelRect.right-=px(5);
+        auto old=SelectObject(item->hDC,font?font:GetStockObject(DEFAULT_GUI_FONT));
+        SetTextColor(item->hDC,Ink);SetBkMode(item->hDC,TRANSPARENT);
+        DrawTextW(item->hDC,label.c_str(),-1,&labelRect,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
+        SelectObject(item->hDC,old);
+      }
+      if(item->itemState&ODS_FOCUS)DrawFocusRect(item->hDC,&item->rcItem);
+      return TRUE;
+    }
     if (id >= Player0 && id <= Player3) {
       const bool occupied = lobby.players[id - Player0].occupied;
       fill(item->hDC, item->rcItem,
@@ -959,6 +1033,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
   case WM_DESTROY:
     KillTimer(hwnd, 1);
     artwork.reset();
+    brandArtwork.reset();missionPreviews.clear();missionPixels.clear();
+    if(brandStream){brandStream->Release();brandStream=nullptr;}
     if (artStream) {
       artStream->Release();
       artStream = nullptr;
@@ -1003,7 +1079,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int show) {
   wc.lpfnWndProc = procedure;
   wc.lpszClassName = L"BreezOpsMW2Lobby";
   wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-  wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+  wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1));
+  SetCurrentProcessExplicitAppUserModelID(L"BreezOps.MW2SpecOps4.Launcher");
   RegisterClassW(&wc);
   dpi = GetDpiForSystem();
   HWND hwnd = CreateWindowExW(

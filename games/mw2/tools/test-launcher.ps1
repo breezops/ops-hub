@@ -29,4 +29,10 @@ if ($GamePath) {
     if ($LASTEXITCODE) { throw 'Standalone codec checks failed' }
     if ((Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash -ne $before) { throw 'Installed executable changed' }
     Write-Output 'PASS installed executable unchanged'
-} else { Write-Output 'SKIP real executable checks: supply -GamePath on a developer PC.' }
+    & (Join-Path $root 'launcher\bin\MW2-SpecOps4-Image-Check.exe') $GamePath
+    if ($LASTEXITCODE) { throw 'Local mission image checks failed' }
+} else {
+    & (Join-Path $root 'launcher\bin\MW2-SpecOps4-Image-Check.exe')
+    if ($LASTEXITCODE) { throw 'Mission image decoder checks failed' }
+    Write-Output 'SKIP real executable checks: supply -GamePath on a developer PC.'
+}

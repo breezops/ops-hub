@@ -3,144 +3,168 @@
     "id": "overkill-concept",
     "name": "Overkill",
     "brief": "Infiltrate the scrapyard with up to four players and neutralize hostile forces. Concept mission; not playable yet.",
-    "concept": true
+    "concept": true,
+    "image": ""
   },
   {
     "id": "the-pit",
     "name": "The Pit",
     "brief": "Run the training course. Clear the targets and work toward the fastest clean time.",
-    "concept": false
+    "concept": false,
+    "image": "so_killspree_trainer"
   },
   {
     "id": "sniper-fi",
     "name": "Sniper Fi",
     "brief": "Hold a defensive position and repel waves of hostile forces.",
-    "concept": false
+    "concept": false,
+    "image": "so_rooftop_contingency"
   },
   {
     "id": "o-cristo-redentor",
     "name": "O Cristo Redentor",
     "brief": "Sweep the favela and eliminate the hostile militia.",
-    "concept": false
+    "concept": false,
+    "image": "so_killspree_favela"
   },
   {
     "id": "evasion",
     "name": "Evasion",
     "brief": "Move through hostile patrols and reach the extraction point.",
-    "concept": false
+    "concept": false,
+    "image": "so_forest_contingency"
   },
   {
     "id": "suspension",
     "name": "Suspension",
     "brief": "Fight your way across the bridge under heavy resistance.",
-    "concept": false
+    "concept": false,
+    "image": "so_crossing_so_bridge"
   },
   {
     "id": "overwatch",
     "name": "Overwatch",
     "brief": "Coordinate air support and a ground advance through hostile territory.",
-    "concept": false
+    "concept": false,
+    "image": "so_ac130_co_hunted"
   },
   {
     "id": "body-count",
     "name": "Body Count",
     "brief": "Survive the engagement and build your score against enemy waves.",
-    "concept": false
+    "concept": false,
+    "image": "so_killspree_invasion"
   },
   {
     "id": "bomb-squad",
     "name": "Bomb Squad",
     "brief": "Locate and defuse explosives in the favela before time runs out.",
-    "concept": false
+    "concept": false,
+    "image": "so_defuse_favela_escape"
   },
   {
     "id": "race",
     "name": "Race",
     "brief": "Race snowmobiles through the mountain course toward the finish.",
-    "concept": false
+    "concept": false,
+    "image": "so_snowrace1_cliffhanger"
   },
   {
     "id": "big-brother",
     "name": "Big Brother",
     "brief": "Cover your teammate from the helicopter as they advance on the ground.",
-    "concept": false
+    "concept": false,
+    "image": "so_chopper_invasion"
   },
   {
     "id": "hidden",
     "name": "Hidden",
     "brief": "Move carefully through the overgrown combat zone and eliminate hidden snipers.",
-    "concept": false
+    "concept": false,
+    "image": "so_hidden_so_ghillies"
   },
   {
     "id": "breach-and-clear",
     "name": "Breach & Clear",
     "brief": "Breach the room, clear the resistance and reach the exit.",
-    "concept": false
+    "concept": false,
+    "image": "so_showers_gulag"
   },
   {
     "id": "time-trial",
     "name": "Time Trial",
     "brief": "Push through the snowmobile course against the clock.",
-    "concept": false
+    "concept": false,
+    "image": "so_snowrace2_cliffhanger"
   },
   {
     "id": "homeland-security",
     "name": "Homeland Security",
     "brief": "Defend the suburban position against escalating enemy attacks.",
-    "concept": false
+    "concept": false,
+    "image": "so_defense_invasion"
   },
   {
     "id": "snatch-and-grab",
     "name": "Snatch & Grab",
     "brief": "Recover the objective and fight your way out of the aircraft scrapyard.",
-    "concept": false
+    "concept": false,
+    "image": "so_intel_boneyard"
   },
   {
     "id": "wardriving",
     "name": "Wardriving",
     "brief": "Secure the data in hostile houses with armored support.",
-    "concept": false
+    "concept": false,
+    "image": "so_download_arcadia"
   },
   {
     "id": "wreckage",
     "name": "Wreckage",
     "brief": "Fight across the bridge and destroy hostile vehicles.",
-    "concept": false
+    "concept": false,
+    "image": "so_demo_so_bridge"
   },
   {
     "id": "acceptable-losses",
     "name": "Acceptable Losses",
     "brief": "Plant explosives on the designated targets and escape.",
-    "concept": false
+    "concept": false,
+    "image": "so_sabotage_cliffhanger"
   },
   {
     "id": "terminal",
     "name": "Terminal",
     "brief": "Clear the airport terminal and reach the extraction point.",
-    "concept": false
+    "concept": false,
+    "image": "so_escape_airport"
   },
   {
     "id": "estate-takedown",
     "name": "Estate Takedown",
     "brief": "Clear the estate and surrounding grounds of hostile forces.",
-    "concept": false
+    "concept": false,
+    "image": "so_takeover_estate"
   },
   {
     "id": "wetwork",
     "name": "Wetwork",
     "brief": "Breach and advance through the offshore platform.",
-    "concept": false
+    "concept": false,
+    "image": "so_takeover_oilrig"
   },
   {
     "id": "high-explosive",
     "name": "High Explosive",
     "brief": "Take on armored Juggernauts using explosive weapons.",
-    "concept": false
+    "concept": false,
+    "image": "so_juggernauts_favela"
   },
   {
     "id": "armor-piercing",
     "name": "Armor Piercing",
     "brief": "Hold the position and eliminate the incoming Juggernauts.",
-    "concept": false
+    "concept": false,
+    "image": "so_assault_oilrig"
   }
 ]

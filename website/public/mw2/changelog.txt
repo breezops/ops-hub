@@ -1,3 +1,12 @@
+# 1.0.2-prealpha.1 / pre-alpha1.0.2-COOP - November 15, 2026
+
+Added the supplied squad artwork as the executable, taskbar and shortcut icon,
+with all standard icon sizes. The same artwork appears in Info.
+
+Added matching original images for all 23 Spec Ops missions, both in the dropdown
+and the briefing panel. Images are read directly from the installed game archive
+and decoded only in memory. No original game textures are redistributed.
+
 # 1.0.1-prealpha.1 / pre-alpha1.0.1-COOP - November 15, 2026
 
 Polished roster text rendering during heartbeat refreshes. Player labels remain

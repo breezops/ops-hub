@@ -7,7 +7,7 @@ for Call of Duty: Modern Warfare 2 (2009), Steam x64 build 25374375.
 Ops continues to support at most two players. A real four-slot launcher lobby is available. Game networking, runtime mod injection
 and four-player mission gameplay remain unfinished.
 
-## Launcher 1.0.1-prealpha.1 / pre-alpha1.0.1-COOP
+## Launcher 1.0.2-prealpha.1 / pre-alpha1.0.2-COOP
 
 - Hosts a real six-letter-code lobby with four callsigns and shared mission/difficulty.
 - Lets only the host change settings; guests update automatically about every three seconds.
@@ -37,6 +37,18 @@ On Windows, install Visual Studio 2022 C++ x64 build tools and the Windows SDK.
 Outputs go to `launcher/bin` and `_releases`, both ignored. Tests without an
 installed game still cover missing/unsupported installations; real-executable
 checks run only with `-GamePath`. CI never downloads or redistributes the game.
+
+## Mission images and launcher icon
+
+The supplied squad artwork is the app/Explorer, taskbar and desktop shortcut icon
+and is shown in Info. The icon includes 16-256 pixel resolutions.
+
+All 23 original Spec Ops images are loaded directly from your installed
+`main/iw_02.iwd` into memory. The dropdown shows individual thumbnails and the
+briefing changes with the selected mission. No Python installation or extracted
+image cache is needed. Set the game folder in Settings if a preview is missing.
+Overkill has no official image because it is a concept and retains custom artwork.
+See [image sources and decoding](launcher/assets/BRANDING.md).
 
 ## Joining friends in the launcher
 

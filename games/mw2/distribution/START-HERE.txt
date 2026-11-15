@@ -1,5 +1,5 @@
 MW2 4-PLAYER SPEC OPS / OPS HUB
-BUILD pre-alpha1.0.1-COOP (launcher 1.0.1-prealpha.1) - Windows x64
+BUILD pre-alpha1.0.2-COOP (launcher 1.0.2-prealpha.1) - Windows x64
 
 Extract the complete ZIP, then open MW2-SpecOps4-Launcher.exe.
 No game files are included. No administrator rights, .NET or Python are needed.

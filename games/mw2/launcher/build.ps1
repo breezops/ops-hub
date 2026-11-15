@@ -22,21 +22,28 @@ $generatedVersion = @(
 )
 Set-Content -LiteralPath (Join-Path $out 'version.h') -Value $generatedVersion -Encoding utf8
 $catalog = Get-Content -LiteralPath (Join-Path $project 'missions.json') -Raw | ConvertFrom-Json
-$generatedCatalog = @('#pragma once','namespace mw2 {','struct Mission { const wchar_t* id; const wchar_t* name; const wchar_t* brief; bool concept; };','inline constexpr Mission MissionCatalog[] = {')
+$generatedCatalog = @('#pragma once','namespace mw2 {','struct Mission { const wchar_t* id; const wchar_t* name; const wchar_t* brief; bool concept; const char* imageAsset; };','inline constexpr Mission MissionCatalog[] = {')
 foreach ($mission in $catalog) {
-    $generatedCatalog += ('{' + (Cpp-String $mission.id) + ',' + (Cpp-String $mission.name) + ',' + (Cpp-String $mission.brief) + ',' + ([string]$mission.concept).ToLowerInvariant() + '},')
+    $generatedCatalog += ('{' + (Cpp-String $mission.id) + ',' + (Cpp-String $mission.name) + ',' + (Cpp-String $mission.brief) + ',' + ([string]$mission.concept).ToLowerInvariant() + ',' + (Cpp-String $mission.image).Substring(1) + '},')
 }
 $generatedCatalog += '};','}'
 Set-Content -LiteralPath (Join-Path $out 'missions.h') -Value $generatedCatalog -Encoding utf8
+& (Join-Path $PSScriptRoot 'make-icon.ps1')
+$vendor = Join-Path $PSScriptRoot 'vendor\miniz'
+$minizFlags = '/DMINIZ_NO_DEFLATE_APIS /DMINIZ_NO_ZLIB_COMPATIBLE_NAMES'
 $commands = @(
     ('@call "' + $vcvars + '" >nul'),
     ('rc /nologo /I "' + $PSScriptRoot + '" /fo resources.res "' + $PSScriptRoot + '\resources.rc"'),
     'if errorlevel 1 exit /b %errorlevel%',
-    ('cl /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /I . /DUNICODE /D_UNICODE /Fe:MW2-SpecOps4-Launcher.exe "' + $PSScriptRoot + '\src\main.cpp" "' + $PSScriptRoot + '\src\lobby.cpp" "' + $PSScriptRoot + '\src\diagnostics.cpp" "' + $core + '\frame_codec.cpp" resources.res /link /SUBSYSTEM:WINDOWS /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA bcrypt.lib user32.lib gdi32.lib shell32.lib ole32.lib uuid.lib advapi32.lib comdlg32.lib dwmapi.lib gdiplus.lib winhttp.lib windowsapp.lib'),
+    ('cl /nologo /c /TC /W0 /O2 /MT /D_CRT_SECURE_NO_WARNINGS ' + $minizFlags + ' "' + $vendor + '\miniz.c" "' + $vendor + '\miniz_tinfl.c" "' + $vendor + '\miniz_zip.c"'),
+    'if errorlevel 1 exit /b %errorlevel%',
+    ('cl /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /I . /DUNICODE /D_UNICODE ' + $minizFlags + ' /Fe:MW2-SpecOps4-Launcher.exe "' + $PSScriptRoot + '\src\main.cpp" "' + $PSScriptRoot + '\src\lobby.cpp" "' + $PSScriptRoot + '\src\diagnostics.cpp" "' + $PSScriptRoot + '\src\mission_images.cpp" "' + $core + '\frame_codec.cpp" resources.res miniz.obj miniz_tinfl.obj miniz_zip.obj /link /SUBSYSTEM:WINDOWS /INCREMENTAL:NO /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA bcrypt.lib user32.lib gdi32.lib shell32.lib ole32.lib uuid.lib advapi32.lib comdlg32.lib dwmapi.lib gdiplus.lib winhttp.lib windowsapp.lib'),
     'if errorlevel 1 exit /b %errorlevel%',
     ('cl /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /Fe:SpecOps4-Codec-Check.exe "' + $core + '\codec_check.cpp" "' + $core + '\frame_codec.cpp" /link /INCREMENTAL:NO'),
     'if errorlevel 1 exit /b %errorlevel%',
     ('cl /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /I . /Fe:MW2-SpecOps4-Lobby-Check.exe "' + $PSScriptRoot + '\src\lobby_check.cpp" "' + $PSScriptRoot + '\src\lobby.cpp" /link /INCREMENTAL:NO bcrypt.lib winhttp.lib windowsapp.lib'),
+    'if errorlevel 1 exit /b %errorlevel%',
+    ('cl /nologo /std:c++17 /utf-8 /EHsc /W4 /WX /O2 /MT /I . ' + $minizFlags + ' /Fe:MW2-SpecOps4-Image-Check.exe "' + $PSScriptRoot + '\src\mission_images_check.cpp" "' + $PSScriptRoot + '\src\mission_images.cpp" miniz.obj miniz_tinfl.obj miniz_zip.obj /link /INCREMENTAL:NO'),
     'exit /b %errorlevel%'
 )
 $batch = Join-Path $out 'compile.cmd'
