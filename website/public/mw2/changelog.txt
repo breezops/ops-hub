@@ -1,3 +1,7 @@
+# 1.0.3-prealpha.1 / pre-alpha1.0.3-COOP - November 15, 2026
+
+Added Check for updates in Settings. The launcher verifies the hosted release ZIP, stages it, replaces its own files after closing, and restarts. Existing 1.0.2 installs need this one-time download to gain the updater. Four-player game launch remains in development.
+
 # 1.0.2-prealpha.1 / pre-alpha1.0.2-COOP - November 15, 2026
 
 Added the supplied squad artwork as the executable, taskbar and shortcut icon,
