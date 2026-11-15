@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0-prealpha.1",
-  "display": "pre-alpha1.0.0-COOP",
+  "version": "1.0.1-prealpha.1",
+  "display": "pre-alpha1.0.1-COOP",
   "lobby_protocol": 1,
   "four_player_playable": false
 }

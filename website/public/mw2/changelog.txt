@@ -1,3 +1,8 @@
+# 1.0.1-prealpha.1 / pre-alpha1.0.1-COOP - November 15, 2026
+
+Polished roster text rendering during heartbeat refreshes. Player labels remain
+available to native accessibility tools and now repaint their complete rows.
+
 # 1.0.0-prealpha.1 / pre-alpha1.0.0-COOP - November 15, 2026
 
 Rebuilt the launcher around the supplied compact green military HUD reference:

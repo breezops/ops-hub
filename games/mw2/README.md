@@ -7,7 +7,7 @@ for Call of Duty: Modern Warfare 2 (2009), Steam x64 build 25374375.
 Ops continues to support at most two players. A real four-slot launcher lobby is available. Game networking, runtime mod injection
 and four-player mission gameplay remain unfinished.
 
-## Launcher 1.0.0-prealpha.1 / pre-alpha1.0.0-COOP
+## Launcher 1.0.1-prealpha.1 / pre-alpha1.0.1-COOP
 
 - Hosts a real six-letter-code lobby with four callsigns and shared mission/difficulty.
 - Lets only the host change settings; guests update automatically about every three seconds.

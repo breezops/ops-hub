@@ -1,1 +1,1 @@
-40aa80b714631a677f10a66217bb442e54cb99bb7f3126c13a8c74191bbdc03f  MW2-SpecOps4-Launcher-1.0.0-prealpha.1-win-x64.zip
+463a7c6f30f321c2f94a23f4122663d4a3650c29a018171e6607448b09841de9  MW2-SpecOps4-Launcher-1.0.1-prealpha.1-win-x64.zip

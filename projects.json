@@ -22,7 +22,7 @@
     "source": "games/mw2",
     "release_tag_prefix": "mw2-v",
     "status": "in-development",
-    "launcher_version": "1.0.0-prealpha.1",
+    "launcher_version": "1.0.1-prealpha.1",
     "four_player_playable": false,
     "lobby_status": "available"
   }

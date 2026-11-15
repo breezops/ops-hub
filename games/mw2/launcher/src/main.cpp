@@ -197,6 +197,7 @@ void controls() {
                         : L"Waiting for player";
     if (value(control) != label)
       SetWindowTextW(control, label.c_str());
+    InvalidateRect(control, nullptr, TRUE);
   }
   for (int id : {GamePath, Browse, Check, Export, Report})
     ShowWindow(GetDlgItem(window, id),
@@ -660,7 +661,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
     for (int i = 0; i < 4; i++)
       CreateWindowExW(
           0, L"STATIC", L"Waiting for player",
-          WS_CHILD | SS_NOPREFIX | SS_ENDELLIPSIS, 0, 0, 0, 0, hwnd,
+          WS_CHILD | SS_NOPREFIX | SS_OWNERDRAW, 0, 0, 0, 0, hwnd,
           reinterpret_cast<HMENU>(static_cast<INT_PTR>(Player0 + i)), nullptr,
           nullptr);
     pathEdit = CreateWindowExW(
@@ -868,6 +869,20 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
   case WM_DRAWITEM: {
     auto item = reinterpret_cast<DRAWITEMSTRUCT *>(lParam);
     int id = static_cast<int>(item->CtlID);
+    if (id >= Player0 && id <= Player3) {
+      const bool occupied = lobby.players[id - Player0].occupied;
+      fill(item->hDC, item->rcItem,
+           occupied ? RGB(35, 43, 28) : RGB(25, 31, 23));
+      auto old = SelectObject(item->hDC, rowFont);
+      SetBkMode(item->hDC, TRANSPARENT);
+      SetTextColor(item->hDC, occupied ? Ink : Muted);
+      auto label = value(item->hwndItem);
+      RECT bounds = item->rcItem;
+      DrawTextW(item->hDC, label.c_str(), -1, &bounds,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+      SelectObject(item->hDC, old);
+      return TRUE;
+    }
     bool disabled = (item->itemState & ODS_DISABLED) != 0;
     bool selected =
         (id == ModeHost && hostMode) || (id == ModeJoin && !hostMode) ||
