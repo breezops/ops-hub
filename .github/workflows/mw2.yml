@@ -1,0 +1,37 @@
+name: MW2 development launcher
+on:
+  push:
+    paths: ['games/mw2/**', '.github/workflows/mw2.yml']
+  pull_request:
+    paths: ['games/mw2/**', '.github/workflows/mw2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  launcher:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: games/mw2
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native launcher and codec checker
+        run: ./launcher/build.ps1
+      - name: Test missing and unsupported installations
+        run: ./tools/test-launcher.ps1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test SQL-backed lobby membership and permissions
+        run: node --test ../../website/lib/mw2-lobby.test.mjs
+      - name: Package development launcher
+        run: ./tools/package-launcher.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mw2-development-launcher-not-playable-mod
+          path: |
+            games/mw2/_releases/*/*.zip
+            games/mw2/_releases/*/SHA256SUMS.txt
+            games/mw2/_releases/*/release.json
+          if-no-files-found: error

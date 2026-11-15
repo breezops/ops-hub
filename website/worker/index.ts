@@ -1,3 +1,4 @@
+import { handleMw2Lobby } from "../lib/mw2-lobby.mjs";
 import { handleHitman } from "../lib/hitman-publisher.mjs";
 import hitmanFallback from "../lib/hitman-fallback.json";
 import { handleService } from "../lib/lobby-service.mjs";
@@ -8,6 +9,8 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 
 const worker = {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+    const mw2=await handleMw2Lobby(request,env);
+    if(mw2)return mw2;
     const hitman=await handleHitman(request,env,hitmanFallback);
     if(hitman)return hitman;
     const response=await handleService(request,env,release);

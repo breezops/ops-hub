@@ -1,0 +1,16 @@
+{
+  "game": "mw2-2009",
+  "version": "1.0.3-prealpha.1",
+  "channel": "development-launcher",
+  "display_version": "pre-alpha1.0.3-COOP",
+  "lobby_protocol": 1,
+  "mod_status": "in-development",
+  "four_player_playable": false,
+  "supported_steam_build": "25374375",
+  "platform": "windows-x64",
+  "download_url": "https://ops-hub.breezops.chatgpt.site/downloads/mw2/MW2-SpecOps4-Launcher-1.0.3-prealpha.1-win-x64.zip",
+  "sha256": "70d90f9cb0ecfc6b3f39097c837d767e5e0abfd2d59fc3d489deeb7dfadd4d15",
+  "size_bytes": 6046325,
+  "source_url": "https://github.com/breezops/ops-hub/tree/feature/mw2-specops4-launcher/games/mw2",
+  "notes": "Live four-slot launcher lobby, shared mission selection and diagnostics. Four-player gameplay is unavailable."
+}

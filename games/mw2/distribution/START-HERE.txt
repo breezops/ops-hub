@@ -1,0 +1,37 @@
+MW2 4-PLAYER SPEC OPS / OPS HUB
+BUILD pre-alpha1.0.3-COOP (launcher 1.0.3-prealpha.1) - Windows x64
+
+Extract the complete ZIP, then open MW2-SpecOps4-Launcher.exe. Keep the files together. After this version, use Settings > Check for updates to install later launcher releases.
+No game files are included. No administrator rights, .NET or Python are needed.
+
+REAL LAUNCHER LOBBY / FOUR-PLAYER GAMEPLAY STILL UNAVAILABLE
+
+HOST: Enter your callsign, choose HOST LOBBY, then CREATE. Share the six-letter
+code. The host can choose a mission and difficulty at any time in the lobby.
+JOIN: Enter your own callsign, choose JOIN LOBBY, enter the code, then JOIN.
+Your names appear in the four slots. Up to four launcher members can connect.
+
+Names and selections update about every three seconds. Only the host controls
+mission/difficulty. LEAVE exits your slot; the host leaving closes the room.
+Guest slots clear after 45 seconds without a heartbeat; a disconnected host's
+room expires after 90 seconds. The launcher lobby needs no port forwarding.
+
+LAUNCH GAME is disabled because four-player gameplay is not implemented yet.
+Launcher lobby connections do not add players to the game. Overkill is a concept
+mission, not a playable shipped operation. Original Spec Ops remains two-player.
+
+SETTINGS: Detect/browse to MW2 (2009)'s iw4sp.exe, run the existing component
+checks and export a local diagnostic report. Launch Original MW2 opens the
+original game via Steam; launcher mission settings are not applied to it.
+INFO: Build version, source links and current limitations.
+
+The online indicator and response time reflect the OPS HUB lobby service.
+The displayed time is not a peer-to-peer gameplay ping.
+Callsigns are shared with the service and members. Random member credentials
+are held only in launcher memory. Nothing is installed into the game or firewall.
+The selected game-folder preference is saved under
+HKCU\Software\BreezOps\MW2SpecOps4. Exported reports include the local game path.
+
+Website: https://ops-hub.breezops.chatgpt.site/#mw2-project
+Source: https://github.com/breezops/ops-hub/tree/feature/mw2-specops4-launcher/games/mw2
+Community project. Not affiliated with Activision or Infinity Ward.

@@ -19,3 +19,4 @@ reports/
 test-profiles/
 test-temp/
 *.tsbuildinfo
+games/mw2/runtime/bin/

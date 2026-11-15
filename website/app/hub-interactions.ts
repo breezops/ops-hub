@@ -35,6 +35,7 @@ export function initializeHub() {
     document.querySelectorAll<HTMLElement>(".filter-tab").forEach(tab => {
       const selected = tab.dataset.filter === category;
       tab.classList.toggle("bg-brand-orange", selected);
+      tab.classList.toggle("bg-white/5", !selected);
       tab.classList.toggle("text-black", selected);
       tab.classList.toggle("text-slate-400", !selected);
       tab.setAttribute("aria-pressed", String(selected));
