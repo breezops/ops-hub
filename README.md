@@ -5,7 +5,7 @@ Shared source workspace for independent game mods and launchers.
 - `games/stray/CoopMod`: Stray Lua mod, Python launcher/transport and native UI sources.
 - `games/hitman`: HITMAN native mod, launcher and independent release channel.
 - `games/planet-zoo-2`: Planet Zoo 2 Co-op, in development; no release yet.
-- `games/mw2`: MW2 Spec Ops 4 development launcher and offline native component; four-player mode is not playable yet.
+- `games/mw2`: MW2 Spec Ops 4 military-HUD launcher, code-based squad lobbies and offline engine component; four-player gameplay is not playable yet.
 - `website`: OPS HUB website and existing lobby service source.
 - `projects.json`: project directory and independent release-tag mapping.
 

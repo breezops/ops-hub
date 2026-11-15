@@ -2,9 +2,9 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "version.h"
 
 namespace mw2 {
-inline constexpr wchar_t Version[] = L"0.1.0-dev.1";
 inline constexpr wchar_t Site[] = L"https://ops-hub.breezops.chatgpt.site/#mw2-project";
 inline constexpr wchar_t Source[] = L"https://github.com/breezops/ops-hub/tree/feature/mw2-specops4-launcher/games/mw2";
 struct Diagnostics {

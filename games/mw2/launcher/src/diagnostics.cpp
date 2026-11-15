@@ -146,7 +146,7 @@ Diagnostics inspect(const fs::path& folder, bool componentTests) {
         result.summary.assign(error.begin(), error.end());
         report << L"CHECK: " << result.summary << L"\r\n";
     }
-    report << L"\r\nThese checks inspect a private memory copy only. They do not test multiplayer.\r\nNo game file has been patched. No DLL installed. No host/join service is active.\r\nOriginal Spec Ops still supports up to two players.\r\n";
+    report << L"\r\nThese checks inspect a private memory copy only. They do not test multiplayer.\r\nNo game file has been patched. No DLL installed. No gameplay connection is started by these checks.\r\nThe launcher lobby is separate from the game. Original Spec Ops still supports up to two players.\r\n";
     result.report = report.str();
     return result;
 }

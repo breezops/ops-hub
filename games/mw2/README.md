@@ -4,11 +4,15 @@ OPS HUB's native Windows launcher and four-player Spec Ops development project
 for Call of Duty: Modern Warfare 2 (2009), Steam x64 build 25374375.
 
 **The launcher works. The four-player mod is not playable yet.** Original Spec
-Ops continues to support at most two players. No runtime mod, injector, host/join
-service, or four-player lobby is shipped in this development preview.
+Ops continues to support at most two players. A real four-slot launcher lobby is available. Game networking, runtime mod injection
+and four-player mission gameplay remain unfinished.
 
-## Launcher 0.1.0-dev.1
+## Launcher 1.0.0-prealpha.1 / pre-alpha1.0.0-COOP
 
+- Hosts a real six-letter-code lobby with four callsigns and shared mission/difficulty.
+- Lets only the host change settings; guests update automatically about every three seconds.
+- Uses the green military HUD, four-star badge, camo details and original mission concept art.
+- Keeps existing detection and diagnostics under Settings, with project status under Info.
 - Detects MW2 through Steam's registry and libraryfolders.vdf, with manual folder selection.
 - Recognizes the exact researched executable using SHA-256.
 - Runs seven offline compatibility/component checks against a private memory image.
@@ -33,6 +37,33 @@ On Windows, install Visual Studio 2022 C++ x64 build tools and the Windows SDK.
 Outputs go to `launcher/bin` and `_releases`, both ignored. Tests without an
 installed game still cover missing/unsupported installations; real-executable
 checks run only with `-GamePath`. CI never downloads or redistributes the game.
+
+## Joining friends in the launcher
+
+1. Extract the complete ZIP and open MW2-SpecOps4-Launcher.exe.
+2. Enter a callsign. The host selects HOST LOBBY, then CREATE.
+3. Share the six-letter code. Each friend selects JOIN LOBBY, types their own
+   callsign and the code, then JOIN. Names appear in the four roster slots.
+4. The host chooses a mission and one of Recruit, Regular, Hardened or Veteran.
+   Guests receive the selections automatically and cannot override the host.
+5. LEAVE removes your slot; the host leaving closes the room. If the host loses
+   connection, the room expires after 90 seconds. Stale guest slots clear after
+   45 seconds. There is no automatic host migration.
+
+Lobby codes contain six unambiguous letters (no I/O); the input accepts 4-8
+letters. Lobby sync uses HTTPS through OPS HUB, so the launcher itself does not
+need port forwarding. The displayed milliseconds measure the service request,
+not peer-to-peer game ping. Tokens stay in memory; no lobby credentials are
+written to disk. Names are shared with the lobby service and the other members.
+
+LAUNCH GAME stays disabled until four-player gameplay is implemented. Settings
+can launch the original game through Steam; the selected launcher mission and
+difficulty are not applied to that original-game launch. Overkill is explicitly
+marked as a concept; the other entries are original Spec Ops mission choices.
+
+The single version.json controls the compiled build label, package version and
+release manifest. Bump it for every patch; changing the displayed version alone
+never makes a build gameplay-ready.
 
 ## Native mod progress
 
@@ -59,6 +90,9 @@ The package script writes a ZIP, checksum and matching manifest. The live Sites
 source holds the small public download; root GitHub source excludes release
 binaries. The `mw2.yml` workflow builds a development artifact, not a playable
 four-player mod or an automatically published release.
+
+Networking implementation and test commands are in [LOBBY.md](LOBBY.md).
+The artwork prompt and provenance are in [launcher/assets/PROVENANCE.md](launcher/assets/PROVENANCE.md).
 
 The only persisted preference is the chosen folder under
 `HKCU\Software\BreezOps\MW2SpecOps4`. Diagnostics remain in memory until Save
