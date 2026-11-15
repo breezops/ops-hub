@@ -11,6 +11,7 @@ New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -LiteralPath (Join-Path $root 'launcher\bin\MW2-SpecOps4-Launcher.exe') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'launcher\bin\SpecOps4-Codec-Check.exe') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'launcher\assets\launcher.ico') -Destination $stage
+Copy-Item -LiteralPath (Join-Path $root 'launcher\update-launcher.ps1') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'launcher\vendor\miniz\LICENSE') -Destination (Join-Path $stage 'MINIZ-LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $root 'distribution\START-HERE.txt'),(Join-Path $root 'distribution\CHANGELOG.md') -Destination $stage
 Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination (Join-Path $stage 'SOURCE-AND-STATUS.md')

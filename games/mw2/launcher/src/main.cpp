@@ -48,6 +48,7 @@ enum {
   GamePath,
   Browse,
   Check,
+  Update,
   Export,
   Original,
   Website,
@@ -231,7 +232,7 @@ void controls() {
       SetWindowTextW(control, label.c_str());
     InvalidateRect(control, nullptr, TRUE);
   }
-  for (int id : {GamePath, Browse, Check, Export, Report})
+  for (int id : {GamePath, Browse, Check, Update, Export, Report})
     ShowWindow(GetDlgItem(window, id),
                tab == Tab::Settings ? SW_SHOW : SW_HIDE);
   for (int id : {Original, Website, Source})
@@ -253,6 +254,7 @@ void controls() {
   for (int i = 0; i < 4; i++)
     EnableWindow(GetDlgItem(window, Diff0 + i), editable);
   EnableWindow(GetDlgItem(window, Launch), FALSE);
+  EnableWindow(GetDlgItem(window, Update), !lobby.member());
   EnableWindow(GetDlgItem(window, Original), diagnostics.found);
   // Owner-drawn children are excluded from the parent's repaint region.
   // Refresh their selected styles explicitly when the tab or settings change.
@@ -285,6 +287,7 @@ void layout() {
   position(Browse, w - 154, 163, 106, 36);
   position(Check, 48, 216, 217, 36);
   position(Export, 277, 216, 160, 36);
+  position(Update, 449, 216, 180, 36);
   position(Report, 48, 280, w - 96, 211);
   position(Original, 48, 522, 265, 38);
   position(Website, 327, 522, 210, 38);
@@ -724,6 +727,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
         0, 0, 0, 0, hwnd, reinterpret_cast<HMENU>(Report), nullptr, nullptr);
     button(Browse, L"BROWSE...");
     button(Check, L"RUN COMPONENT CHECKS");
+    button(Update, L"CHECK FOR UPDATES");
     button(Export, L"SAVE REPORT...");
     button(Original, L"LAUNCH ORIGINAL MW2 / STEAM");
     button(Website, L"OPEN OPS HUB");
@@ -814,6 +818,29 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM wParam,
     case Check:
       inspect(true);
       break;
+    case Update: {
+      wchar_t executable[MAX_PATH]{};
+      if (!GetModuleFileNameW(nullptr, executable, MAX_PATH))
+        break;
+      std::wstring script(executable);
+      script = script.substr(0, script.find_last_of(L"\\/")) +
+               L"\\update-launcher.ps1";
+      if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        MessageBoxW(hwnd, L"Update helper is missing. Extract the full launcher ZIP.",
+                    L"MW2 launcher updates", MB_OK | MB_ICONWARNING);
+        break;
+      }
+      const std::wstring args = L"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" +
+                                script + L"\" -LauncherVersion \"" + mw2::Version +
+                                L"\" -LauncherWindow " +
+                                std::to_wstring(reinterpret_cast<std::uintptr_t>(hwnd));
+      if (reinterpret_cast<std::intptr_t>(ShellExecuteW(
+              hwnd, L"open", L"powershell.exe", args.c_str(), nullptr,
+              SW_HIDE)) <= 32)
+        MessageBoxW(hwnd, L"Could not start the update helper.",
+                    L"MW2 launcher updates", MB_OK | MB_ICONERROR);
+      break;
+    }
     case Export:
       exportReport();
       break;
