@@ -1,5 +1,10 @@
 # OPS HUB HITMAN co-op changelog
 
+## 0.1.46 — Disable crashing party back attachments
+
+- Keep party hand equipment rendering. Skip native party back
+  attachments after a crash during a three-player weapon transition.
+
 ## 0.1.45 — Player hand and back equipment
 
 - Carry both equipment slots in one party avatar frame. Use the

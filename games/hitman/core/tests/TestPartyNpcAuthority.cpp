@@ -369,9 +369,9 @@ struct NetworkNpc {
 };
 }
 
-TEST(PartyNpcSync_TwoAndFourPeersRunTheSameOwnershipAndDeathPipeline) {
-    for(size_t count:{size_t(2),size_t(4)}) {
-        NetworkNpc n(count); REQUIRE(n.Begin()); REQUIRE(n.Add());
+TEST(PartyNpcSync_DownedNpcConvergesWithoutStoppingOtherActors) {
+    for(size_t count:{size_t(2),size_t(3),size_t(4)}) {
+        NetworkNpc n(count); REQUIRE(n.Begin()); REQUIRE(n.Add()); REQUIRE(n.Add(77));
         const size_t selected=count-1;
         REQUIRE(n.sync[0]->Propose(55,n.Identity(selected),n.now));
         n.Step(1.5);
@@ -387,7 +387,13 @@ TEST(PartyNpcSync_TwoAndFourPeersRunTheSameOwnershipAndDeathPipeline) {
         }
         n.worlds[selected].states[55].life=PartyNpcLife::Dead;
         n.Step(0.5);
-        for(size_t i=0;i<count;++i) CHECK(n.worlds[i].states[55].life==PartyNpcLife::Dead);
+        n.worlds[0].states[77].xf.pos.x=25.f;
+        n.Step(.5);
+        for(size_t i=0;i<count;++i) {
+            CHECK(n.worlds[i].states[55].life==PartyNpcLife::Dead);
+            CHECK(n.worlds[i].running[77]==(i==0));
+            CHECK(n.worlds[i].states[77].xf.pos.x==25.f);
+        }
     }
 }
 

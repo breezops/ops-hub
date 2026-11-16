@@ -229,10 +229,9 @@ void SdkWorld::UpdatePlayerAvatarTargets() {
             DetachAvatarPose(avatar);
             continue;
         }
-        if (avatar.actor->m_pInventoryHandler && Globals::WorldInventory) {
+        // Releasing a native back attachment during a slot change crashed 3.290.1.
+        if (avatar.actor->m_pInventoryHandler && Globals::WorldInventory)
             UpdateStandInSlot(avatar,avatar.handSlot,"hand");
-            UpdateStandInSlot(avatar,avatar.backSlot,"back");
-        }
         void* animator = avatar.actor->m_pMorphemeEntity.m_entityRef.QueryInterface<IBoneAnimator>();
         if (!animator) {
             DetachAvatarPose(avatar);

@@ -246,6 +246,66 @@ attachment was found in the legacy NPC snapshot and pose paths
 reviewed here. Compare the live behavior before choosing a native
 attachment path for those guards.
 
+### ZHMModSDK reference comparison
+
+The SDK's [Hitmen sample](https://github.com/OrfeasZ/ZHMModSDK/blob/master/Mods/Hitmen/Src/Hitmen.cpp)
+includes an NPC position packet keyed by the local actor-array index.
+The send loop is commented out. This path contains no ownership,
+recovery, or weapon presentation and would bypass the party's agreed
+entity roster and native hold protocol.
+
+The SDK [Editor actor tools](https://github.com/OrfeasZ/ZHMModSDK/blob/master/Mods/Editor/Src/Components/Actors.cpp)
+use the same inventory finalizer as the party equipment slots. The
+Editor chooses `eALRifle` for a two-handed item's inventory attachment
+based on `m_ItemHandsIdle`. This establishes a native inventory
+attachment rule. Verify its position and grip on a pose-driven actor
+before using it for a drawn rifle. The Editor also distinguishes the
+main-weapon reference from attachment, consistent with the guard logs
+showing a matching weapon and a working visibility switch while the
+remote player still saw empty hands.
+
+The SDK [DebugMod](https://github.com/OrfeasZ/ZHMModSDK/blob/master/Mods/DebugMod/Src/DebugMod.cpp)
+reads the current behavior from the behavior service. This is a
+read-only reference for distinguishing a guard that has resumed
+patrol from a guard still returning. Validate the runtime actor
+identity and sample at the existing action boundary before using
+behavior for ownership decisions. Keep the current movement and
+tension checks until the relevant behavior transitions are observed.
+
+Use a single two-PC run on 0.1.45 for the next baseline. Stow a rifle,
+draw a pistol, and redraw the rifle. During the same mission, observe
+one guard draw, holster, and return to patrol. Compare both views and
+save both logs. The existing weapon distance probe and slot logs
+should show whether either issue needs a native attachment change.
+
+### Three-player 0.1.45 test and body integration
+
+All three players entered Freeform and saw each other move. During
+a guest's rifle slot transition, the host logged creation of a hand
+copy while the same repository item was still on the back. The next
+native call faulted inside `DropStandInItem`, reached from the back
+slot update. Disable party back attachment until the engine release
+path is verified. The hand slot still needs rifle-grip work.
+
+The current native NPC catalog refuses a downed actor at its action
+boundary and refuses nonliving baselines. The existing party protocol
+can carry life transitions, but its native adapter must first verify
+and retire the actor's living AI hold and confirm its body state.
+Use the original two-PC `PutDown` path as the reference for the remote
+knockout. Preserve the session, epoch, actor birth and lease checks
+before invoking any native mutation. First verify a host knockout in
+solo diagnostics, then that either player's knockout creates one
+matching body while the other NPCs keep running.
+
+For dragging, reuse the original victim pose stream and
+`HoldBody`/`LetGoBody` helpers with a holder identified by party seat
+and incarnation. The original single-partner victim record is not
+sufficient to represent two simultaneous drags. Reuse
+`CollectBodyChanges` and `ApplyPeerBody` for release and hiding once
+the remotes confirm the same body identity. Test release in the open
+and placement in a container before simultaneous drags. Resolve
+knockouts, dragging and hiding before returning to the mission loop.
+
 ### Drawn weapon visibility
 
 The same test reported invisible drawn weapons on remote players and
