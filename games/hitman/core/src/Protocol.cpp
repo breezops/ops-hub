@@ -273,14 +273,36 @@ bool MsgSceneReady::Read(ByteReader& r) {
     return r.U32(epoch);
 }
 
+namespace {
+bool ValidHeldItem(const std::string& item) {
+    if (item.size()!=36) return false;
+    for (size_t i=0;i<item.size();++i) {
+        const auto c=item[i];
+        const bool dash=i==8 || i==13 || i==18 || i==23;
+        if (dash ? c!='-' : !((c>='0' && c<='9') || (c>='A' && c<='F') || (c>='a' && c<='f')))
+            return false;
+    }
+    return true;
+}
+}
+
 void MsgAvatarState::Write(ByteWriter& w) const {
     w.U32(epoch);
     w.U32(timeMs);
     WriteTransform(w, xf);
+    const bool hand=ValidHeldItem(equipment.hand);
+    const bool back=ValidHeldItem(equipment.back);
+    if (hand || back) w.Str(hand ? equipment.hand : std::string{});
+    if (back) w.Str(equipment.back);
 }
 
 bool MsgAvatarState::Read(ByteReader& r) {
-    return r.U32(epoch) && r.U32(timeMs) && ReadTransform(r, xf);
+    equipment={};
+    if (!r.U32(epoch) || !r.U32(timeMs) || !ReadTransform(r, xf)) return false;
+    if (r.AtEnd()) return true;
+    if (!r.Str(equipment.hand,36) || (!equipment.hand.empty() && !ValidHeldItem(equipment.hand))) return false;
+    if (r.AtEnd()) return !equipment.hand.empty();
+    return r.Str(equipment.back,36) && ValidHeldItem(equipment.back) && r.AtEnd();
 }
 
 void MsgVictimPose::Write(ByteWriter& w) const {

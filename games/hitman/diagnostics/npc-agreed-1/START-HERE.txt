@@ -1,0 +1,16 @@
+HITMAN CO-OP / PRIVATE SHARED NPC MOVEMENT TEST
+OPS 0.1.30 / HITMAN 3.290.1
+
+1. Close HITMAN and install this package on both PCs. Launch HITMAN and
+   wait at the main menu.
+2. Host a session in the launcher. The other PC joins while both games
+   are at the main menu. The host starts Freeform Training in HITMAN.
+3. Once both PCs load, wait at spawn for about 20 seconds. Compare
+   where NPCs are standing and walking. Watch their positions first.
+4. The host uses Restart Mission. After both PCs reload, wait at spawn
+   for another 20 seconds and compare NPC positions again.
+5. Quit both games normally and save each Retail/mods/HitmanCoop.log.
+
+Start with two PCs. Leave NPCs undisturbed during the test so the logs
+show living movement and restart behavior. If the session interrupts,
+save both logs and quit.

@@ -1,0 +1,25 @@
+HITMAN CO-OP / PRIVATE TWO-NPC CONTROL TEST / POOL-1
+OPS 0.1.16 / native preview.4.pool.1 / HITMAN 3.290.1
+
+SOLO ONLY. No host/join/Ready. Friends do not need this build.
+Close HITMAN and old launcher. Open this folder launcher, INSTALL / REPAIR,
+then LAUNCH HITMAN. Load Freeform Training, wait 15 seconds and reply in mission.
+Leave running. Do NOT press F8 until all four native hooks are confirmed.
+
+After startup confirmation:
+1. Use the game's Restart Mission ONCE for fresh actor generations.
+2. Stay near the mission entrance, with HITMAN focused. No knockout is needed.
+3. Press F8 ONCE. The mod selects the two nearest eligible conscious non-target
+   NPCs, holds their AI for 8 seconds, then resumes only its owned holds.
+4. Wait 30 seconds without interacting, pausing or restarting. Quit normally.
+5. Reply finished. The log confirms each native job returned and restarted.
+
+A standing NPC may look unchanged. Do not repeatedly press F8. No attacks,
+disguises or dragging during this test. One cycle/fixed scope per process.
+If a member changes identity or script control intervenes, the cycle stops;
+quit HITMAN before retrying. No automatic recovery resumes game-owned holds.
+
+This is a two-NPC local prototype, not shared NPC gameplay or complete mission
+preparation. No guest readiness, actor pruning or physical retirement enabled.
+Keep prior working packages. Close HITMAN, then run RESTORE-0.1.3.cmd to restore tested
+multiplayer. No SDK hot reload. No screen capture/game files/saves included.

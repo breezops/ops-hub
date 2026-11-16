@@ -32,7 +32,10 @@ function Set-IniValue([string]$Text, [string]$Section, [string]$Key, [string]$Va
 try {
     Write-Host "HITMAN Co-op - $Mode" -ForegroundColor Cyan
     Write-Host 'Co-op mod by Jordan Rodrigues; ZHMModSDK by OrfeasZ and contributors.'
-    Write-Host 'Test build: 0.13.94-four-player.preview.2, for HITMAN 3.290.1 on Windows.'
+    $VersionFile = Join-Path $PSScriptRoot 'VERSION.txt'
+    if (Test-Path -LiteralPath $VersionFile -PathType Leaf) {
+        Write-Host ('Package: ' + (Get-Content -LiteralPath $VersionFile -Raw).Trim())
+    } else { Write-Host 'For HITMAN 3.290.1 on Windows.' }
     Write-Host ''
 
     # Verify the current-game payload before any change to the game folder.

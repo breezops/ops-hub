@@ -1,4 +1,6 @@
 #include "CrashGuards.h"
+#include "NpcReasoningFence.h"
+#include "NpcMutationGate.h"
 
 #include <Windows.h>
 
@@ -105,6 +107,10 @@ namespace {
     void* g_SkipBuffers[2][c_MaxSkipped + 1] {};
     std::atomic<void**> g_SkipList = g_SkipBuffers[0];
     int g_SkipSpare = 1;
+    bool g_SkipDirty = false; // Under g_SkipMutex.
+#ifdef COOP_GUARD_TESTS
+    bool g_TestReasoning=false;
+#endif
     std::mutex g_SkipMutex;
     void* g_StandInUnits[c_StandInSlots] {};
     // Each puppet with its AI record, found when it was made one: the list is rebuilt later (a
@@ -241,6 +247,22 @@ namespace {
             branches.push_back(out.size());
             Emit32(out, 0);
         }
+        // Additional controlled NPCs. Atomic slots can contain holes; never
+        // terminate at the first null. Only rax/rcx (replayed below) are used.
+        Emit(out,{0x48,0xB8});
+        Emit64(out,reinterpret_cast<uint64_t>(NpcMutationGate::SlotLimit()));
+        Emit(out,{0x8B,0x08,0x85,0xC9,0x0F,0x84}); // mov ecx,[rax]; test ecx,ecx; jz original
+        const size_t noNpcs=out.size(); Emit32(out,0);
+        Emit(out,{0x48,0xB8});
+        Emit64(out,reinterpret_cast<uint64_t>(NpcMutationGate::BlockedSlots()));
+        const size_t loop=out.size();
+        Emit(out,{0x4C,0x3B,0x30,0x0F,0x84}); // cmp r14,[rax]; je reject
+        branches.push_back(out.size()); Emit32(out,0);
+        Emit(out,{0x48,0x83,0xC0,0x08,0xFF,0xC9,0x0F,0x85}); // add rax,8; dec ecx; jnz loop
+        const int32_t back=static_cast<int32_t>(loop)-static_cast<int32_t>(out.size()+4);
+        Emit32(out,static_cast<uint32_t>(back));
+        const int32_t originalOffset=static_cast<int32_t>(out.size()-noNpcs-4);
+        std::memcpy(out.data()+noNpcs,&originalOffset,4);
         out.insert(out.end(), original.begin(), original.end());
         EmitJump(out, resume);
         for (size_t branch : branches) {
@@ -320,6 +342,11 @@ namespace {
 
     // Under g_SkipMutex.
     void RebuildSkipList() {
+        NpcReasoningFence::Hold hold;
+        if (NpcReasoningFence::Installed() && !NpcReasoningFence::HeldByCurrentThread()) {
+            hold=NpcReasoningFence::TryHold();
+            if (!hold) { g_SkipDirty=true; return; }
+        }
         void** s_List = g_SkipBuffers[g_SkipSpare];
         size_t n = 0;
 
@@ -334,7 +361,152 @@ namespace {
         s_List[n] = nullptr;
         g_SkipList = s_List;
         g_SkipSpare ^= 1;
+        g_SkipDirty=false;
     }
+}
+
+void* CrashGuards::VerifiedNpcReasoningLoop() {
+    uintptr_t from=0,to=0;
+    if (!TextRange(from,to)) return nullptr;
+    const auto caller=FindUnique(c_UnitsCaller,from,to);
+    if (!caller) return nullptr;
+    const auto loop=RelTarget(caller+18);
+    if (loop<from || loop>to || to-loop<0x100) return nullptr;
+    if (!FindUnique(c_UnitsIndex,loop,loop+0x100)) return nullptr;
+    uintptr_t reasoning=0;
+    for (const auto& patch:g_Patches)
+        if (patch.kind==Kind::SkipUnit && patch.applied) reasoning=patch.at;
+    if (!reasoning) return nullptr;
+    size_t calls=0;
+    for (auto at=loop;at+5<loop+0x100;++at)
+        if (*reinterpret_cast<const uint8_t*>(at)==0xe8 && RelTarget(at+1)==reasoning) ++calls;
+    return calls==1 ? reinterpret_cast<void*>(loop) : nullptr;
+}
+
+namespace {
+void* ResolveActionJob(uintptr_t from,uintptr_t to,uintptr_t* outputLoop=nullptr) {
+    if (!from || to<=from) return nullptr;
+    // Bounded relationships verified in 3.290.1, rather than a fixed game RVA.
+    const auto caller=FindUnique(c_UnitsCaller,from,to);
+    if (!caller || to-caller<0x80) return nullptr;
+    const auto actionCaller=FindUnique(
+        "48 8D 0D ?? ?? ?? ?? 48 8D 14 82 48 89 54 24 38 48 8D 54 24 30 E8 ?? ?? ?? ??",
+        caller+22,caller+0x80);
+    if (!actionCaller || RelTarget(actionCaller+3)!=RelTarget(caller+3)) return nullptr;
+    const auto loop=RelTarget(actionCaller+22);
+    if (loop<from || loop>to || to-loop<0x300) return nullptr;
+    if (!FindUnique("4B 63 04 07 49 8D 5D 08 48 69 C8 F8 00 00 00 48 03 D9",loop,loop+0x100)) return nullptr;
+    const auto descriptor=FindUnique(
+        "48 8D 0D ?? ?? ?? ?? 48 89 58 10 48 89 08 48 8D 0D ?? ?? ?? ?? 48 89 48 08 48 89 70 20 89 70 28 48 89 70 30 48 89 70 38",
+        loop,loop+0x300);
+    if (!descriptor) return nullptr;
+    const auto job=RelTarget(descriptor+17);
+    if (job<from || job>to || to-job<25) return nullptr;
+    const auto expected=FindUnique(
+        "40 53 48 83 EC 20 48 8B D9 48 8B 89 E0 00 00 00 48 8B 01 FF 50 08 83 F8 01",
+        from,to);
+    if (expected!=job) return nullptr;
+    if (outputLoop) *outputLoop=loop;
+    return reinterpret_cast<void*>(job);
+}
+CrashGuards::NpcActionSites ResolveActionSites(uintptr_t from,uintptr_t to) {
+    uintptr_t loop=0;
+    const auto job=ResolveActionJob(from,to,&loop);
+    if (!job) return {};
+    const auto cancelCall=FindUnique("8B 10 48 8B CB E8 ?? ?? ?? ?? 48 8B 83 A0 00 00 00 48 85 C0",loop,loop+0x100);
+    const auto cleanupCall=FindUnique("BA 04 00 00 00 48 8B CB E8 ?? ?? ?? ??",loop,loop+0x300);
+    if (!cancelCall || !cleanupCall) return {};
+    const auto cancel=RelTarget(cancelCall+6),cleanup=RelTarget(cleanupCall+9);
+    if (cancel<from || cancel>to || to-cancel<91 || cleanup<from || cleanup>to || to-cleanup<25) return {};
+    if (FindUnique("48 89 5C 24 10 57 48 83 EC 20 48 8B D9 8B FA",from,to)!=cancel ||
+        FindUnique("48 89 5C 24 18 55 48 83 EC 20 48 8B D9 48 89 74 24 30 48 8B 89 E0 00 00 00",from,to)!=cleanup) return {};
+    // Check the pending-job load, suspended/cancel-request states and the final
+    // cleanup tail, not merely a common function prologue.
+    if (FindUnique("48 8B 89 E8 00 00 00 48 85 C9 74 ?? 83 79 28 01",cancel,cancel+91)!=cancel+15 ||
+        FindUnique("C7 41 28 02 00 00 00 48 89 44 24 30 E8 ?? ?? ?? ??",cancel,cancel+91)!=cancel+45 ||
+        FindUnique("C7 41 28 03 00 00 00",cancel,cancel+91)!=cancel+64 ||
+        FindUnique("8B D7 48 8B CB 48 8B 5C 24 38 48 83 C4 20 5F E9 ?? ?? ?? ??",cancel,cancel+91)!=cancel+71 ||
+        RelTarget(cancel+87)!=cleanup) return {};
+    const auto dispatch=RelTarget(cancel+58);
+    if (dispatch<from || dispatch>to || to-dispatch<19) return {};
+    if (FindUnique("89 54 24 10 53 48 83 EC 20 49 8B 00 48 8B D9 48 3B 41 20",from,to)!=dispatch) return {};
+    size_t dispatchCalls=0;
+    for (auto at=loop;at+5<=loop+0x300;++at)
+        if (*reinterpret_cast<const uint8_t*>(at)==0xe8 && RelTarget(at+1)==dispatch) ++dispatchCalls;
+    if (dispatchCalls!=2) return {};
+    return {reinterpret_cast<void*>(loop),job,reinterpret_cast<void*>(cancel),reinterpret_cast<void*>(cleanup),reinterpret_cast<void*>(dispatch)};
+}
+CrashGuards::NpcBehaviorSites ResolveBehaviorSites(uintptr_t from,uintptr_t to) {
+    const auto actions=ResolveActionSites(from,to);
+    if (!actions) return {};
+    const auto actor=FindUnique(
+        "48 89 5C 24 08 57 48 83 EC 20 44 0F B6 81 7D 11 00 00 0F B6 C2 C0 E0 06 41 80 E0 BF 44 0A C0 48 8B D9 48 63 81 9C 11 00 00 0F B6 FA 44 88 81 7D 11 00 00 48 69 C8 F8 00 00 00 48 8D 05 ?? ?? ?? ?? 48 83 7C 01 10 00 74 27",
+        from,to);
+    if (!actor || to-actor<112) return {};
+    if (FindUnique(
+        "41 C0 E8 06 48 83 C1 08 48 03 C8 44 32 41 2C 41 80 E0 01 44 30 41 2C F6 41 2C 01 74 0A BA 04 00 00 00 E8 ?? ?? ?? ??",
+        actor,actor+112)!=actor+73 || RelTarget(actor+108)!=reinterpret_cast<uintptr_t>(actions.cancel)) return {};
+    const auto caller=FindUnique(c_UnitsCaller,from,to);
+    const auto table=RelTarget(actor+61);
+    if (!caller || table!=RelTarget(caller+3)) return {};
+    return {actions,reinterpret_cast<void*>(actor),reinterpret_cast<void*>(table)};
+}
+}
+void* CrashGuards::VerifiedNpcActionJob() {
+    uintptr_t from=0,to=0;
+    return TextRange(from,to) ? ResolveActionJob(from,to) : nullptr;
+}
+CrashGuards::NpcActionSites CrashGuards::VerifiedNpcActionSites() {
+    uintptr_t from=0,to=0;
+    return TextRange(from,to) ? ResolveActionSites(from,to) : NpcActionSites{};
+}
+CrashGuards::NpcBehaviorSites CrashGuards::VerifiedNpcBehaviorSites() {
+    uintptr_t from=0,to=0;
+    return TextRange(from,to) ? ResolveBehaviorSites(from,to) : NpcBehaviorSites{};
+}
+#ifdef COOP_GUARD_TESTS
+void* CrashGuardsTest::ActionJobInText(uintptr_t from,uintptr_t to) {
+    return ResolveActionJob(from,to);
+}
+CrashGuards::NpcActionSites CrashGuardsTest::ActionSitesInText(uintptr_t from,uintptr_t to) {
+    return ResolveActionSites(from,to);
+}
+CrashGuards::NpcBehaviorSites CrashGuardsTest::BehaviorSitesInText(uintptr_t from,uintptr_t to) {
+    return ResolveBehaviorSites(from,to);
+}
+#endif
+
+bool CrashGuards::TrySetNpcReasoningHeld(void* actor,bool held) {
+    if (!actor || !NpcReasoningFence::Installed()) return false;
+    bool guarded=false;
+    for (const auto& patch:g_Patches)
+        if (patch.kind==Kind::SkipUnit && patch.applied) guarded=true;
+#ifdef COOP_GUARD_TESTS
+    guarded=guarded || g_TestReasoning;
+#endif
+    if (!guarded) return false;
+    auto hold=NpcReasoningFence::TryHold();
+    if (!hold) return false;
+    auto* unit=UnitOf(actor);
+    if (!unit) return false;
+    std::lock_guard lock(g_SkipMutex);
+    if (actor==g_Actor.load()) return false;
+    for (const auto* player:g_PlayerActors) if (player==actor) return false;
+    if (held) g_PuppetActors.insert_or_assign(actor,unit);
+    else g_PuppetActors.erase(actor);
+    RebuildSkipList();
+    bool published=false;
+    const auto list=g_SkipList.load();
+    for (size_t i=0;i<c_MaxSkipped && list[i];++i)
+        if (list[i]==unit) { published=true; break; }
+    return !g_SkipDirty && published==held;
+}
+
+bool CrashGuards::FlushNpcReasoning() {
+    std::lock_guard lock(g_SkipMutex);
+    if (!g_SkipDirty) return true;
+    RebuildSkipList();
+    return !g_SkipDirty;
 }
 
 void CrashGuards::SetPuppet(void* p_Actor, bool p_Puppet) {
@@ -782,6 +954,7 @@ void CrashGuardsTest::Configure(void* p_Units) {
         actor = nullptr;
     g_GuardedNext = 0;
     g_Units = reinterpret_cast<uintptr_t>(p_Units);
+    g_TestReasoning=p_Units!=nullptr;
     g_UnitSize = 32;
     g_RuntimeIdOffset = 8;
     g_SpeakerOffset = 16;

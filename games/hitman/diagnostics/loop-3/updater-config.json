@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "project": "hitman",
+  "site_url": "https://ops-hub.breezops.chatgpt.site",
+  "manifest_path": "/hitman/release.json",
+  "release_version": "0.1.23",
+  "mod_build": "0.13.94-four-player.preview.4.loop.3",
+  "game_version": "3.290.1",
+  "rollback_sha256": "5eaa60107478436fafe67f829f7a4798891f5ceab7fe68eadc65b5b2ab059fea"
+}

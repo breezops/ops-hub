@@ -229,7 +229,8 @@ struct PartyRoom::Impl {
         ByteReader reader(frame.payload); uint8_t control=0,phase=0,count=0;
         PartyRoomStatus next=status; uint64_t session=0;
         if(!reader.U8(control) || control!=uint8_t(Control::Roster) || !reader.U64(session) || session!=status.session ||
-            !reader.U32(next.revision) || next.revision<=status.revision || !reader.U32(next.epoch) || !reader.U8(phase) || phase>5 ||
+            !reader.U32(next.revision) || next.revision<=status.revision || !reader.U32(next.epoch) || !reader.U8(phase) ||
+            phase>uint8_t(LobbyRoster::Phase::Restarting) ||
             !reader.Str(next.mission,64) || !reader.U8(count) || count<1 || count>4) return false;
         next.phase=LobbyRoster::Phase(phase); next.members.clear(); uint8_t used=0;
         bool self=false;
@@ -407,13 +408,18 @@ bool PartyRoom::SetReady(bool available,bool ready) {
     ByteWriter writer; writer.U8(uint8_t(Control::Ready)); writer.U32(self.status.epoch); writer.Bool(available); writer.Bool(ready);
     return self.client->Send(PartyChannel::Lifecycle,writer.Data(),true);
 }
-bool PartyRoom::BeginLoad() {
+bool PartyRoom::BeginLoad(bool requireReady) {
     auto& self=*m_Impl;
-    if(!self.LiveRoom() || !self.host || std::any_of(self.members.begin(),self.members.end(),[](const auto& member){return member.pending;}) || !self.lobby.BeginLoad()) return false;
+    if(!self.LiveRoom() || !self.host || std::any_of(self.members.begin(),self.members.end(),[](const auto& member){return member.pending;}) || !self.lobby.BeginLoad(requireReady)) return false;
+    self.Publish(); return true;
+}
+bool PartyRoom::BeginRestart() {
+    auto& self=*m_Impl;
+    if(!self.LiveRoom() || !self.host || !self.lobby.Restart()) return false;
     self.Publish(); return true;
 }
 bool PartyRoom::ReportLoaded() {
-    auto& self=*m_Impl; if(!self.LiveRoom() || self.status.phase!=LobbyRoster::Phase::Loading) return false;
+    auto& self=*m_Impl; if(!self.LiveRoom() || !LobbyRoster::AwaitingLoad(self.status.phase)) return false;
     if(self.host) { if(!self.lobby.Loaded(1,self.status.epoch)) return false; self.Publish(); return true; }
     if(!self.client || self.status.state!=PartyRoomStatus::State::Connected) return false;
     ByteWriter writer; writer.U8(uint8_t(Control::Loaded)); writer.U32(self.status.epoch);
@@ -431,7 +437,7 @@ bool PartyRoom::ReturnToLobby() {
 }
 bool PartyRoom::ReportSceneLost() {
     auto& self=*m_Impl;
-    if(!self.LiveRoom() || (self.status.phase!=LobbyRoster::Phase::Loading &&
+    if(!self.LiveRoom() || (!LobbyRoster::AwaitingLoad(self.status.phase) &&
         self.status.phase!=LobbyRoster::Phase::Playing && self.status.phase!=LobbyRoster::Phase::Completing)) return false;
     if(self.host) { if(!self.lobby.SceneLost(1,self.status.epoch)) return false; self.Publish(); return true; }
     if(!self.client || self.status.state!=PartyRoomStatus::State::Connected) return false;

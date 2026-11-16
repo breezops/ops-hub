@@ -1,0 +1,13 @@
+HITMAN CO-OP / LOOP-5 SOLO MAIN-MENU LAUNCH TEST
+Local candidate 0.1.25 / HITMAN 3.290.1
+
+1. Close HITMAN. Open HITMAN-Coop-Party-Preview.exe from this folder.
+2. Click Install / Repair, confirm 0.1.25 and click Launch HITMAN.
+3. Wait for the full main menu in a fresh game process. With HITMAN focused,
+   press F8 once. Keep the game focused while it starts the mission.
+4. If Freeform loads, move Agent 47 and quit normally. If the game is still
+   at the menu after 30 seconds, quit from there. Report what you saw and
+   keep Retail\mods\HitmanCoop.log.
+
+This diagnostic runs solo and uses the native contract continuation from
+a fresh main menu. Party-triggered launch is pending live verification.

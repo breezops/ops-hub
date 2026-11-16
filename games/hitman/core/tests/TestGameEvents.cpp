@@ -4,6 +4,20 @@
 using namespace coop;
 using namespace coop::GameEvents;
 
+TEST(GameEvents_ExactNativeUint32IdentifiersDoNotTruncateOrOverflow) {
+    uint32_t value=99;
+    CHECK(UInt32(R"({"ActorId":2617153972.000000})","ActorId",value) && value==2617153972u);
+    CHECK(UInt32(R"({"ActorId":4294967295})","ActorId",value) && value==4294967295u);
+    CHECK(UInt32(R"({"ActorId":0.000000, "Other":1})","ActorId",value) && value==0);
+    for(const auto* json:{R"({"ActorId":4294967296})",R"({"ActorId":-1})",R"({"ActorId":1.000001})",
+                         R"({"ActorId":1e3})",R"({"ActorId":"12"})",R"({"ActorId":true})",
+                         R"({"ActorId":1.})",R"({"ActorId":01})",R"({"ActorId":12oops})"}) {
+        value=99;
+        CHECK(!UInt32(json,"ActorId",value));
+        CHECK(value==99);
+    }
+}
+
 // Shapes as the game sends them (3.280.0 traces), cut down to the fields read.
 static const std::string c_Trespass = R"({"Timestamp":60.98,"Name":"Trespassing","Value":{"IsTrespassing":true,"RoomId":81}})";
 static const std::string c_Arrest = R"({"Name":"AmbientChanged","Value":{"PreviousAmbientValue":5,"AmbientValue":7,"PreviousAmbient":"AlertedHigh","Ambient":"Arrest"}})";

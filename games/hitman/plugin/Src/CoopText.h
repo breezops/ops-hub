@@ -6,7 +6,11 @@
 #include <string_view>
 
 // Words and numbers the game-thread code and the UI share.
+#ifdef COOP_NATIVE_BUILD_OVERRIDE
+inline constexpr const char* c_ModVersion = COOP_NATIVE_BUILD_OVERRIDE;
+#else
 inline constexpr const char* c_ModVersion = "0.13.94-four-player.preview.4";
+#endif
 
 // The game version this build is for (set by plugin/CMakeLists.txt from the SDK it is built
 // against): "3.290" normally, "3.280" for the build players who can't update get (the installer

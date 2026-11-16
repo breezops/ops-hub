@@ -1,0 +1,23 @@
+HITMAN CO-OP / PRIVATE CATALOG-1 TEST
+OPS 0.1.17 / native preview.4.catalog.1 / HITMAN 3.290.1
+
+Use the same extracted Catalog-1 package on both PCs. The host uses UDP 47047.
+
+1. Close HITMAN and the old launcher. Open HITMAN-Coop-Party-Preview.exe from
+   this folder. Click Install / Repair and then Launch HITMAN.
+2. Each player loads Freeform Training and waits about 15 seconds. Each uses
+   the game's Restart Mission once and lets the mission settle for 15 seconds.
+3. Keep the launcher open. Host clicks Host preview. Guest enters the host
+   address and clicks Join preview. Both click I'm ready. Host clicks Start preview.
+4. Find Terry Norfolk or Joseph Harding. Compare their positions and facing on
+   both screens while the host walks near them. If either NPC moves, compare
+   the direction and destination on both PCs. Keep both NPCs alive and dressed.
+5. Quit HITMAN normally on both PCs and retain Retail\mods\HitmanCoop.log.
+   Report the first action where the two screens differed, if any.
+
+The scope is living position and facing for these two NPCs. Players still
+appear via the existing avatar preview. Restarting after the room begins,
+stopping the room or losing the native hold ends this test. Quit HITMAN before
+repeating it. If hosting or joining is refused, save that PC's log.
+
+RESTORE-0.1.3.cmd restores the tested movement build after HITMAN is closed.

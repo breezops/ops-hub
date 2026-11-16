@@ -1,0 +1,18 @@
+HITMAN CO-OP / CATALOG-3 MOVEMENT TEST
+OPS 0.1.19 / native preview.4.catalog.3 / HITMAN 3.290.1
+
+1. Close HITMAN on both PCs. In the OPS HUB launcher, use Check for updates
+   and Update & Restart. Both PCs should show 0.1.19.
+2. Launch Freeform Training on both PCs. Wait 15 seconds, use Restart Mission
+   once on each PC, then wait 15 seconds again. Host, join, ready and start.
+3. For walking, face the yacht from spawn. Hold Left Ctrl for Instinct and
+   follow the Ronnie Aguilar marker on both screens. Ronnie is Kalvin Ritter's
+   bodyguard. Compare where Ronnie turns and stops while he walks. You can
+   watch from the dock. If he stays put or the outline is out of range, report
+   what you saw and keep both test NPCs alive and dressed.
+4. For turning, have the host approach Terry by the car. Compare how smoothly
+   Terry follows the host's movement, then check his hand and phone again.
+5. Quit normally and save Retail\mods\HitmanCoop.log from both PCs.
+
+Each run uses the host's simulation for Terry and Ronnie. Quit HITMAN before
+starting another run. RESTORE-0.1.3.cmd restores the tested movement build.

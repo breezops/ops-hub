@@ -1,0 +1,38 @@
+HITMAN CO-OP / PRIVATE ONE-GUARD HOLD TEST / HOLD-1
+OPS 0.1.10 / native preview.4.hold.1 / HITMAN 3.290.1
+
+SOLO ONLY. Friends do not need to update. No host/join/Ready buttons.
+This build can change one guard's native AI hold state when you press F8.
+It is not shared NPC gameplay or a whole-game pause test.
+
+STARTUP CHECK FIRST:
+1. Close HITMAN and the old launcher. Open this folder's launcher.
+2. Click INSTALL / REPAIR, then LAUNCH HITMAN.
+3. Load Freeform Training alone, wait 15 seconds and reply "in mission".
+4. Leave the game running. Do not press F8 until the developer checks that the
+   job, action and hold-arbitration hooks all attached.
+
+AFTER THE DEVELOPER CONFIRMS ATTACHMENT:
+5. Use HITMAN's Restart Mission once. This supplies a fresh actor generation.
+6. Approach a conscious walking guard within roughly 8 metres. Choose a guard
+   who is the closest guard to you so the selection is unambiguous.
+7. Press F8 ONCE while HITMAN has focus. Watch the closest guard: the test
+   attempts to hold him for 8 seconds, then resume him automatically. Other
+   NPCs and your character should keep working normally.
+8. Stay nearby and watch for another 15 seconds, then quit HITMAN normally.
+9. Tell the developer whether the guard stopped, resumed walking, and whether
+   anything else looked wrong. The developer can read the log directly.
+
+Do not knock anyone out, change disguise, attack or restart during the cycle.
+If no guard is selected, the log explains why; do not keep repeating F8 blindly.
+If the guard remains stuck, quit normally and report it. Only one selected
+actor/cycle is allowed per process. A second test requires a full game restart.
+
+The test refuses actors already held by the game and watches the verified native
+hold setter for game/script interference. It does not prove all native hold
+sources, cross-thread ordering or physical actor retirement are integrated.
+No screen capture, game files or saves are included.
+
+Close HITMAN and run RESTORE-0.1.3.cmd to return to tested multiplayer.
+The bundled original rollback ZIP is checksum verified. Do not use SDK hot
+reload. CHECK FOR UPDATES does not fetch this private build.

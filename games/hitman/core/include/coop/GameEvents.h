@@ -14,6 +14,9 @@ namespace GameEvents {
     // The value after "Key": anywhere in the JSON (the first one). False if missing or another type.
     bool String(const std::string& p_Json, const char* p_Key, std::string& p_Out);
     bool Bool(const std::string& p_Json, const char* p_Key, bool& p_Out);
+    // Native telemetry emits integer identifiers as e.g. 1234.000000. Accept
+    // only an exact uint32 value, never truncate a fractional/overflowing ID.
+    bool UInt32(const std::string& p_Json, const char* p_Key, uint32_t& p_Out);
 
     // UTF-8 text in plain printable letters (the overlay's font has no accents): "André" -> "Andre".
     std::string PlainText(const std::string& p_Utf8, size_t p_MaxLen = 64);

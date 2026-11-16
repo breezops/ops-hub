@@ -1,0 +1,16 @@
+HITMAN CO-OP / PRIVATE SCENE-CLEAR TEST
+OPS 0.1.28 / HITMAN 3.290.1
+
+1. Close HITMAN and the old launcher. Open this folder's launcher and
+   click Install / Repair, then Launch HITMAN.
+2. Load Freeform Training through HITMAN's menu. Walk for 15 seconds.
+3. Use Restart Mission in HITMAN's pause menu. After loading, walk
+   for another 15 seconds. Repeat the restart once.
+4. Quit normally and tell the developer the test is finished.
+
+Play solo. Leave Host, Join, and Ready alone. Use the in-game menu for
+both restarts. No F8, knockouts, or disguises are needed.
+
+The log records whether the scene-clear call returned through the
+observed virtual dispatch and how its job and actor evidence changed.
+NPC simulation stays local. Keep this candidate off the OPS HUB channel.

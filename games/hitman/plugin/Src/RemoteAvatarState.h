@@ -28,6 +28,7 @@ struct RemoteAvatarState {
         std::string shown; // what it carries, or was asked for (ticket pending)
         TEntityRef<IItem> item;
         uint32_t ticket = 0;
+        uint64_t requestedEntity = 0;
         double askedAt = -1.0;
         double failedAt = -100.0;
         std::string failedFor;

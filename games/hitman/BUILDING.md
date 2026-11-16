@@ -7,6 +7,13 @@
 - CMake 3.20+ (it comes with Visual Studio).
 - PowerShell 5.1+, Python 3.10+ (tests, relay).
 
+The x64 MinHook sources are pinned under `third_party/minhook` and build
+statically; no separate download or runtime installer is needed. Preserve that
+folder when moving the plugin into a full SDK checkout, and ship its license.
+Read-only action diagnostics are separately enabled with
+`-DCOOP_NPC_ACTION_DIAGNOSTICS=ON` and require SDK 4.2.1 / game 3.290.1.
+Normal builds leave both NPC diagnostic options OFF.
+
 ## Two builds, one download
 
 HITMAN Co-op is built twice, once for each game version it supports, because each needs its own

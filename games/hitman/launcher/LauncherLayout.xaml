@@ -55,7 +55,7 @@
      <TextBlock Text="02   /   PREPARE TO DEPLOY" Foreground="#898B90" FontSize="10" Margin="0,0,0,13"/>
      <TextBlock x:Name="Mission" Text="Load Freeform Training from HITMAN's menu on every PC." FontSize="13" Margin="0,0,0,15"/>
      <WrapPanel><Button x:Name="Ready" Content="I'M READY"/><Button x:Name="Start" Content="START PREVIEW" Background="#C8102E" BorderBrush="#C8102E"/><Button x:Name="Stop" Content="STOP PREVIEW"/><Button x:Name="Reconnect" Content="RECONNECT"/></WrapPanel>
-     <TextBlock Text="Everyone readies. The host starts. Keep the launcher open while playing." Foreground="#898B90" FontSize="11" Margin="0,6,0,0"/>
+     <TextBlock x:Name="MissionHint" Text="Everyone readies. The host starts. Keep the launcher open while playing." Foreground="#898B90" FontSize="11" Margin="0,6,0,0"/>
     </StackPanel></Border>
    </Grid>
    <Border x:Name="PartyArea" Grid.Column="2" Background="#161719" BorderBrush="#323337" BorderThickness="1" Padding="21"><Grid>

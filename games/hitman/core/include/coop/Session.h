@@ -89,6 +89,7 @@ public:
     virtual void SetPartnerPaused(bool /*p_Paused*/) {}
     // The partner restarted the mission we are both in: restart ours the way the pause menu does.
     virtual void RestartMission() {}
+    virtual void CancelRestartMission() {}
 
     // An NPC knocked out in the partner's game (by any means): knock ours out too.
     virtual void KnockOutNpc(uint64_t /*p_Id*/) {}

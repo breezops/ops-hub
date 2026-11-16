@@ -27,6 +27,12 @@ launcher usable at 200% scaling. Preview 4 carries animation world orientation
 with the pose to address crouched turning; this change needs a live two-PC test.
 See [pose frame conversion](docs/POSE-FRAMES.md).
 
+Development: the preserved four-player NPC coordinator and replay test clients
+are integrated into the core. The runtime has an optional NPC adapter with a
+host-only default and a native-preparation barrier. The shipped native preview
+does not supply that adapter; shared NPCs are not enabled in player downloads.
+See [NPC integration and reuse](docs/NPC-INTEGRATION.md).
+
 ## Developer entry points
 
 Run `launcher/build.ps1` for the launcher and `tools/test-launcher.ps1` for updater

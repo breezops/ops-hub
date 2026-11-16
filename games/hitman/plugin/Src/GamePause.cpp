@@ -30,10 +30,12 @@ namespace {
     PushFn g_Push = nullptr;
     bool g_Holding = false;
     bool g_Waiting = false;
+    bool g_Party = false;
 
     // Static strings: the game only frees ones it allocated.
     constexpr char c_Ours[] = "HitmanCoopPartner";
     constexpr char c_Wait[] = "HitmanCoopWait";
+    constexpr char c_Party[] = "HitmanCoopParty";
     constexpr char c_Menus[] = "UI_Menus";
 
     uintptr_t Rel(uintptr_t p_Rel32At) {
@@ -112,7 +114,7 @@ bool GamePause::Restart() {
     return true;
 }
 
-void GamePause::Forget() { g_Holding = g_Waiting = false; }
+void GamePause::Forget() { g_Holding = g_Waiting = g_Party = false; }
 
 bool GamePause::Holding() { return g_Holding || g_Waiting; }
 
@@ -153,3 +155,8 @@ namespace {
 void GamePause::SetPartnerPause(bool p_Paused) { SetHold(c_Ours, sizeof(c_Ours) - 1, p_Paused, g_Holding); }
 
 void GamePause::SetWaitPause(bool p_Paused) { SetHold(c_Wait, sizeof(c_Wait) - 1, p_Paused, g_Waiting); }
+
+bool GamePause::SetPartyPause(bool paused) {
+    if (g_Party!=paused) SetHold(c_Party,sizeof(c_Party)-1,paused,g_Party);
+    return g_Party;
+}
